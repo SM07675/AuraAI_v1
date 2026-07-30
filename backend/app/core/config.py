@@ -1,0 +1,169 @@
+"""
+Application configuration using Pydantic Settings.
+
+All configuration is loaded from environment variables.
+Secrets are never hardcoded — see .env.example for required variables.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import List
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Central application configuration.
+
+    Values are loaded from environment variables and/or a .env file.
+    All secrets must be provided via environment — never hardcode them.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # ── Application ──────────────────────────────────────────────
+    app_name: str = "AuraAI"
+    app_version: str = "2.0.0"
+    debug: bool = False
+    environment: str = "development"
+    log_level: str = "INFO"
+
+    # ── Server ───────────────────────────────────────────────────
+    backend_host: str = "0.0.0.0"
+    backend_port: int = 8000
+
+    # ── Database (PostgreSQL) ────────────────────────────────────
+    postgres_user: str = "aura"
+    postgres_password: str = "aura_dev_password_change_me"
+    postgres_db: str = "aura_ai"
+    postgres_host: str = "postgres"
+    postgres_port: int = 5432
+
+    @property
+    def database_url(self) -> str:
+        """Async PostgreSQL connection URL for SQLAlchemy."""
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    @property
+    def database_url_sync(self) -> str:
+        """Sync PostgreSQL connection URL (used by Alembic)."""
+        return (
+            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    # ── Redis ────────────────────────────────────────────────────
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_password: str = ""
+
+    @property
+    def redis_url(self) -> str:
+        """Redis connection URL."""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+        return f"redis://{self.redis_host}:{self.redis_port}/0"
+
+    # ── JWT Authentication ───────────────────────────────────────
+    jwt_secret_key: str = "CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
+
+    # ── CORS ─────────────────────────────────────────────────────
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    # ── Rate Limiting ────────────────────────────────────────────
+    rate_limit_per_minute: int = 60
+
+    # ── AI Providers ─────────────────────────────────────────────
+    # NVIDIA NIM
+    nvidia_nim_api_key: str = ""
+    nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_nim_model: str = "meta/llama-3.1-70b-instruct"
+
+    # Google Gemini
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
+    # OpenAI
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+
+    # Provider priority
+    ai_provider_priority: str = "nvidia_nim,gemini,openai"
+
+    @property
+    def ai_provider_priority_list(self) -> List[str]:
+        """Parse AI provider priority from comma-separated string."""
+        return [p.strip() for p in self.ai_provider_priority.split(",") if p.strip()]
+
+    # ── TTS ──────────────────────────────────────────────────────
+    tts_provider: str = "edge_tts"
+    tts_voice: str = "en-US-AriaNeural"
+    tts_sentence_buffer_chars: int = 80   # Flush TTS after this many buffered chars
+
+    # NVIDIA TTS (Magpie or regular)
+    nvidia_tts_uri: str = "grpc.nvcf.nvidia.com:443"
+    nvidia_tts_function_id: str | None = None # Required for Magpie Multilingual on Cloud NVCF
+
+    # ── STT ──────────────────────────────────────────────────────
+    stt_provider: str = "whisper"
+    stt_model_size: str = "tiny"          # tiny | base | small | medium | large
+    stt_language: str = "en"             # ISO 639-1 language code
+    stt_compute_type: str = "int8"       # int8 (CPU) | float16 (GPU)
+
+    # ── Voice Activity Detection ─────────────────────────────────
+    vad_aggressiveness: int = 2          # 0 (lenient) – 3 (aggressive)
+    vad_silence_threshold_ms: int = 800  # Silence gap before speech_ended fires
+    vad_min_speech_ms: int = 250         # Min speech duration to trigger STT
+    vad_frame_duration_ms: int = 30      # VAD frame size: 10 | 20 | 30 ms
+
+    # ── Voice WebSocket ──────────────────────────────────────────
+    voice_ws_require_auth: bool = False   # Gate voice WS behind JWT (set True in prod)
+    voice_session_timeout_s: int = 300    # Idle session auto-close after N seconds
+
+    # ── Validation ───────────────────────────────────────────────
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Ensure log level is valid."""
+        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        upper = v.upper()
+        if upper not in valid_levels:
+            raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
+        return upper
+
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(cls, v: str) -> str:
+        """Ensure environment is valid."""
+        valid_envs = {"development", "staging", "production", "testing"}
+        lower = v.lower()
+        if lower not in valid_envs:
+            raise ValueError(f"Invalid environment: {v}. Must be one of {valid_envs}")
+        return lower
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Get cached application settings singleton.
+
+    Uses lru_cache to ensure settings are loaded only once.
+    """
+    return Settings()

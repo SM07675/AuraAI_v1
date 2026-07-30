@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>API Test — Aura AI 2.0</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <nav>
+    <span class="brand">Aura AI 2.0</span>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="login.html">Login</a>
+      <a href="register.html">Register</a>
+      <a href="chat.html">Chat</a>
+      <a href="api-test.html" class="active">API Test</a>
+    </div>
+    <button onclick="logout()">Logout</button>
+  </nav>
+  <main>
+    <h1>API Testing</h1>
+    <p>Test individual API endpoints. Token auto-injected from localStorage.</p>
+
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+      <button class="btn" onclick="testHealth()">Health Check</button>
+      <button class="btn" onclick="testMe()">GET /users/me</button>
+      <button class="btn" onclick="testMemory()">GET /memory</button>
+      <button class="btn" onclick="testMetrics()">GET /metrics</button>
+      <button class="btn secondary" onclick="testDetailedHealth()">Detailed Health</button>
+    </div>
+
+    <div style="margin-bottom:1rem;">
+      <label style="display:block;margin-bottom:0.4rem;font-size:0.85rem;color:#a0a0b0">Custom Request</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem">
+        <select id="method" style="width:100px">
+          <option>GET</option><option>POST</option><option>PATCH</option><option>DELETE</option>
+        </select>
+        <input type="text" id="customPath" placeholder="/api/v1/..." style="flex:1"/>
+        <button class="btn" onclick="runCustom()">Run</button>
+      </div>
+      <textarea id="customBody" placeholder='JSON body (for POST/PATCH)' style="height:80px;width:100%"></textarea>
+    </div>
+
+    <h2>Response</h2>
+    <pre id="output">— no request yet —</pre>
+  </main>
+  <script src="js/api.js"></script>
+  <script>
+    function logout() { localStorage.clear(); location.href = 'login.html'; }
+    function show(data) { document.getElementById('output').textContent = JSON.stringify(data, null, 2); }
+
+    async function testHealth() { show(await apiFetch('/api/v1/health')); }
+    async function testDetailedHealth() { show(await apiFetch('/api/v1/health/detailed')); }
+    async function testMe() { show(await apiFetch('/api/v1/users/me')); }
+    async function testMemory() { show(await apiFetch('/api/v1/memory')); }
+    async function testMetrics() { show(await apiFetch('/api/v1/metrics')); }
+
+    async function runCustom() {
+      const method = document.getElementById('method').value;
+      const path = document.getElementById('customPath').value || '/api/v1/health';
+      let body = undefined;
+      if (['POST','PATCH','PUT'].includes(method)) {
+        try { body = document.getElementById('customBody').value || undefined; } catch {}
+      }
+      try {
+        const data = await apiFetch(path, { method, body });
+        show(data);
+      } catch(err) {
+        show({ error: err.message });
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,205 @@
+"""
+Context Builder
+
+Assembles the rich ContextObject used by the Prompt Builder.
+
+Data sources assembled per turn:
+  - User profile (name, language, style, interests, skills, projects)
+  - Active goals (from UserGoal table via Goal Engine)
+  - Long-term memories (from LongTermMemory table)
+  - EmotionContext (from EmotionService — structured, LLM-safe)
+  - Conversation summary (rolling, from ConversationSummarizer)
+  - Session metadata (time, session ID, active project)
+  - Question deduplication history
+
+Architecture note
+-----------------
+The ContextObject holds an EmotionContext object directly.
+No raw emotion scores, tensors, or model internals are stored here.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.emotion.base import EmotionContext
+from app.models.goal import GoalStatus, UserGoal
+from app.models.memory import LongTermMemory
+from app.models.session import Session
+from app.models.user import User
+
+
+@dataclass
+class ContextObject:
+    """Rich, structured context assembled before every AI request."""
+
+    # ── User identity ─────────────────────────────────────────────
+    user_name: str
+    preferred_language: str
+    communication_style: str
+
+    # ── Profile fields (from User model) ─────────────────────────
+    interests: str
+    goals: str          # Legacy CSV goals field (kept for backward compat)
+    skills: str
+    projects: str
+    learning_style: str
+    favourite_topics: str
+
+    # ── Emotion (structured, LLM-safe) ───────────────────────────
+    emotion_context: EmotionContext
+
+    # ── Temporal ─────────────────────────────────────────────────
+    current_time: str
+    session_id: int
+
+    # ── Structured data ───────────────────────────────────────────
+    active_goals: list[dict[str, Any]] = field(default_factory=list)
+    long_term_memories: list[dict[str, Any]] = field(default_factory=list)
+    recent_history: list[dict[str, str]] = field(default_factory=list)
+
+    # ── Conversation summary ──────────────────────────────────────
+    conversation_summary: str = ""
+
+    # ── Question deduplication ────────────────────────────────────
+    previously_asked_questions: list[str] = field(default_factory=list)
+
+    # ── Active project ────────────────────────────────────────────
+    active_project: str = ""
+
+    # ── Convenience accessors (backward compat) ───────────────────
+    @property
+    def emotion_fused(self) -> str:
+        return self.emotion_context.primary_emotion
+
+    @property
+    def emotion_confidence(self) -> float:
+        return self.emotion_context.confidence * 100
+
+    @property
+    def emotion_sentiment(self) -> str:
+        return self.emotion_context.sentiment
+
+    @property
+    def emotion_stress(self) -> int:
+        """Integer stress level 0–3 (0=none, 1=low, 2=medium, 3=high)."""
+        mapping = {"low": 1, "medium": 2, "high": 3}
+        return mapping.get(self.emotion_context.stress, 0)
+
+
+class ContextBuilder:
+    """Assembles a complete ContextObject before each AI turn.
+
+    Args:
+        db: SQLAlchemy async session (injected per call or set once).
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def build(
+        self,
+        user: User,
+        session: Session,
+        emotion_context: EmotionContext | None,
+        recent_history: list[dict[str, str]],
+        conversation_summary: str = "",
+        previously_asked_questions: list[str] | None = None,
+    ) -> ContextObject:
+        """Build the full ContextObject for the current turn.
+
+        Args:
+            user: ORM User object.
+            session: ORM Session object.
+            emotion_context: Structured EmotionContext from EmotionService.
+                             Pass None to get a neutral emotion context.
+            recent_history: Recent conversation turns (list of role/content dicts).
+            conversation_summary: Rolling conversation summary (optional).
+            previously_asked_questions: Questions already asked this session.
+
+        Returns:
+            Complete ContextObject ready for PromptBuilder.
+        """
+        # Default to neutral if no emotion available
+        if emotion_context is None:
+            from app.emotion.base import _EMOTION_GUIDANCE
+            emotion_context = EmotionContext(
+                primary_emotion="neutral",
+                secondary_emotion=None,
+                confidence=0.0,
+                stress="low",
+                sentiment="neutral",
+                intent="casual",
+                sources=[],
+                guidance=_EMOTION_GUIDANCE["neutral"],
+            )
+
+        # ── Long-term memories ────────────────────────────────────
+        mem_stmt = (
+            select(LongTermMemory)
+            .where(LongTermMemory.user_id == user.id)
+            .order_by(LongTermMemory.importance_score.desc())
+            .limit(10)
+        )
+        mem_result = await self._db.execute(mem_stmt)
+        memories = [
+            {
+                "type": m.memory_type,
+                "key": m.key,
+                "value": m.value,
+                "importance": m.importance_score,
+            }
+            for m in mem_result.scalars().all()
+        ]
+
+        # ── Active goals ──────────────────────────────────────────
+        goals_stmt = (
+            select(UserGoal)
+            .where(
+                UserGoal.user_id == user.id,
+                UserGoal.status == GoalStatus.ACTIVE.value,
+            )
+            .order_by(UserGoal.priority.desc())
+            .limit(10)
+        )
+        goals_result = await self._db.execute(goals_stmt)
+        active_goals = [g.to_context_dict() for g in goals_result.scalars().all()]
+
+        # ── Current time ──────────────────────────────────────────
+        now = datetime.now(timezone.utc).astimezone()
+        time_str = now.strftime("%A, %d %B %Y %H:%M %Z")
+
+        # ── Active project ────────────────────────────────────────
+        active_project = ""
+        for goal in active_goals:
+            if goal.get("category") in ("programming", "research", "creative"):
+                active_project = goal.get("title", "")
+                break
+        if not active_project and user.projects:
+            active_project = user.projects.split(",")[0].strip()
+
+        return ContextObject(
+            user_name=user.name.split()[0] if user.name else "there",
+            preferred_language=user.preferred_language or "en",
+            communication_style=user.communication_style or "balanced",
+            interests=user.interests or "",
+            goals=user.goals or "",
+            skills=user.skills or "",
+            projects=user.projects or "",
+            learning_style=user.learning_style or "visual",
+            favourite_topics=user.favourite_topics or "",
+            emotion_context=emotion_context,
+            current_time=time_str,
+            session_id=session.id,
+            active_goals=active_goals,
+            long_term_memories=memories,
+            recent_history=recent_history,
+            conversation_summary=conversation_summary,
+            previously_asked_questions=previously_asked_questions or [],
+            active_project=active_project,
+        )
