@@ -100,6 +100,7 @@ class ConversationEngine:
         recent_history: list[dict[str, str]],
         streaming: bool = True,
         interrupt_event: asyncio.Event | None = None,
+        debug_out: dict[str, Any] | None = None,
     ) -> AsyncIterator[StreamChunk] | str:
         """Main pipeline entrypoint.
 
@@ -225,6 +226,24 @@ class ConversationEngine:
             stream=streaming,
             temperature=0.7,
         )
+
+        logger.info("\n" + "="*50 + "\nPROMPT BUILDER DEBUG\n" + "="*50)
+        logger.info("SYSTEM PROMPT:\n%s", system_prompt)
+        logger.info("USER PROFILE: %s", context_obj.user_name)
+        logger.info("MEMORY: %s", context_obj.long_term_memories)
+        logger.info("EMOTION: %s", emotion_context.to_prompt_dict() if emotion_context else None)
+        logger.info("CONVERSATION HISTORY: %s", recent_history)
+        logger.info("CURRENT USER MESSAGE: %s", user_message)
+        logger.info("FINAL MESSAGES ARRAY: %s", messages)
+        logger.info("="*50)
+
+        if debug_out is not None:
+            debug_out["system_prompt"] = system_prompt
+            debug_out["memory"] = context_obj.long_term_memories
+            debug_out["emotion"] = emotion_context.to_prompt_dict() if emotion_context else None
+            debug_out["history"] = recent_history
+            debug_out["user_message"] = user_message
+            debug_out["final_messages"] = messages
 
         # ── Stage 7: Fire Background Profile Tasks ────────────────
         # These don't block the response — they run concurrently

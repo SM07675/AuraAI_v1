@@ -60,16 +60,29 @@ class TestPromptBuilder:
 
     def test_emotion_conflict_detection(self):
         """Test emotion conflict is detected and mentioned in prompt."""
+        emotion_context = EmotionContext(
+            primary_emotion="anxious",
+            secondary_emotion="sad",
+            confidence=0.85,
+            stress="high",
+            sentiment="negative",
+            intent="seeking_reassurance",
+            sources=["text", "face"],
+            face_emotion="sad",
+            face_confidence=0.9,
+            face_detected=True,
+            text_emotion="anxious",
+            text_confidence=0.8,
+            voice_emotion=None,
+            emotion_conflict=True,
+            conflict_detail="Face is sad, text is anxious",
+            conversation_trend="stable",
+            guidance="Be reassuring and gentle."
+        )
         system, messages = self.builder.build(
             user_name="Alex",
             user_message="I'm fine",
-            emotion_data={
-                "fused_emotion": "anxious",
-                "confidence": 70.0,
-                "text_emotion": "happy",
-                "voice_emotion": "anxious",
-                "face_emotion": None,
-            },
+            emotion_data=emotion_context,
         )
         assert "conflict" in system.lower() or "mismatch" in system.lower()
 

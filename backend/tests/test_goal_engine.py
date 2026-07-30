@@ -15,7 +15,8 @@ async def test_goal_engine_detects_new_goals():
             "new_goals": [{"title": "Learn FastAPI", "category": "learning", "priority": 0.8, "description": "Master async python"}],
             "goal_updates": []
         }),
-        model="test-model"
+        model="test-model",
+        provider="test-provider"
     )
     mock_gateway.generate.return_value = mock_response
 

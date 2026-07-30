@@ -316,6 +316,26 @@ h3{font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:1
       </div>
     </div>
     
+    <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap">
+       <div style="background:var(--surface2);padding:1rem;border-radius:10px;border:1px solid var(--border);flex:1;min-width:200px">
+          <div style="color:var(--muted);font-size:.8rem;margin-bottom:.5rem">AI Provider</div>
+          <div id="dbgProvider" style="font-weight:600;font-size:.95rem;color:var(--text)">-</div>
+       </div>
+       <div style="background:var(--surface2);padding:1rem;border-radius:10px;border:1px solid var(--border);flex:1;min-width:200px">
+          <div style="color:var(--muted);font-size:.8rem;margin-bottom:.5rem">Current Emotion</div>
+          <div id="dbgEmotion" style="font-weight:600;font-size:.95rem;color:var(--text)">-</div>
+       </div>
+       <div style="background:var(--surface2);padding:1rem;border-radius:10px;border:1px solid var(--border);flex:1;min-width:200px">
+          <div style="color:var(--muted);font-size:.8rem;margin-bottom:.5rem">Memory State</div>
+          <div id="dbgMemory" style="font-weight:600;font-size:.95rem;color:var(--text)">-</div>
+       </div>
+    </div>
+    
+    <div style="margin-top:1rem;background:var(--surface2);padding:1rem;border-radius:10px;border:1px solid var(--border)">
+       <div style="color:var(--muted);font-size:.8rem;margin-bottom:.5rem">System Prompt</div>
+       <div id="dbgPrompt" style="font-family:monospace;font-size:.8rem;white-space:pre-wrap;color:var(--accent);max-height:200px;overflow-y:auto">-</div>
+    </div>
+    
     <div style="margin-top:1rem;background:var(--surface2);padding:1rem;border-radius:10px;border:1px solid var(--border)">
        <div style="color:var(--muted);font-size:.8rem;margin-bottom:.5rem">Live Transcript</div>
        <div id="dbgTranscript" style="font-family:monospace;font-size:.9rem;white-space:pre-wrap;color:var(--green)">-</div>
@@ -346,6 +366,7 @@ h3{font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:1
 </main>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="js/voice.js"></script>
 <script>
 const API = '';
@@ -421,8 +442,11 @@ function setupVoice() {
       },
       onPartialResponse: (text) => {
         if (voiceAiBubble) {
-          const currentText = voiceAiBubble.textContent === '…' ? '' : voiceAiBubble.textContent;
-          voiceAiBubble.textContent = currentText + text;
+          const contentEl = voiceAiBubble.contentEl;
+          const currentText = contentEl.textContent === '…' ? '' : contentEl.textContent;
+          const newText = currentText + text;
+          if (window.marked) contentEl.innerHTML = marked.parse(newText);
+          else contentEl.textContent = newText;
           document.getElementById('msgs').scrollTop = 9999;
         }
       },
@@ -508,6 +532,13 @@ async function doAuth() {
     localStorage.setItem('aura_user', JSON.stringify(user));
     showApp();
     setupVoice();
+    
+    // Trigger Auto-Greet for new accounts
+    if (authMode === 'reg') {
+      setTimeout(() => {
+        sendMsg("__INIT__");
+      }, 500);
+    }
   } catch(e) { flash(e.message, 'err'); }
 }
 
@@ -570,11 +601,20 @@ function chatKey(e) {
 function bubble(role, text) {
   const el = document.createElement('div');
   el.className = 'bubble ' + role;
-  el.textContent = text;
+  
+  const contentEl = document.createElement('div');
+  contentEl.className = 'content';
+  if (role === 'ai' && window.marked) {
+    contentEl.innerHTML = marked.parse(text);
+  } else {
+    contentEl.textContent = text;
+  }
+  el.appendChild(contentEl);
+
   const msgs = document.getElementById('msgs');
   msgs.appendChild(el);
   msgs.scrollTop = msgs.scrollHeight;
-  return el;
+  return {el, contentEl};
 }
 
 function newSession() { sessionId = null; document.getElementById('sessionBadge').textContent = 'none'; }
@@ -589,17 +629,23 @@ async function endSession() {
   } catch(e) { bubble('sys', '⚠ ' + e.message); }
 }
 
-async function sendMsg() {
+async function sendMsg(overrideText = null) {
   if (sending) return;
   const inp = document.getElementById('chatInput');
-  const text = inp.value.trim();
+  const text = overrideText !== null ? overrideText : inp.value.trim();
   if (!text) return;
-  inp.value = '';
+  
+  if (overrideText === null) {
+      inp.value = '';
+      bubble('user', text);
+  }
+  
   sending = true;
   document.getElementById('sendBtn').disabled = true;
 
-  bubble('user', text);
-  const aiEl = bubble('ai', '…');
+  const aiObj = bubble('ai', '…');
+  const aiEl = aiObj.el;
+  const aiContent = aiObj.contentEl;
   let full = '';
 
   try {
@@ -624,18 +670,58 @@ async function sendMsg() {
             sessionId = ev.session_id;
             document.getElementById('sessionBadge').textContent = '#' + sessionId;
           } else if (ev.type === 'chunk') {
-            full += ev.content; aiEl.textContent = full;
+            full += ev.content;
+            if (window.marked) aiContent.innerHTML = marked.parse(full);
+            else aiContent.textContent = full;
             document.getElementById('msgs').scrollTop = 9999;
           } else if (ev.type === 'emotion') {
             const d = ev.data;
             bubble('sys', `emotion · ${d.fused_emotion} ${d.confidence?.toFixed(0)}%`);
+          } else if (ev.type === 'debug') {
+            // Update debug panel
+            if (ev.data.system_prompt) {
+              console.log("[AURA DEBUG] PROMPT:\n" + ev.data.system_prompt);
+              const dbgState = document.getElementById('dbgState');
+              if (dbgState) dbgState.textContent = "Generated Prompt";
+              const dbgPrompt = document.getElementById('dbgPrompt');
+              if (dbgPrompt) dbgPrompt.textContent = ev.data.system_prompt;
+            }
+            if (ev.data.emotion) {
+                const dbgEmotion = document.getElementById('dbgEmotion');
+                if (dbgEmotion) dbgEmotion.textContent = ev.data.emotion.fused_emotion || "-";
+                const dbgVad = document.getElementById('dbgVad');
+                if (dbgVad) dbgVad.textContent = ev.data.emotion.fused_emotion || "-";
+            }
+            if (ev.data.memory) {
+                const dbgMemory = document.getElementById('dbgMemory');
+                if (dbgMemory) dbgMemory.textContent = `${ev.data.memory.length} items`;
+            }
+            const dbgAi = document.getElementById('dbgAi');
+            if (dbgAi) dbgAi.textContent = "Processing";
+          } else if (ev.type === 'start') {
+            const dbgProvider = document.getElementById('dbgProvider');
+            if (dbgProvider) dbgProvider.textContent = ev.provider;
+          } else if (ev.type === 'done') {
+            if (window.marked) aiContent.innerHTML = marked.parse(ev.response);
+            else aiContent.textContent = ev.response;
+            
+            // Add provider badge
+            if (ev.provider) {
+               const badge = document.createElement('div');
+               badge.style.fontSize = '0.65rem';
+               badge.style.color = 'var(--muted)';
+               badge.style.marginTop = '4px';
+               badge.style.textAlign = 'right';
+               badge.textContent = `⚡ ${ev.provider}`;
+               aiEl.appendChild(badge);
+            }
           } else if (ev.type === 'error') {
             aiEl.textContent = '⚠ ' + ev.error;
           }
-        } catch {}
+        } catch(e) {}
       }
     }
-    if (!full) aiEl.textContent = '[empty response]';
+    if (!full && !aiEl.textContent.startsWith('⚠')) aiEl.textContent = '[empty response]';
   } catch(e) { aiEl.textContent = '⚠ ' + e.message; }
   finally {
     sending = false;

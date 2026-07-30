@@ -107,13 +107,18 @@ class ResponseBuilder:
         )
 
         try:
+            logger.info("Refining raw AI response: %s", raw_response)
             resp = await self._gateway.generate(req)
             refined = resp.content.strip()
-            if refined:
-                return refined
-            return raw_response
+            
+            if not refined or refined == "[]" or refined == "{}":
+                logger.warning("AI refinement returned empty or empty JSON. Falling back to original.")
+                return raw_response if len(raw_response.strip()) > 0 else "I'm having trouble generating a response right now. Please try again."
+                
+            logger.info("Refined response generated successfully")
+            return refined
         except Exception as e:
-            logger.warning("ResponseBuilder failed to refine text", error=str(e))
+            logger.error("ResponseBuilder failed to refine text: %s", str(e))
             return raw_response
 
     def validate_response(

@@ -42,16 +42,16 @@ class QuestionBuilder:
         self._asked_questions: list[str] = []
         self._system_prompt = (
             "You are an AI Question Engine.\n"
+            "Your goal is to slowly build a comprehensive user profile over multiple conversations.\n"
             "Analyze the user's profile, known goals, and their latest message.\n"
-            "Identify if there is any CRITICAL missing information required to help them achieve their goals.\n"
-            "If nothing is missing or if you can continue the conversation naturally, return null for the question.\n"
-            "If you MUST collect specific missing info right now, generate exactly ONE concise follow-up question.\n\n"
+            "Identify if any of the following core profile elements are missing: Age, Occupation, Education, Hobbies, Interests, Goals, Projects, Communication Style.\n"
+            "If the profile is mostly complete, or if you can continue the conversation naturally without asking, return null for the question.\n"
+            "If you MUST collect missing info right now, generate exactly ONE concise, natural follow-up question.\n\n"
             "IMPORTANT RULES:\n"
             "- Do NOT ask questions that have already been answered in their profile or history.\n"
             "- Do NOT re-ask questions from the 'Previously Asked' list below.\n"
             "- Do NOT ask trivial or conversational questions (e.g., 'How are you?').\n"
-            "- Only ask questions that will meaningfully improve future interactions.\n"
-            "- Questions should feel natural and caring, not interrogative.\n\n"
+            "- Ask naturally and conversationally. Do not sound like a survey.\n\n"
             "Return ONLY raw JSON matching this schema (no markdown, no backticks):\n"
             '{"needs_question": true/false, "question": "The specific question to ask, or null"}'
         )

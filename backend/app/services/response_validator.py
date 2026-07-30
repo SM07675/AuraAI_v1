@@ -43,9 +43,9 @@ _FORMAT_ISSUES = [
 
 # Fallback responses when all validation fails
 _FALLBACK_RESPONSES = [
+    "I'm having trouble generating a response right now. Please try again.",
     "I'm sorry, I had trouble generating a response. Could you rephrase that?",
     "I need a moment — could you say that again?",
-    "My response didn't come through properly. What were you asking about?",
 ]
 
 # Repetition detection: how similar two strings need to be to count as repetition

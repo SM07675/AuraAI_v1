@@ -198,14 +198,19 @@ class ConversationService:
         emotion_dict = fused.to_dict()
         yield {"type": "emotion", "data": emotion_dict}
 
-        # 3. Save user message
-        await self._save_message(
-            session_id=session.id,
-            user_id=user_id,
-            role=MessageRole.USER.value,
-            content=content,
-            emotion_data=emotion_dict,
-        )
+        # 3. Handle Auto-Greet
+        is_init = content == "__INIT__"
+        if is_init:
+            content = "[SYSTEM DIRECTIVE: This is a brand new session. Greet the user warmly, introduce yourself as Aura (an AI wellness companion), and ask for their name. Keep it brief. Do not act like the user said this.]"
+        else:
+            # Save user message
+            await self._save_message(
+                session_id=session.id,
+                user_id=user_id,
+                role=MessageRole.USER.value,
+                content=content,
+                emotion_data=emotion_dict,
+            )
 
         # 4. Stream AI response via ConversationEngine
         yield {"type": "start", "provider": "conversation_engine"}
@@ -214,6 +219,7 @@ class ConversationService:
         
         full_response = ""
         provider_used = "ai_gateway"
+        debug_out = {}
         try:
             stream_gen = await self._conversation_engine.process_turn(
                 db=self._db,
@@ -221,17 +227,22 @@ class ConversationService:
                 session=session,
                 user_message=content,
                 emotion_data=emotion_dict,
-                recent_history=history[:-1], # Exclude current message
-                streaming=True
+                recent_history=history if is_init else history[:-1], # For INIT, there is no user message in history to exclude
+                streaming=True,
+                debug_out=debug_out
             )
             
+            # Yield debug data if available
+            if debug_out:
+                yield {"type": "debug", "data": debug_out}
+            
             async for chunk in stream_gen:
-                if chunk:
-                    full_response += chunk
-                    yield {"type": "chunk", "content": chunk}
+                if chunk and chunk.content:
+                    full_response += chunk.content
+                    yield {"type": "chunk", "content": chunk.content}
         except Exception as exc:
             logger.error("AI generation failed", error=str(exc))
-            yield {"type": "error", "error": "AI generation failed", "code": "AI_ERROR"}
+            yield {"type": "error", "error": f"AI Error: {str(exc)}", "code": "AI_ERROR"}
             return
 
         # 6. Save assistant response

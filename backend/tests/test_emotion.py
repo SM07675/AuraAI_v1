@@ -51,7 +51,7 @@ class TestEmotionService:
     async def test_text_only_analysis(self):
         service = EmotionService()
         fused = await service.analyze_and_fuse(text="I am very sad")
-        assert fused.fused_emotion == "sad"
+        assert fused.primary_emotion == "sad"
         assert fused.text_emotion is not None
         assert "text" in fused.available_modalities
 
@@ -59,7 +59,7 @@ class TestEmotionService:
     async def test_no_input_returns_neutral(self):
         service = EmotionService()
         fused = await service.analyze_and_fuse()
-        assert fused.fused_emotion == "neutral"
+        assert fused.primary_emotion == "neutral"
         assert fused.available_modalities == []
 
     @pytest.mark.asyncio
@@ -67,13 +67,13 @@ class TestEmotionService:
         service = EmotionService()
         fused = await service.analyze_and_fuse(text="I'm happy")
         d = fused.to_dict()
-        assert "fused_emotion" in d
+        assert d["primary_emotion"] == "happy"
         assert "confidence" in d
         assert "available_modalities" in d
 
     def test_get_status(self):
         service = EmotionService()
         status = service.get_status()
-        assert "text" in status
+        assert "text_analyzer" in status
         assert "voice" in status
         assert "face" in status
