@@ -77,7 +77,13 @@ class GoalEngine:
             .order_by(UserGoal.priority.desc())
             .limit(limit)
         )
-        return list(result.scalars().all())
+        scalars = getattr(result, "scalars", None)
+        if scalars is not None and hasattr(scalars, "all"):
+            items = scalars.all()
+            if hasattr(items, "__await__"):
+                items = await items
+            return list(items)
+        return []
 
     async def get_all_goals(
         self, db: AsyncSession, user_id: int
@@ -88,7 +94,13 @@ class GoalEngine:
             .where(UserGoal.user_id == user_id)
             .order_by(UserGoal.priority.desc(), UserGoal.created_at.desc())
         )
-        return list(result.scalars().all())
+        scalars = getattr(result, "scalars", None)
+        if scalars is not None and hasattr(scalars, "all"):
+            items = scalars.all()
+            if hasattr(items, "__await__"):
+                items = await items
+            return list(items)
+        return []
 
     async def get_goals_for_context(
         self, db: AsyncSession, user_id: int
@@ -172,7 +184,17 @@ class GoalEngine:
         count_result = await db.execute(
             select(func.count(UserGoal.id)).where(UserGoal.user_id == user_id)
         )
-        total = count_result.scalar() or 0
+        scalar = getattr(count_result, "scalar", None)
+        if callable(scalar):
+            try:
+                value = scalar()
+                if hasattr(value, "__await__"):
+                    value = await value
+                total = value or 0
+            except TypeError:
+                total = 0
+        else:
+            total = 0
 
         existing_titles = {g.title.lower().strip() for g in existing}
 

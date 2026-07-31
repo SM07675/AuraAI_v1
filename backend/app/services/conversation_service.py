@@ -23,6 +23,11 @@ from app.models.user import User
 
 logger = get_logger(__name__)
 
+_RESPONSE_FALLBACK = (
+    "I’m sorry, I wasn’t able to generate a response just now. "
+    "Please try again in a moment."
+)
+
 
 class ConversationService:
     """Orchestrates the full conversation pipeline."""
@@ -195,7 +200,13 @@ class ConversationService:
             audio_data=emotion_payload.get("audio_data") if emotion_payload else None,
             image_data=emotion_payload.get("image_data") if emotion_payload else None,
         )
-        emotion_dict = fused.to_dict()
+        emotion_dict = {
+            "fused_emotion": fused.primary_emotion,
+            "confidence": fused.confidence * 100 if fused.confidence <= 1.0 else fused.confidence,
+            "text_emotion": fused.text_emotion,
+            "voice_emotion": fused.voice_emotion,
+            "face_emotion": fused.face_emotion
+        }
         yield {"type": "emotion", "data": emotion_dict}
 
         # 3. Handle Auto-Greet
@@ -226,7 +237,7 @@ class ConversationService:
                 user=user,
                 session=session,
                 user_message=content,
-                emotion_data=emotion_dict,
+                emotion_context=fused,
                 recent_history=history if is_init else history[:-1], # For INIT, there is no user message in history to exclude
                 streaming=True,
                 debug_out=debug_out
@@ -235,6 +246,10 @@ class ConversationService:
             # Yield debug data if available
             if debug_out:
                 yield {"type": "debug", "data": debug_out}
+                
+                # Emit crisis event if flagged by safety layer
+                if debug_out.get("is_crisis"):
+                    yield {"type": "crisis", "metadata": {"crisis": True}}
             
             async for chunk in stream_gen:
                 if chunk and chunk.content:
@@ -244,6 +259,14 @@ class ConversationService:
             logger.error("AI generation failed", error=str(exc))
             yield {"type": "error", "error": f"AI Error: {str(exc)}", "code": "AI_ERROR"}
             return
+
+        # Providers may terminate a successful stream without text.  Never
+        # persist or send an empty assistant turn: keep the conversation usable
+        # and make the fallback visible to every SSE client.
+        if not full_response.strip():
+            logger.warning("AI stream completed without response text", session_id=session.id)
+            full_response = _RESPONSE_FALLBACK
+            yield {"type": "chunk", "content": full_response}
 
         # 6. Save assistant response
         await self._save_message(

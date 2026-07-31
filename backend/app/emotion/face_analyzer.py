@@ -186,6 +186,8 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             EmotionResult with modality='face'. Never raises — returns
             a mock result if face not detected or model unavailable.
         """
+        if input_data in (None, "", b""):
+            return self._no_face_result(reason="empty_input")
         if not self.is_available:
             return self._no_face_result(reason="model_unavailable")
 

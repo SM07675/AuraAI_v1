@@ -78,6 +78,9 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     goals_list: Mapped[list["UserGoal"]] = relationship(  # noqa: F821
         "UserGoal", back_populates="user", cascade="all, delete-orphan",
     )
+    risk_events: Mapped[list["RiskEvent"]] = relationship(  # noqa: F821
+        "RiskEvent", back_populates="user", cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}')>"

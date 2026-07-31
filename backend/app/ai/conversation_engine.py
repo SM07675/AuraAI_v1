@@ -33,7 +33,7 @@ from app.ai.gateway import AIGateway
 from app.ai.builders.context_builder import ContextBuilder, ContextObject
 from app.ai.builders.interest_builder import InterestBuilder
 from app.ai.builders.memory_builder import MemoryBuilder
-from app.ai.builders.prompt_builder import PromptBuilder
+from app.prompts.builder import PromptBuilder
 from app.ai.builders.question_builder import QuestionBuilder
 from app.ai.builders.response_builder import ResponseBuilder
 
@@ -42,6 +42,10 @@ from app.emotion.service import EmotionService
 from app.services.analytics_service import AnalyticsService
 from app.services.conversation_summarizer import ConversationSummarizer
 from app.services.goal_engine import GoalEngine
+from app.safety.crisis_detector import CrisisDetector
+from app.safety.escalation import CrisisEscalation
+from app.ai.turn_directive import TurnDirectiveClassifier
+from app.services.solution_library import SolutionLibrary
 
 from app.core.logging_config import get_logger
 from app.models.session import Session
@@ -79,6 +83,9 @@ class ConversationEngine:
         self._emotion_service = EmotionService()
         self._goal_engine = GoalEngine(self._gateway)
         self._summarizer = ConversationSummarizer(self._gateway)
+        self._crisis_detector = CrisisDetector()
+        self._turn_directive = TurnDirectiveClassifier(self._gateway)
+        self._solution_library = SolutionLibrary()
 
         # Analytics (per-session, set externally)
         self._analytics: AnalyticsService | None = None
@@ -124,34 +131,66 @@ class ConversationEngine:
         # Update DB injection for ContextBuilder
         self._context_builder._db = db
 
-        # ── Stage 1: Emotion Analysis ─────────────────────────────
         if self._analytics:
-            self._analytics.start_stage("emotion_analysis")
+            self._analytics.start_stage("fast_path")
 
+        # ── Fast Path (Parallel Execution) ────────────────────────
+        crisis_task = asyncio.to_thread(self._crisis_detector.check_for_crisis, user_message)
+        
+        # Emotion analysis
         if emotion_context is None:
-            try:
-                emotion_context = await self._emotion_service.analyze_and_fuse(
-                    text=user_message
-                )
-            except Exception as e:
-                logger.warning("Emotion analysis failed", error=str(e))
-                from app.emotion.base import _EMOTION_GUIDANCE
-                emotion_context = EmotionContext(
-                    primary_emotion="neutral",
-                    secondary_emotion=None,
-                    confidence=0.0,
-                    stress="low",
-                    sentiment="neutral",
-                    intent="casual",
-                    sources=[],
-                    guidance=_EMOTION_GUIDANCE["neutral"],
-                )
+            emotion_task = self._emotion_service.analyze_and_fuse(text=user_message)
+        else:
+            async def get_cached_emotion(): return emotion_context
+            emotion_task = get_cached_emotion()
 
+        # Turn directive classification
+        directive_task = self._turn_directive.classify(user_message, session.phase, turn)
+        
+        # Profile/Memory retrieval (ContextBuilder without waiting for emotion)
+        context_task = self._context_builder.build(
+            user=user,
+            session=session,
+            emotion_context=None,
+            recent_history=recent_history,
+            conversation_summary=self._summarizer.current_summary,
+            previously_asked_questions=self._question_builder.asked_questions,
+        )
+
+        # Run concurrently
+        (is_crisis, crisis_trigger), emotion_context, turn_directive, context_obj = await asyncio.gather(
+            crisis_task, emotion_task, directive_task, context_task
+        )
+        
+        # Inject the late-resolved emotion context into the context object
+        context_obj.emotion_context = emotion_context
+        
         if self._analytics:
-            self._analytics.end_stage("emotion_analysis")
+            self._analytics.end_stage("fast_path")
+
+        # ── Crisis Check Override ─────────────────────────────────
+        crisis_context_str = None
+        if is_crisis:
+            escalation = CrisisEscalation(db)
+            await escalation.log_risk_event(
+                user_id=user.id,
+                session_id=session.id,
+                trigger_type=f"keyword:{crisis_trigger}",
+                action_taken="resource_injected"
+            )
+            crisis_context_str = escalation.get_crisis_context()
+            
+        # ── Advance Phase ─────────────────────────────────────────
+        session.phase = turn_directive.phase
+        
+        # ── Solution Retrieval ────────────────────────────────────
+        retrieved_solution = None
+        if turn_directive.offerSolution and turn_directive.problemDetected:
+            retrieved_solution = await self._solution_library.get_solution(turn_directive.concernCategory)
 
         # ── Stage 2: Conversation Summary Check ───────────────────
-        conversation_summary = self._summarizer.current_summary
+        # Note: conversation summary check happens independently here
+        # so it doesn't block the fast path.
         if self._summarizer.should_summarize(turn):
             if self._analytics:
                 self._analytics.start_stage("summarization")
@@ -164,27 +203,11 @@ class ConversationEngine:
                     turn_count=turn,
                 )
                 if summary:
-                    conversation_summary = summary
+                    context_obj.conversation_summary = summary
             except Exception as e:
                 logger.warning("Summarization failed", error=str(e))
             if self._analytics:
                 self._analytics.end_stage("summarization")
-
-        # ── Stage 3: Build Rich Context ───────────────────────────
-        if self._analytics:
-            self._analytics.start_stage("context_building")
-
-        context_obj: ContextObject = await self._context_builder.build(
-            user=user,
-            session=session,
-            emotion_context=emotion_context,
-            recent_history=recent_history,
-            conversation_summary=conversation_summary,
-            previously_asked_questions=self._question_builder.asked_questions,
-        )
-
-        if self._analytics:
-            self._analytics.end_stage("context_building")
 
         # ── Stage 4: Question Builder ─────────────────────────────
         if self._analytics:
@@ -210,9 +233,15 @@ class ConversationEngine:
             self._analytics.start_stage("prompt_building")
 
         system_prompt, messages = self._prompt_builder.build(
-            context=context_obj,
-            targeted_question=targeted_question,
+            user_name=context_obj.user_name,
             user_message=user_message,
+            emotion_data=emotion_context,
+            user_profile={"interests": ",".join(context_obj.interests) if isinstance(context_obj.interests, list) else context_obj.interests, "goals": ",".join(context_obj.goals) if isinstance(context_obj.goals, list) else context_obj.goals, "preferred_language": context_obj.preferred_language, "communication_style": context_obj.communication_style},
+            long_term_memories=context_obj.long_term_memories,
+            conversation_history=recent_history,
+            crisis_context=crisis_context_str,
+            turn_directive=turn_directive.__dict__,
+            retrieved_solution=retrieved_solution,
         )
 
         if self._analytics:
@@ -244,6 +273,7 @@ class ConversationEngine:
             debug_out["history"] = recent_history
             debug_out["user_message"] = user_message
             debug_out["final_messages"] = messages
+            debug_out["is_crisis"] = is_crisis
 
         # ── Stage 7: Fire Background Profile Tasks ────────────────
         # These don't block the response — they run concurrently
@@ -289,7 +319,7 @@ class ConversationEngine:
                 resp.content,
                 user,
                 recent_history=recent_history,
-                emotion_context=emotion_data,
+                emotion_context=emotion_context.to_prompt_dict(),
             )
 
             if self._analytics:
@@ -303,19 +333,29 @@ class ConversationEngine:
         interrupt_event: asyncio.Event | None,
     ) -> AsyncIterator[StreamChunk]:
         """Handle streaming responses with token filtering and interrupt support."""
+        from app.ai.builders.response_builder import ThinkingStreamFilter
+        
         if self._analytics:
             self._analytics.start_stage("ai_streaming")
 
         stream_gen = self._gateway.stream(req)
+        think_filter = ThinkingStreamFilter()
 
         async for chunk in stream_gen:
             if interrupt_event and interrupt_event.is_set():
                 break
 
-            filtered = self._response_builder.filter_stream_token(chunk.content)
-            if filtered:
-                chunk.content = filtered
+            filtered_chunk = think_filter.process_chunk(chunk.content)
+            if filtered_chunk:
+                chunk.content = self._response_builder.filter_stream_token(filtered_chunk)
                 yield chunk
+
+        flushed = think_filter.flush()
+        if flushed:
+            yield StreamChunk(
+                content=self._response_builder.filter_stream_token(flushed),
+                provider=self._gateway.name
+            )
 
         if self._analytics:
             self._analytics.end_stage("ai_streaming")

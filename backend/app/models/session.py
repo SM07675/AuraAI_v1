@@ -38,6 +38,12 @@ class Session(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(20), default=SessionStatus.ACTIVE.value, nullable=False,
     )
+    phase: Mapped[str] = mapped_column(
+        String(50), default="check_in", nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(
+        String(10), default="chat", nullable=False,
+    )
     summary: Mapped[Optional[str]] = mapped_column(Text, default=None)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), default=None)
 
@@ -49,6 +55,9 @@ class Session(Base, TimestampMixin):
     )
     emotion_logs: Mapped[list["EmotionLog"]] = relationship(  # noqa: F821
         "EmotionLog", back_populates="session", cascade="all, delete-orphan",
+    )
+    risk_events: Mapped[list["RiskEvent"]] = relationship(  # noqa: F821
+        "RiskEvent", back_populates="session", cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

@@ -132,6 +132,13 @@ class ResponseValidator:
         if emotion_context:
             self._check_tone_consistency(response, emotion_context, result)
 
+        # 6. Crisis resource check
+        if emotion_context and emotion_context.get("intent") == "crisis":
+            self._check_crisis_resources(response, result)
+
+        # 7. Single question rule
+        self._check_question_count(response, result)
+
         if result.issues:
             logger.warning(
                 "Response validation issues",
@@ -141,6 +148,26 @@ class ResponseValidator:
             )
 
         return result
+
+    def _check_crisis_resources(self, response: str, result: ValidationResult) -> None:
+        """Ensure crisis resources were included if intent was crisis."""
+        resources_mentioned = any(
+            x in response for x in ["988", "741741", "emergency", "911", "iCall"]
+        )
+        if not resources_mentioned:
+            result.add_issue(
+                "Crisis resources were missing from the response when required.",
+                severity="error",
+            )
+
+    def _check_question_count(self, response: str, result: ValidationResult) -> None:
+        """Ensure the response does not stack multiple questions."""
+        q_count = response.count("?")
+        if q_count > 1:
+            result.add_issue(
+                f"Stacked questions detected: {q_count} question marks found. There should be at most one.",
+                severity="warning"
+            )
 
     def _check_empty(self, response: str, result: ValidationResult) -> None:
         """Check for empty or whitespace-only responses."""

@@ -197,9 +197,11 @@ class VoiceConversationManager:
 
         # ── 3. Emotion Analysis on transcript text ────────────────
         self._analytics.start_stage("emotion_analysis")
+        emotion_context = None
         emotion_data: dict[str, Any] | None = None
         try:
             fused = await self._emotion_service.analyze_and_fuse(text=transcript.text)
+            emotion_context = fused
             emotion_data = fused.to_dict()
 
             if self._on_event:
@@ -252,7 +254,7 @@ class VoiceConversationManager:
                     user=user_obj,
                     session=session_obj,
                     user_message=transcript.text,
-                    emotion_data=emotion_data,
+                    emotion_context=emotion_context,
                     recent_history=list(self._history[:-1]),
                     streaming=True,
                     interrupt_event=self._interrupt.get_ai_interrupt_event(),

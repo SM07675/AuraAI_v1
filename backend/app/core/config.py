@@ -10,7 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,10 +45,17 @@ class Settings(BaseSettings):
     postgres_db: str = "aura_ai"
     postgres_host: str = "postgres"
     postgres_port: int = 5432
+    # Explicit URLs take precedence when supplied by a managed deployment.
+    # Keeping these as declared settings means they are never silently ignored.
+    database_url_override: str | None = Field(
+        default=None, validation_alias="DATABASE_URL"
+    )
 
     @property
     def database_url(self) -> str:
         """Async PostgreSQL connection URL for SQLAlchemy."""
+        if self.database_url_override:
+            return self.database_url_override
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -57,6 +64,8 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Sync PostgreSQL connection URL (used by Alembic)."""
+        if self.database_url_override:
+            return self.database_url_override.replace("postgresql+asyncpg://", "postgresql://")
         return (
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -66,16 +75,22 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_password: str = ""
+    redis_url_override: str | None = Field(default=None, validation_alias="REDIS_URL")
 
     @property
     def redis_url(self) -> str:
         """Redis connection URL."""
+        if self.redis_url_override:
+            return self.redis_url_override
         if self.redis_password:
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     # ── JWT Authentication ───────────────────────────────────────
-    jwt_secret_key: str = "CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING"
+    jwt_secret_key: str = Field(
+        default="CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING",
+        validation_alias=AliasChoices("JWT_SECRET_KEY", "JWT_SECRET"),
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7

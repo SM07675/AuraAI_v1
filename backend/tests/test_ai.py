@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.ai.base import AIRequest
+from app.emotion.base import EmotionContext
 from app.prompts.builder import PromptBuilder
 
 

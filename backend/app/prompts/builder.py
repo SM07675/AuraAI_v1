@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.emotion.base import EmotionContext
 from app.prompts.loader import render_template
+
+
+try:
+    from app.ai.builders.context_builder import ContextObject
+except Exception:  # pragma: no cover
+    ContextObject = None
 
 
 class PromptBuilder:
@@ -36,6 +43,10 @@ class PromptBuilder:
         user_profile: dict[str, Any] | None = None,
         long_term_memories: list[dict] | None = None,
         conversation_history: list[dict] | None = None,
+        crisis_context: str | None = None,
+        turn_directive: dict[str, Any] | None = None,
+        retrieved_solution: str | None = None,
+        mode: str = "chat",
     ) -> tuple[str, list[dict]]:
         """Build the system prompt and message history for an AI request.
 
@@ -46,13 +57,36 @@ class PromptBuilder:
             user_profile: User profile data (interests, goals, style, etc.).
             long_term_memories: Relevant long-term memory entries.
             conversation_history: Recent session messages.
+            crisis_context: Optional context override if a crisis was detected.
+            turn_directive: Optional fast-tier structural directive for this turn.
+            retrieved_solution: Optional coping solution retrieved from the library.
+            mode: "chat" or "live" — dictates verbosity and cadence.
 
         Returns:
             Tuple of (system_prompt_string, messages_list).
             Messages list is in OpenAI-compatible format.
         """
         profile = user_profile or {}
-        emotion = emotion_data or {}
+        if isinstance(emotion_data, EmotionContext):
+            emotion = {
+                "fused_emotion": emotion_data.primary_emotion,
+                "confidence": emotion_data.confidence * 100,
+                "text_emotion": emotion_data.text_emotion,
+                "voice_emotion": emotion_data.voice_emotion,
+                "face_emotion": emotion_data.face_emotion,
+                "emotion_conflict": emotion_data.emotion_conflict,
+                "conflict_detail": emotion_data.conflict_detail,
+                "stress": emotion_data.stress,
+                "sentiment": emotion_data.sentiment,
+                "intent": emotion_data.intent,
+                "sources": list(emotion_data.sources or []),
+                "conversation_trend": emotion_data.conversation_trend,
+                "guidance": emotion_data.guidance or emotion_data.get_guidance(),
+            }
+        elif isinstance(emotion_data, dict):
+            emotion = emotion_data or {}
+        else:
+            emotion = {}
         memories = long_term_memories or []
         history = conversation_history or []
 
@@ -74,13 +108,29 @@ class PromptBuilder:
         face_emo = get_emo_str(emotion.get("face_emotion"))
         fused_emo = emotion.get("fused_emotion", "neutral")
         confidence = emotion.get("confidence", 0.0)
+        if isinstance(confidence, str):
+            try:
+                confidence = float(confidence)
+            except ValueError:
+                confidence = 0.0
 
-        emotion_conflict = False
+        emotion_conflict = bool(emotion.get("emotion_conflict", False))
         conflict_modality = ""
         conflict_emotion = ""
         positive_emotions = {"happy", "calm", "neutral", "joy", "surprised"}
 
-        if text_emo and text_emo.lower() in positive_emotions:
+        has_explicit_emotion = bool(
+            emotion_data is not None
+            and (
+                fused_emo not in (None, "", "neutral")
+                or text_emo
+                or voice_emo
+                or face_emo
+                or emotion_conflict
+            )
+        )
+
+        if not emotion_conflict and text_emo and text_emo.lower() in positive_emotions:
             for modality, emo in [("voice", voice_emo), ("face", face_emo)]:
                 if emo and emo.lower() not in positive_emotions:
                     emotion_conflict = True
@@ -115,21 +165,75 @@ class PromptBuilder:
         ))
 
         # 4. Emotion awareness (if we have emotion data)
-        if emotion_data:
+        if has_explicit_emotion:
             system_parts.append(render_template(
                 "system_emotion_aware.md",
                 user_name=user_name,
+                primary_emotion=fused_emo,
                 fused_emotion=fused_emo,
-                confidence=round(confidence, 1),
+                confidence=round(confidence / 100.0 if confidence > 1 else confidence, 1),
+                stress=emotion.get("stress", "low"),
+                sentiment=emotion.get("sentiment", "neutral"),
+                intent=emotion.get("intent", "casual"),
+                sources=emotion.get("sources") or (["text"] if text_emo or voice_emo or face_emo else ["text"]),
                 text_emotion=text_emo,
                 voice_emotion=voice_emo,
                 face_emotion=face_emo,
                 emotion_conflict=emotion_conflict,
                 conflict_modality=conflict_modality,
                 conflict_emotion=conflict_emotion,
+                conversation_trend=emotion.get("conversation_trend", ""),
+                guidance=emotion.get("guidance", {}),
+            ))
+        else:
+            system_parts.append(render_template(
+                "system_emotion_aware.md",
+                user_name=user_name,
+                primary_emotion="neutral",
+                fused_emotion="neutral",
+                confidence=0.0,
+                stress="low",
+                sentiment="neutral",
+                intent="casual",
+                sources=[],
+                text_emotion="",
+                voice_emotion="",
+                face_emotion="",
+                emotion_conflict=False,
+                conflict_modality="",
+                conflict_emotion="",
+                conversation_trend="",
+                guidance={},
             ))
 
+        if crisis_context:
+            system_parts.append(f"## CRISIS RESPONSE OVERRIDE\n\n{crisis_context}")
+            
+        if turn_directive:
+            system_parts.append(render_template(
+                "turn_directive.md",
+                phase=turn_directive.get("phase", "explore"),
+                must_reflect=turn_directive.get("mustReflectFirst", True),
+                offer_solution=bool(turn_directive.get("offerSolution", False) and retrieved_solution),
+                solution=retrieved_solution or "",
+                must_ask_follow_up=turn_directive.get("mustAskFollowUp", True),
+                next_question_seed=turn_directive.get("nextQuestionSeed") or "",
+            ))
+            
+        if mode == "live":
+            system_parts.append(
+                "## LIVE MODE CONSTRAINTS\n"
+                "You are communicating in a real-time, spoken conversation. "
+                "Keep your sentences SHORT, conversational, and easy to hear. "
+                "Do NOT use markdown lists, bold text, or overly structured paragraphs. "
+                "Speak as naturally as a human on a voice call."
+            )
+
         system_prompt = "\n\n---\n\n".join(part for part in system_parts if part.strip())
+        
+        if not system_prompt.strip():
+            system_prompt = "You are a helpful AI assistant. Always provide a thoughtful response."
+
 
         # ── Messages list (for multi-turn context) ───────────────
         messages: list[dict] = []

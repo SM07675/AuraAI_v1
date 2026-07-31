@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.deps import get_db, get_redis
 
-router = APIRouter(prefix="/health", tags=["Health"])
+router = APIRouter(tags=["Health"])
 
 
 async def _check_database(db: AsyncSession) -> dict[str, Any]:
@@ -38,7 +38,8 @@ async def _check_redis(redis: aioredis.Redis) -> dict[str, Any]:
         return {"status": "unhealthy", "error": str(exc)}
 
 
-@router.get("", summary="Quick health check")
+@router.get("/health", summary="Quick health check")
+@router.get("/system/health", summary="Quick health check")
 async def health_check() -> dict[str, Any]:
     """Lightweight health check — no external calls.
 

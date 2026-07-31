@@ -148,6 +148,7 @@ class InterruptManager:
                     session_id=self._session_id,
                     error=str(exc),
                 )
+                await self._sm.force_state(CommunicationState.LISTENING)
 
             return True
 

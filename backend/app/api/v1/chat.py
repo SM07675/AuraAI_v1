@@ -30,7 +30,7 @@ async def _sse_stream(gen: AsyncIterator) -> AsyncIterator[str]:
         yield f"data: {json.dumps(event)}\n\n"
 
 
-@router.post("/send", summary="Send text message (streaming SSE)")
+@router.post("", summary="Send text message (streaming SSE)")
 async def send_message(
     body: SendMessageRequest,
     user_id: int = Depends(get_current_user_id),

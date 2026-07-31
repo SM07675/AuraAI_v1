@@ -187,9 +187,11 @@ class PromptBuilder:
         try:
             return render_template(template_name, **kwargs)
         except Exception as e:
+            import traceback
             logger.warning(
                 "Template render failed",
                 template=template_name,
                 error=str(e),
+                traceback=traceback.format_exc(),
             )
             return ""

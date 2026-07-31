@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.utils.encryption import EncryptedText
 
 
 class MemoryType(str, enum.Enum):
@@ -44,7 +45,7 @@ class ShortTermMemory(Base, TimestampMixin):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     key: Mapped[str] = mapped_column(String(255), nullable=False)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
 
     def __repr__(self) -> str:
@@ -73,7 +74,7 @@ class LongTermMemory(Base, TimestampMixin):
         comment="Short identifier for this memory (e.g., 'favorite_color', 'career_goal')",
     )
     value: Mapped[str] = mapped_column(
-        Text, nullable=False,
+        EncryptedText, nullable=False,
         comment="The actual memory content",
     )
     importance_score: Mapped[float] = mapped_column(

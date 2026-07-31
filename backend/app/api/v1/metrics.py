@@ -27,3 +27,4 @@ async def get_metrics(
         "ai_providers": provider_statuses,
         "emotion_service": emotion.get_status(),
     }
+

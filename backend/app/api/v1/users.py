@@ -143,7 +143,7 @@ async def delete_account(
     user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Soft-delete the current user's account."""
+    """Hard-delete the current user's account."""
     service = UserService(db)
-    await service.soft_delete(user_id)
+    await service.hard_delete(user_id)
     return {"message": "Account deleted"}

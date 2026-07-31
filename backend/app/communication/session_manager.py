@@ -106,6 +106,7 @@ class VoiceSession:
     async def start(self) -> None:
         """Start the session: initialize DB session and enter LISTENING state."""
         await self.conversation.initialize()
+        await self.state_machine.transition(CommunicationState.CONNECTING)
         await self.state_machine.transition(CommunicationState.LISTENING)
         logger.info("Voice session started", session_id=self.session_id, user_id=self.user_id)
 

@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.utils.encryption import EncryptedText
 
 
 class EmotionLog(Base, TimestampMixin):
@@ -37,12 +38,12 @@ class EmotionLog(Base, TimestampMixin):
     )
 
     # Individual modality results
-    text_emotion: Mapped[Optional[str]] = mapped_column(String(50), default=None)
-    voice_emotion: Mapped[Optional[str]] = mapped_column(String(50), default=None)
-    face_emotion: Mapped[Optional[str]] = mapped_column(String(50), default=None)
+    text_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
+    voice_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
+    face_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
 
     # Fused result
-    fused_emotion: Mapped[str] = mapped_column(String(50), nullable=False)
+    fused_emotion: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     # Raw scores from each modality (stored as JSON for flexibility)

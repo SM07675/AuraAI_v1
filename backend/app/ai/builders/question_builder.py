@@ -25,12 +25,12 @@ from app.models.user import User
 
 logger = get_logger(__name__)
 
-# Minimum turns between follow-up questions
-_MIN_TURNS_BETWEEN_QUESTIONS = 5
+# Minimum turns between follow-up questions (0 = ask on every turn like a doctor session)
+_MIN_TURNS_BETWEEN_QUESTIONS = 0
 
 
 class QuestionBuilder:
-    """Generates targeted follow-up questions when critical info is missing.
+    """Generates targeted follow-up questions for every turn in a counseling session.
 
     Args:
         gateway: AI gateway for LLM-based analysis.
@@ -41,19 +41,17 @@ class QuestionBuilder:
         self._last_question_turn: int = 0
         self._asked_questions: list[str] = []
         self._system_prompt = (
-            "You are an AI Question Engine.\n"
-            "Your goal is to slowly build a comprehensive user profile over multiple conversations.\n"
-            "Analyze the user's profile, known goals, and their latest message.\n"
-            "Identify if any of the following core profile elements are missing: Age, Occupation, Education, Hobbies, Interests, Goals, Projects, Communication Style.\n"
-            "If the profile is mostly complete, or if you can continue the conversation naturally without asking, return null for the question.\n"
-            "If you MUST collect missing info right now, generate exactly ONE concise, natural follow-up question.\n\n"
+            "You are an AI Mental Health Clinical Counselor Question Engine.\n"
+            "Your goal is to guide a continuous, deep therapy & counseling session.\n"
+            "Analyze the user's latest message, emotional state, and recent conversation history.\n"
+            "Generate exactly ONE targeted, empathetic, probing follow-up question that helps the user unpack their feelings, explore root causes, or reflect deeply.\n\n"
             "IMPORTANT RULES:\n"
-            "- Do NOT ask questions that have already been answered in their profile or history.\n"
-            "- Do NOT re-ask questions from the 'Previously Asked' list below.\n"
-            "- Do NOT ask trivial or conversational questions (e.g., 'How are you?').\n"
-            "- Ask naturally and conversationally. Do not sound like a survey.\n\n"
-            "Return ONLY raw JSON matching this schema (no markdown, no backticks):\n"
-            '{"needs_question": true/false, "question": "The specific question to ask, or null"}'
+            "- ALWAYS generate a meaningful therapeutic question for EVERY turn (needs_question must be true).\n"
+            "- Do NOT ask generic surface-level questions (e.g. 'What is on your mind?').\n"
+            "- Ask specific, probing questions based directly on what the user just expressed.\n"
+            "- Do NOT re-ask questions from the 'Previously Asked' list below.\n\n"
+            "Return ONLY raw JSON matching this schema:\n"
+            '{"needs_question": true, "question": "Your targeted therapeutic follow-up question"}'
         )
 
     async def build(
@@ -76,8 +74,8 @@ class QuestionBuilder:
         Returns:
             A question string if one should be asked, or None.
         """
-        # Rate limiting: don't ask too frequently
-        if turn_count > 0 and (turn_count - self._last_question_turn) < _MIN_TURNS_BETWEEN_QUESTIONS:
+        # Rate limiting: don't ask too frequently, except for the first question
+        if self._last_question_turn > 0 and (turn_count - self._last_question_turn) < _MIN_TURNS_BETWEEN_QUESTIONS:
             return None
 
         asked = previously_asked or self._asked_questions

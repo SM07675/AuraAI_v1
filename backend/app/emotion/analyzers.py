@@ -94,6 +94,10 @@ class TextEmotionAnalyzer(EmotionAnalyzer):
             return EmotionResult(
                 emotion="neutral", confidence=50.0,
                 scores={"neutral": 1.0}, modality="text",
+                sentiment="neutral",
+                stress_level="low",
+                intent="casual",
+                is_mock=True,
             )
 
         # Crisis override — always checked before cache/LLM
@@ -304,4 +308,7 @@ class VoiceEmotionAnalyzer(EmotionAnalyzer):
         return EmotionResult(
             emotion="neutral", confidence=0.0,
             scores={"neutral": 1.0}, modality="voice", is_mock=True,
+            sentiment="neutral",
+            stress_level="low",
+            intent="casual",
         )

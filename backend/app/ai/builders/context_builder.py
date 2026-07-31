@@ -106,10 +106,13 @@ class ContextBuilder:
         self,
         user: User,
         session: Session,
-        emotion_context: EmotionContext | None,
-        recent_history: list[dict[str, str]],
+        emotion_context: EmotionContext | None = None,
+        recent_history: list[dict[str, str]] | None = None,
         conversation_summary: str = "",
         previously_asked_questions: list[str] | None = None,
+        # ``emotion_data`` is retained as a compatibility boundary for older
+        # API callers.  New callers must pass the structured EmotionContext.
+        emotion_data: dict[str, Any] | None = None,
     ) -> ContextObject:
         """Build the full ContextObject for the current turn.
 
@@ -125,6 +128,21 @@ class ContextBuilder:
         Returns:
             Complete ContextObject ready for PromptBuilder.
         """
+        if emotion_context is None and emotion_data:
+            stress_value = emotion_data.get("stress") or emotion_data.get("stress_level", "low")
+            if isinstance(stress_value, int):
+                stress_value = {0: "low", 1: "low", 2: "medium", 3: "high"}.get(stress_value, "low")
+            confidence = float(emotion_data.get("confidence", 0.0))
+            emotion_context = EmotionContext(
+                primary_emotion=emotion_data.get("fused_emotion", "neutral"),
+                secondary_emotion=emotion_data.get("secondary_emotion"),
+                confidence=confidence / 100.0 if confidence > 1 else confidence,
+                stress=stress_value if stress_value in {"low", "medium", "high"} else "low",
+                sentiment=emotion_data.get("sentiment", "neutral"),
+                intent=emotion_data.get("intent", "casual"),
+                sources=[],
+            )
+
         # Default to neutral if no emotion available
         if emotion_context is None:
             from app.emotion.base import _EMOTION_GUIDANCE
@@ -146,16 +164,28 @@ class ContextBuilder:
             .order_by(LongTermMemory.importance_score.desc())
             .limit(10)
         )
-        mem_result = await self._db.execute(mem_stmt)
-        memories = [
-            {
-                "type": m.memory_type,
-                "key": m.key,
-                "value": m.value,
-                "importance": m.importance_score,
-            }
-            for m in mem_result.scalars().all()
-        ]
+        if self._db is None:
+            memories = []
+        else:
+            mem_result = await self._db.execute(mem_stmt)
+            scalars = getattr(mem_result, "scalars", None)
+            if scalars is not None and hasattr(scalars, "all"):
+                items = scalars.all()
+                if hasattr(items, "__await__"):
+                    items = await items
+            else:
+                items = []
+            if items is None:
+                items = []
+            memories = [
+                {
+                    "type": m.memory_type,
+                    "key": m.key,
+                    "value": m.value,
+                    "importance": m.importance_score,
+                }
+                for m in items
+            ]
 
         # ── Active goals ──────────────────────────────────────────
         goals_stmt = (
@@ -167,8 +197,20 @@ class ContextBuilder:
             .order_by(UserGoal.priority.desc())
             .limit(10)
         )
-        goals_result = await self._db.execute(goals_stmt)
-        active_goals = [g.to_context_dict() for g in goals_result.scalars().all()]
+        if self._db is None:
+            active_goals = []
+        else:
+            goals_result = await self._db.execute(goals_stmt)
+            scalars = getattr(goals_result, "scalars", None)
+            if scalars is not None and hasattr(scalars, "all"):
+                items = scalars.all()
+                if hasattr(items, "__await__"):
+                    items = await items
+            else:
+                items = []
+            if items is None:
+                items = []
+            active_goals = [g.to_context_dict() for g in items]
 
         # ── Current time ──────────────────────────────────────────
         now = datetime.now(timezone.utc).astimezone()
@@ -198,7 +240,7 @@ class ContextBuilder:
             session_id=session.id,
             active_goals=active_goals,
             long_term_memories=memories,
-            recent_history=recent_history,
+            recent_history=recent_history or [],
             conversation_summary=conversation_summary,
             previously_asked_questions=previously_asked_questions or [],
             active_project=active_project,

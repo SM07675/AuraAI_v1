@@ -91,6 +91,11 @@ class VoiceWebSocketManager:
                     except WebSocketDisconnect:
                         break
 
+                    # Check for disconnect message from raw receive
+                    msg_type = message.get("type", "")
+                    if msg_type == "websocket.disconnect":
+                        break
+
                     # Dispatch based on message type
                     if message.get("bytes"):
                         # Binary frame = raw PCM audio
@@ -259,15 +264,15 @@ class VoiceWebSocketManager:
         )
         session.set_vad_task(vad_task)
 
-        try:
-            await session.state_machine.transition(CommunicationState.CONNECTING)
-            await session.state_machine.transition(CommunicationState.LISTENING)
-        except ValueError:
-            pass
-
         await self._send(websocket, {
             "type": "session_ready",
             "session_id": session.session_id,
+        })
+        # SessionRegistry starts the state machine before callbacks are wired.
+        # Explicitly synchronise the client after its ready acknowledgement.
+        await self._send(websocket, {
+            "type": "state_change",
+            "state": session.state.value,
         })
 
         logger.info("Voice session ready", session_id=session.session_id)
@@ -311,6 +316,7 @@ class VoiceWebSocketManager:
                 if result.event == VADEvent.SPEECH_STARTED:
                     in_speech = True
                     session.stt.clear_buffer()
+                    session.stt.accumulate(result.frame)
                     session.metrics.start_stt()
                     try:
                         await session.state_machine.transition(CommunicationState.USER_SPEAKING)
@@ -322,10 +328,8 @@ class VoiceWebSocketManager:
                     })
 
                 elif result.is_speech and in_speech:
-                    # Accumulate audio into STT buffer
-                    # (the raw frame is not available here, so we rely
-                    #  on the STT engine receiving it via audio_handler feed)
-                    pass
+                    # Keep every VAD-confirmed speech frame for STT.
+                    session.stt.accumulate(result.frame)
 
                 elif result.event == VADEvent.SPEECH_ENDED and in_speech:
                     in_speech = False

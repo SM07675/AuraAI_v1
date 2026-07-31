@@ -35,6 +35,8 @@ class CommunicationState(str, Enum):
     LISTENING = "LISTENING"
     USER_SPEAKING = "USER_SPEAKING"
     TRANSCRIBING = "TRANSCRIBING"
+    PROCESSING = "PROCESSING"
+    THINKING = "THINKING"
     UNDERSTANDING = "UNDERSTANDING"      # Emotion analysis on transcript
     BUILDING_CONTEXT = "BUILDING_CONTEXT"  # Assembling context + prompt
     GENERATING = "GENERATING"            # AI generation in progress
@@ -50,13 +52,19 @@ class CommunicationState(str, Enum):
 _ALLOWED_TRANSITIONS: set[tuple[CommunicationState, CommunicationState]] = {
     # ── Normal happy path ─────────────────────────────────────────
     (CommunicationState.IDLE, CommunicationState.CONNECTING),
+    (CommunicationState.IDLE, CommunicationState.LISTENING),
     (CommunicationState.CONNECTING, CommunicationState.LISTENING),
     (CommunicationState.LISTENING, CommunicationState.USER_SPEAKING),
+    (CommunicationState.LISTENING, CommunicationState.PROCESSING),
     (CommunicationState.USER_SPEAKING, CommunicationState.TRANSCRIBING),
+    (CommunicationState.USER_SPEAKING, CommunicationState.PROCESSING),
     # Post-transcription: UNDERSTANDING (emotion analysis)
     (CommunicationState.TRANSCRIBING, CommunicationState.UNDERSTANDING),
+    (CommunicationState.TRANSCRIBING, CommunicationState.PROCESSING),
     (CommunicationState.UNDERSTANDING, CommunicationState.BUILDING_CONTEXT),
     (CommunicationState.BUILDING_CONTEXT, CommunicationState.GENERATING),
+    (CommunicationState.PROCESSING, CommunicationState.THINKING),
+    (CommunicationState.THINKING, CommunicationState.SPEAKING),
     # Shortcut: allow old TRANSCRIBING → GENERATING for backward compat
     (CommunicationState.TRANSCRIBING, CommunicationState.GENERATING),
     (CommunicationState.GENERATING, CommunicationState.SPEAKING),

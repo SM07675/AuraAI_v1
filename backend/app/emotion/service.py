@@ -26,7 +26,7 @@ from typing import Any
 from app.emotion.analyzers import TextEmotionAnalyzer, VoiceEmotionAnalyzer
 from app.emotion.base import EmotionContext, EmotionResult
 from app.emotion.face_analyzer import FaceEmotionAnalyzer
-from app.emotion.fusion import EmotionFusion
+from app.emotion.fusion import EmotionFusionEngine
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +44,7 @@ class EmotionService:
         self._text = TextEmotionAnalyzer(use_llm=use_llm_text)
         self._voice = VoiceEmotionAnalyzer()
         self._face = FaceEmotionAnalyzer()
-        self._fusion = EmotionFusion()
+        self._fusion = EmotionFusionEngine()
 
     # ── Single-modality shortcuts ─────────────────────────────────────────────
 
@@ -120,8 +120,15 @@ class EmotionService:
         ]
         logger.debug("Emotion sources used", sources=available_sources)
 
-        # Fuse and return EmotionContext
-        return self._fusion.fuse(text=text_result, face=face_result, voice=voice_result)
+        # Update readings and fuse
+        if text_result and not text_result.is_mock:
+            self._fusion.update_reading("text", text_result)
+        if face_result and not face_result.is_mock:
+            self._fusion.update_reading("face", face_result)
+        if voice_result and not voice_result.is_mock:
+            self._fusion.update_reading("voice", voice_result)
+
+        return self._fusion.fuse()
 
     # ── Legacy compatibility ──────────────────────────────────────────────────
 
@@ -153,8 +160,10 @@ class EmotionService:
         """Return current emotion service status for the metrics endpoint."""
         return {
             "text_analyzer": "available",
+            "face": "available" if self._face.is_available else "unavailable (models not loaded)",
             "face_analyzer": "available" if self._face.is_available else "unavailable (models not loaded)",
-            "voice_analyzer": "stub (future)",
+            "voice": "available" if self._voice.is_available else "stub (future)",
+            "voice_analyzer": "available" if self._voice.is_available else "stub (future)",
             "trend_turns": len(self._fusion.trend_buffer),
         }
 

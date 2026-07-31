@@ -72,8 +72,7 @@ class NvidiaNimProvider(AIProvider):
         }
 
         if "nemotron" in self._settings.nvidia_nim_model.lower():
-            payload["chat_template_kwargs"] = {"enable_thinking": True}
-            payload["reasoning_budget"] = 1024
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         try:
             response = await client.post("/chat/completions", json=payload)
@@ -113,8 +112,7 @@ class NvidiaNimProvider(AIProvider):
         }
 
         if "nemotron" in self._settings.nvidia_nim_model.lower():
-            payload["chat_template_kwargs"] = {"enable_thinking": True}
-            payload["reasoning_budget"] = 1024
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         try:
             async with client.stream("POST", "/chat/completions", json=payload) as response:
@@ -132,16 +130,16 @@ class NvidiaNimProvider(AIProvider):
                     try:
                         data = json.loads(data_str)
                         delta = data["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
+                        content = delta.get("content") or ""
                         finish = data["choices"][0].get("finish_reason")
-                        if content:
+                        if content or finish is not None:
                             yield StreamChunk(
                                 content=content,
                                 provider=self.name,
                                 is_final=finish is not None,
                                 finish_reason=finish,
                             )
-                    except (json.JSONDecodeError, KeyError):
+                    except (json.JSONDecodeError, KeyError, IndexError):
                         continue
         except (AIProviderError, AIProviderRateLimitError):
             raise

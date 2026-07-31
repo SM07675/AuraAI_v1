@@ -15,6 +15,7 @@ from app.models.activity_log import ActivityLog
 from app.models.report import Report
 from app.models.setting import Setting
 from app.models.goal import UserGoal
+from app.models.risk_events import RiskEvent
 
 __all__ = [
     "User",
@@ -28,5 +29,6 @@ __all__ = [
     "Report",
     "Setting",
     "UserGoal",
+    "RiskEvent",
 ]
 

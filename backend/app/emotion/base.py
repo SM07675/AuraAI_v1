@@ -185,73 +185,63 @@ INTENT_LABELS: frozenset[str] = frozenset({
 @dataclass
 class EmotionContext:
     """Structured emotion context ready for LLM injection.
-
-    This is the ONLY emotion representation the LLM receives.
-    Raw scores, logits, and model internals are never included.
-
-    Built by EmotionFusion from one or more EmotionResults.
+    Matches the single-fused-state contract.
     """
+    primaryEmotion: str = "neutral"
+    confidence: float = 0.0
+    stressLevel: float = 0.0
+    activeSources: list[str] = field(default_factory=list)
+    conflict: bool = False
+    timestamp: str = ""
 
-    # Core emotion signals
-    primary_emotion: str                  # Dominant fused emotion
-    secondary_emotion: str | None         # Second most prominent emotion
-    confidence: float                     # 0.0–1.0 (normalized)
-
-    # Qualitative state
-    stress: str                           # "low" | "medium" | "high"
-    sentiment: str                        # "positive" | "negative" | "neutral"
-    intent: str                           # User's apparent intent
-
-    # Source tracking
-    sources: list[str] = field(default_factory=list)   # ["face", "text"]
-
-    # Conflict detection
-    emotion_conflict: bool = False
-    conflict_detail: str = ""            # Human-readable conflict description
-
-    # Per-modality summaries (label only, no raw scores)
-    face_emotion: str | None = None
-    face_confidence: float = 0.0
-    face_detected: bool | None = None
-    text_emotion: str | None = None
-    text_confidence: float = 0.0
-    voice_emotion: str | None = None
-    voice_confidence: float = 0.0
-
-    # Session-level pattern
-    conversation_trend: str = ""          # e.g., "mood has been lower for 3 turns"
-    trend_emotion: str | None = None     # Dominant trend emotion
-
-    # LLM behavioral guidance (derived from primary_emotion)
-    guidance: dict[str, Any] = field(default_factory=dict)
+    def __init__(
+        self,
+        primaryEmotion: str = "neutral",
+        confidence: float = 0.0,
+        stressLevel: float = 0.0,
+        activeSources: list[str] | None = None,
+        conflict: bool = False,
+        timestamp: str = "",
+        primary_emotion: str | None = None,
+        stress: str | float | None = None,
+        sentiment: str | None = None,
+        intent: str | None = None,
+        secondary_emotion: str | None = None,
+        sources: list[str] | None = None,
+        face_emotion: str | None = None,
+        text_emotion: str | None = None,
+        voice_emotion: str | None = None,
+        **kwargs: Any,
+    ):
+        self.primaryEmotion = primary_emotion or primaryEmotion
+        self.confidence = confidence
+        if isinstance(stress, (int, float)):
+            self.stressLevel = float(stress)
+        elif isinstance(stress, str):
+            stress_map = {"low": 0.2, "medium": 0.6, "high": 0.9}
+            self.stressLevel = stress_map.get(stress, 0.2)
+        else:
+            self.stressLevel = stressLevel
+        self.activeSources = sources or activeSources or []
+        self.conflict = conflict
+        self.timestamp = timestamp
+        self._face_emotion = face_emotion
+        self._text_emotion = text_emotion
+        self._voice_emotion = voice_emotion
+        self._sentiment = sentiment or "neutral"
+        self._intent = intent or "casual"
+        self._secondary_emotion = secondary_emotion
 
     def to_prompt_dict(self) -> dict[str, Any]:
-        """Return a clean, LLM-safe dictionary for prompt injection.
-
-        Never includes raw scores, tensors, or internal model data.
-        Only structured, human-readable context.
-        """
-        d: dict[str, Any] = {
-            "primary_emotion": self.primary_emotion,
-            "secondary_emotion": self.secondary_emotion,
+        """Return exactly the contracted dictionary for prompt injection."""
+        return {
+            "primaryEmotion": self.primaryEmotion,
             "confidence": round(self.confidence, 2),
-            "stress_level": self.stress,
-            "sentiment": self.sentiment,
-            "intent": self.intent,
-            "emotion_sources": {s: self._get_source_emotion(s) for s in self.sources},
-            "emotion_conflict": self.emotion_conflict,
+            "stressLevel": round(self.stressLevel, 2),
+            "activeSources": self.activeSources,
+            "conflict": self.conflict,
+            "timestamp": self.timestamp,
         }
-
-        if self.emotion_conflict and self.conflict_detail:
-            d["conflict_detail"] = self.conflict_detail
-
-        if self.conversation_trend:
-            d["conversation_trend"] = self.conversation_trend
-
-        if self.guidance:
-            d["guidance"] = self.guidance
-
-        return d
 
     def _get_source_emotion(self, source: str) -> str | None:
         mapping = {
@@ -263,15 +253,85 @@ class EmotionContext:
 
     def is_negative(self) -> bool:
         """True if primary emotion is from the negative valence set."""
-        return self.primary_emotion in NEGATIVE_EMOTIONS
-
-    def is_crisis(self) -> bool:
-        """True if intent signals urgent distress."""
-        return self.intent == "crisis"
+        return self.primaryEmotion in NEGATIVE_EMOTIONS
 
     def get_guidance(self) -> dict[str, Any]:
         """Return per-emotion LLM guidance dict."""
-        return _EMOTION_GUIDANCE.get(self.primary_emotion, _EMOTION_GUIDANCE["neutral"])
+        return _EMOTION_GUIDANCE.get(self.primaryEmotion, _EMOTION_GUIDANCE["neutral"])
+
+    # Compatibility accessors for code that previously consumed FusedEmotion.
+    # They deliberately expose only the already structured, LLM-safe context.
+    @property
+    def primary_emotion(self) -> str:
+        return self.primaryEmotion
+
+    @property
+    def fused_emotion(self) -> str:
+        return self.primaryEmotion
+
+    @property
+    def face_emotion(self) -> str | None:
+        return getattr(self, "_face_emotion", None)
+
+    @property
+    def text_emotion(self) -> str | None:
+        return getattr(self, "_text_emotion", None)
+
+    @property
+    def voice_emotion(self) -> str | None:
+        return getattr(self, "_voice_emotion", None)
+
+    @property
+    def stress(self) -> str | float:
+        return getattr(self, "stressLevel", "low")
+
+    @property
+    def sentiment(self) -> str:
+        return getattr(self, "_sentiment", "neutral")
+
+    @property
+    def intent(self) -> str:
+        return getattr(self, "_intent", "casual")
+
+    @property
+    def sources(self) -> list[str]:
+        return getattr(self, "activeSources", [])
+
+    @property
+    def emotion_conflict(self) -> bool:
+        return getattr(self, "conflict", False)
+
+    @property
+    def conflict_detail(self) -> str | None:
+        return getattr(self, "_conflict_detail", None)
+
+    @property
+    def conversation_trend(self) -> str:
+        return getattr(self, "_conversation_trend", "")
+
+    @property
+    def secondary_emotion(self) -> str | None:
+        return getattr(self, "_secondary_emotion", None)
+
+    @property
+    def guidance(self) -> dict[str, Any]:
+        return self.get_guidance()
+
+    def __getattr__(self, name: str) -> Any:
+        if name.endswith("_confidence"):
+            return 0.0
+        if name.endswith("_detected"):
+            return False
+        if name.endswith("_emotion"):
+            return None
+        return None
+
+    @property
+    def available_modalities(self) -> list[str]:
+        return list(self.activeSources)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.to_prompt_dict()
 
 
 # ── Legacy compatibility ──────────────────────────────────────────────────────

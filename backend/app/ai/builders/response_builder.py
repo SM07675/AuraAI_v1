@@ -161,3 +161,74 @@ class ResponseBuilder:
         token = _INSTRUCTION_TOKEN_RE.sub("", token)
 
         return token
+
+
+class ThinkingStreamFilter:
+    """Stateful stream filter that strips out internal model thinking blocks,
+    <think>...</think> tags, and self-reasoning preambles before sending chunks to the user.
+    """
+
+    def __init__(self) -> None:
+        self._in_think_tag: bool = False
+        self._buffer: str = ""
+        self._passthrough: bool = False
+
+    def process_chunk(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+
+        if self._passthrough:
+            return chunk
+
+        self._buffer += chunk
+
+        # Check for <think> tags
+        if "<think>" in self._buffer:
+            self._in_think_tag = True
+
+        if self._in_think_tag:
+            if "</think>" in self._buffer:
+                self._buffer = self._buffer.split("</think>", 1)[1].lstrip()
+                self._in_think_tag = False
+                self._passthrough = True
+                out = self._buffer
+                self._buffer = ""
+                return out
+            return ""
+
+        # Check for reasoning preamble keywords
+        reasoning_keywords = ["We are at the", "According to the", "Let's craft", "Steps:", "Let's check:", "Let's go with:"]
+        if any(kw in self._buffer[:300] for kw in reasoning_keywords):
+            if "\n\n" in self._buffer or 'Let\'s go with: "' in self._buffer:
+                parts = re.split(r'\n\n|Let\'s go with: "', self._buffer)
+                final_part = parts[-1].strip().strip('"')
+                if final_part and not any(kw in final_part for kw in reasoning_keywords):
+                    self._passthrough = True
+                    self._buffer = ""
+                    return final_part
+            return ""
+
+        # No thinking detected — pass through
+        if len(self._buffer) > 20 or "\n" in self._buffer or " " in self._buffer:
+            self._passthrough = True
+            out = self._buffer
+            self._buffer = ""
+            return out
+
+        return ""
+
+    def flush(self) -> str:
+        if self._in_think_tag:
+            return ""
+        if not self._buffer:
+            return ""
+        out = self._buffer
+        self._buffer = ""
+        reasoning_keywords = ["We are at the", "According to the", "Let's craft", "Steps:", "Let's check:", "Let's go with:"]
+        if any(kw in out for kw in reasoning_keywords):
+            matches = re.findall(r'"([^"]+)"', out)
+            if matches:
+                return matches[-1]
+            lines = [l.strip() for l in out.split("\n") if l.strip()]
+            return lines[-1] if lines else ""
+        return out

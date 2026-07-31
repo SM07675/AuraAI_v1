@@ -70,9 +70,14 @@ async def get_debug_status(db: AsyncSession = Depends(get_db)) -> dict[str, Any]
 
     # Gather AI gateway status
     gateway = AIGateway()
+    provider_statuses = await gateway.get_provider_statuses()
     gateway_status = {
-        "available_providers": gateway.available_providers,
-        "current_provider": getattr(gateway, "_last_provider", "unknown"),
+        "providers": provider_statuses,
+        "available_providers": [
+            item["provider"]
+            for item in provider_statuses
+            if item.get("status") == "healthy" and not item.get("circuit_open")
+        ],
     }
 
     return {

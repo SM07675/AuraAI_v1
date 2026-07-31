@@ -113,14 +113,12 @@ class UserService:
         await self._db.commit()
         return await self.get_preferences(user_id)
 
-    async def soft_delete(self, user_id: int) -> None:
-        """Soft-delete a user account."""
-        from datetime import datetime, timezone
-
+    async def hard_delete(self, user_id: int) -> None:
+        """Hard-delete a user account (GDPR compliance)."""
         user = await self.get_user(user_id)
-        user.deleted_at = datetime.now(timezone.utc)
+        await self._db.delete(user)
         await self._db.commit()
-        logger.info("User account deleted", user_id=user_id)
+        logger.info("User account hard-deleted", user_id=user_id)
 
     async def export_data(self, user_id: int) -> dict[str, Any]:
         """Export all user data for GDPR compliance."""

@@ -57,6 +57,9 @@ class VADResult:
     event: VADEvent | None
     is_speech: bool
     timestamp_ms: float
+    # Raw PCM is carried with the classification so STT can buffer exactly
+    # the speech segment that VAD observed.
+    frame: bytes = b""
 
 
 class VoiceActivityDetector:
@@ -194,7 +197,12 @@ class VoiceActivityDetector:
                 else:
                     event = VADEvent.SILENCE
 
-            yield VADResult(event=event, is_speech=is_speech, timestamp_ms=elapsed_ms)
+            yield VADResult(
+                event=event,
+                is_speech=is_speech,
+                timestamp_ms=elapsed_ms,
+                frame=frame,
+            )
 
     def reset(self) -> None:
         """Reset internal state (e.g. after an interruption)."""
