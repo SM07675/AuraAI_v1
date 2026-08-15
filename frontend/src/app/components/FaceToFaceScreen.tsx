@@ -195,7 +195,8 @@ export function FaceToFaceScreen() {
         });
       } else if (data.type === "error") {
         setTyping(false);
-        setMsgs((m) => [...m, { id: "err-" + Date.now(), from: "aura", text: "Sorry, I ran into an error connecting to my brain." }]);
+        const errTxt = data.error || data.message || "Sorry, I ran into an error connecting to my brain.";
+        setMsgs((m) => [...m, { id: "err-" + Date.now(), from: "aura", text: errTxt }]);
       }
     };
 
@@ -230,12 +231,17 @@ export function FaceToFaceScreen() {
     speakText("Welcome to Face-to-Face mode. I'm observing your facial cues while we talk. How are you feeling right now?");
   }, []);
 
+  const micActiveRef = useRef(micActive);
+  micActiveRef.current = micActive;
+
   // ── Speech Recognition (STT) ────────────────────────────────────────────────
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
     let recognition: any = null;
+    let isMounted = true;
+
     try {
       recognition = new SpeechRecognition();
       recognition.continuous = true;
@@ -256,8 +262,21 @@ export function FaceToFaceScreen() {
 
         if (interim) setText(interim);
         if (final) {
-          setText(final);
-          sendMsg(final);
+          const clean = final.trim();
+          setText(clean);
+          sendMsg(clean);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn("FaceToFace SpeechRecognition error:", e.error);
+      };
+
+      recognition.onend = () => {
+        if (isMounted && micActiveRef.current) {
+          try {
+            recognition.start();
+          } catch (e) {}
         }
       };
 
@@ -269,6 +288,7 @@ export function FaceToFaceScreen() {
     }
 
     return () => {
+      isMounted = false;
       if (recognition) {
         try { recognition.stop(); } catch (e) {}
       }

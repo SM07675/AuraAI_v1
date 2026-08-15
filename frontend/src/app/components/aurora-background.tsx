@@ -18,17 +18,17 @@ export function AuroraBackground() {
   const bubbles = useMemo(() => BUBBLES, []);
 
   return (
-    <div className="aura-bg fixed inset-0 overflow-hidden -z-10" style={{ background: "#E0F2FE", contain: "strict" }}>
+    <div className="aura-bg fixed inset-0 overflow-hidden -z-10" style={{ background: "#EBF3FF", contain: "strict" }}>
       {/* ── Base Gradient ── */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 40%, #BAE6FD 75%, #7DD3FC 100%)",
+            "linear-gradient(135deg, #F4F8FF 0%, #EBF2FF 35%, #DCE8FF 70%, #E8EEFF 100%)",
         }}
       />
 
-      {/* ── Aurora Glow 1 (large, slightly above center) ── */}
+      {/* ── Aurora Glow 1 (large vibrant cyan-sky orb) ── */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -38,91 +38,91 @@ export function AuroraBackground() {
           top: "42%",
           marginLeft: -1100,
           marginTop: -1100,
-          opacity: 0.75,
-          filter: "blur(250px)",
+          opacity: 0.82,
+          filter: "blur(220px)",
           background:
-            "radial-gradient(circle, #38BDF8 0%, #7DD3FC 35%, #BAE6FD 60%, rgba(224,242,254,0) 75%)",
+            "radial-gradient(circle, #38BDF8 0%, #7DD3FC 35%, #BAE6FD 60%, rgba(224,242,254,0) 78%)",
         }}
-        animate={{ scale: [1, 1.04, 1], rotate: [0, 4, 0] }}
-        transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
-      />
-
-      {/* ── Aurora Glow 2 / Right Glow (top right) ── */}
-      <motion.div
-        className="absolute rounded-full"
-        style={{
-          width: 1400,
-          height: 1400,
-          right: "-8%",
-          top: "-18%",
-          opacity: 0.45,
-          filter: "blur(350px)",
-          background:
-            "radial-gradient(circle, #FFFFFF 0%, #D7E8FF 45%, rgba(215,232,255,0) 72%)",
-        }}
-        animate={{ scale: [1, 1.05, 1], x: [0, 30, 0] }}
+        animate={{ scale: [1, 1.05, 1], rotate: [0, 6, 0] }}
         transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      {/* ── Left Ambient Light ── */}
+      {/* ── Aurora Glow 2 / Top Right Deep Sky Light ── */}
       <motion.div
         className="absolute rounded-full"
         style={{
-          width: 1200,
-          height: 1200,
-          left: "-14%",
-          top: "22%",
-          opacity: 0.35,
-          filter: "blur(300px)",
+          width: 1500,
+          height: 1500,
+          right: "-6%",
+          top: "-16%",
+          opacity: 0.55,
+          filter: "blur(280px)",
           background:
-            "radial-gradient(circle, #CBBEFF 0%, #FFFFFF 42%, rgba(255,255,255,0) 70%)",
+            "radial-gradient(circle, #0284C7 0%, #38BDF8 35%, #7DD3FC 60%, rgba(224,242,254,0) 75%)",
         }}
-        animate={{ scale: [1, 1.06, 1], x: [-30, 30, -30] }}
-        transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
-      />
-
-      {/* ── Bottom Glow ── */}
-      <motion.div
-        className="absolute rounded-full"
-        style={{
-          width: 1800,
-          height: 1400,
-          left: "50%",
-          bottom: "-30%",
-          marginLeft: -900,
-          opacity: 0.2,
-          filter: "blur(400px)",
-          background:
-            "radial-gradient(circle, #FFFFFF 0%, #D8F8FF 45%, rgba(216,248,255,0) 72%)",
-        }}
-        animate={{ scale: [1, 1.05, 1], opacity: [0.18, 0.24, 0.18] }}
+        animate={{ scale: [1, 1.06, 1], x: [0, 35, 0] }}
         transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      {/* ── Glass Light behind robot (center) ── */}
+      {/* ── Left Sky Ambient Light ── */}
       <motion.div
         className="absolute rounded-full"
         style={{
-          width: 700,
-          height: 700,
+          width: 1300,
+          height: 1300,
+          left: "-12%",
+          top: "20%",
+          opacity: 0.45,
+          filter: "blur(260px)",
+          background:
+            "radial-gradient(circle, #7DD3FC 0%, #BAE6FD 40%, #E0F2FE 65%, rgba(255,255,255,0) 80%)",
+        }}
+        animate={{ scale: [1, 1.07, 1], x: [-25, 25, -25] }}
+        transition={{ duration: 24, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      {/* ── Bottom Crystal Glow ── */}
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          width: 1900,
+          height: 1500,
+          left: "50%",
+          bottom: "-28%",
+          marginLeft: -950,
+          opacity: 0.35,
+          filter: "blur(320px)",
+          background:
+            "radial-gradient(circle, #FFFFFF 0%, #BAE6FD 45%, rgba(186,230,253,0) 75%)",
+        }}
+        animate={{ scale: [1, 1.05, 1], opacity: [0.3, 0.4, 0.3] }}
+        transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      {/* ── Glass Light behind center area ── */}
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          width: 750,
+          height: 750,
           left: "50%",
           top: "44%",
-          marginLeft: -350,
-          marginTop: -350,
-          opacity: 0.7,
-          filter: "blur(180px)",
+          marginLeft: -375,
+          marginTop: -375,
+          opacity: 0.75,
+          filter: "blur(160px)",
           background:
-            "radial-gradient(circle, #FFFFFF 0%, #CBBEFF 35%, #D7E8FF 60%, rgba(215,232,255,0) 78%)",
+            "radial-gradient(circle, #FFFFFF 0%, #7DD3FC 35%, #BAE6FD 60%, rgba(224,242,254,0) 80%)",
         }}
-        animate={{ scale: [1, 1.05, 1], opacity: [0.6, 0.75, 0.6] }}
-        transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ scale: [1, 1.06, 1], opacity: [0.65, 0.8, 0.65] }}
+        transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
       />
 
       {/* ── Glass Reflections (organic curved shapes) ── */}
       {[
-        { w: 900, h: 500, left: "8%", top: "10%", rot: -18, dur: 25 },
-        { w: 700, h: 420, left: "60%", top: "50%", rot: 24, dur: 30 },
-        { w: 620, h: 360, left: "34%", top: "66%", rot: -8, dur: 27 },
+        { w: 950, h: 520, left: "6%", top: "8%", rot: -18, dur: 24 },
+        { w: 750, h: 440, left: "58%", top: "48%", rot: 24, dur: 28 },
+        { w: 660, h: 380, left: "32%", top: "64%", rot: -8, dur: 26 },
       ].map((r, i) => (
         <motion.div
           key={`refl-${i}`}
@@ -132,23 +132,23 @@ export function AuroraBackground() {
             height: r.h,
             left: r.left,
             top: r.top,
-            opacity: 0.08,
-            filter: "blur(120px)",
+            opacity: 0.12,
+            filter: "blur(110px)",
             borderRadius: "60% 40% 55% 45% / 50% 60% 40% 50%",
             background:
-              "linear-gradient(120deg, #FFFFFF, #D7E8FF 50%, rgba(203,190,255,0.6))",
+              "linear-gradient(120deg, #FFFFFF, #BAE6FD 50%, #7DD3FC)",
             transform: `rotate(${r.rot}deg)`,
           }}
-          animate={{ x: [-30, 30, -30] }}
+          animate={{ x: [-25, 25, -25] }}
           transition={{ duration: r.dur, repeat: Infinity, ease: "easeInOut" }}
         />
       ))}
 
-      {/* ── Liquid Waves (smooth, wide, transparent) ── */}
+      {/* ── Liquid Waves (smooth, wide light-blue ripples) ── */}
       {[
-        { w: 1600, h: 700, left: "-10%", top: "30%", dur: 18 },
-        { w: 1400, h: 600, left: "20%", top: "-6%", dur: 20 },
-        { w: 1500, h: 650, left: "34%", top: "48%", dur: 22 },
+        { w: 1650, h: 720, left: "-8%", top: "28%", dur: 18 },
+        { w: 1450, h: 620, left: "18%", top: "-8%", dur: 20 },
+        { w: 1550, h: 670, left: "32%", top: "46%", dur: 22 },
       ].map((wv, i) => (
         <motion.div
           key={`wave-${i}`}
@@ -158,21 +158,21 @@ export function AuroraBackground() {
             height: wv.h,
             left: wv.left,
             top: wv.top,
-            opacity: 0.1,
-            filter: "blur(150px)",
+            opacity: 0.14,
+            filter: "blur(130px)",
             borderRadius: "50% 50% 48% 52% / 55% 45% 55% 45%",
             background:
-              "linear-gradient(100deg, #FFFFFF, #CBBEFF 45%, #D7E8FF)",
+              "linear-gradient(100deg, #FFFFFF 0%, #E0F2FE 40%, #7DD3FC 100%)",
           }}
-          animate={{ scale: [1, 1.03, 1] }}
+          animate={{ scale: [1, 1.04, 1] }}
           transition={{ duration: wv.dur, repeat: Infinity, ease: "easeInOut" }}
         />
       ))}
 
-      {/* ── Floating Light Streaks (curved, very soft) ── */}
+      {/* ── Floating Light Streaks ── */}
       {[
-        { w: 1300, h: 220, left: "10%", top: "24%", rot: -22 },
-        { w: 1100, h: 180, left: "40%", top: "70%", rot: 16 },
+        { w: 1350, h: 230, left: "8%", top: "22%", rot: -22 },
+        { w: 1150, h: 190, left: "38%", top: "68%", rot: 16 },
       ].map((s, i) => (
         <motion.div
           key={`streak-${i}`}
@@ -182,14 +182,14 @@ export function AuroraBackground() {
             height: s.h,
             left: s.left,
             top: s.top,
-            opacity: 0.05,
-            filter: "blur(150px)",
+            opacity: 0.08,
+            filter: "blur(130px)",
             borderRadius: "50%",
-            background: "linear-gradient(90deg, transparent, #FFFFFF, transparent)",
+            background: "linear-gradient(90deg, transparent, #FFFFFF 50%, transparent)",
             transform: `rotate(${s.rot}deg)`,
           }}
-          animate={{ x: [-30, 30, -30] }}
-          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+          animate={{ x: [-25, 25, -25] }}
+          transition={{ duration: 24, repeat: Infinity, ease: "easeInOut" }}
         />
       ))}
 
@@ -204,47 +204,47 @@ export function AuroraBackground() {
             left: b.left,
             top: b.top,
             background:
-              "radial-gradient(circle at 32% 28%, rgba(255,255,255,0.9), rgba(255,255,255,0.15) 45%, rgba(255,255,255,0.05) 100%)",
-            border: "1px solid rgba(255,255,255,0.6)",
-            boxShadow: "0 12px 40px rgba(120,120,255,0.12), inset 0 1px 4px rgba(255,255,255,0.8)",
-            backdropFilter: "blur(2px)",
-            WebkitBackdropFilter: "blur(2px)",
+              "radial-gradient(circle at 32% 28%, rgba(255,255,255,0.95), rgba(224,242,254,0.3) 50%, rgba(125,211,252,0.1) 100%)",
+            border: "1.2px solid rgba(255,255,255,0.75)",
+            boxShadow: "0 12px 36px rgba(2,132,199,0.18), inset 0 2px 6px rgba(255,255,255,0.95)",
+            backdropFilter: "blur(3px)",
+            WebkitBackdropFilter: "blur(3px)",
           }}
-          animate={{ y: [0, -60, 0], opacity: [0.2, 0.5, 0.2] }}
+          animate={{ y: [0, -65, 0], opacity: [0.25, 0.6, 0.25] }}
           transition={{ duration: b.dur, repeat: Infinity, ease: "easeInOut", delay: b.delay }}
         >
           {/* inner highlight */}
           <div
             className="absolute rounded-full"
             style={{
-              width: "28%",
-              height: "28%",
-              left: "22%",
-              top: "18%",
-              background: "rgba(255,255,255,0.9)",
+              width: "30%",
+              height: "30%",
+              left: "20%",
+              top: "16%",
+              background: "rgba(255,255,255,0.95)",
               filter: "blur(1px)",
             }}
           />
         </motion.div>
       ))}
 
-      {/* ── Light Noise / film grain (~1%) ── */}
+      {/* ── Subtle Light Grain (~0.8%) ── */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          opacity: 0.04,
+          opacity: 0.03,
           mixBlendMode: "overlay",
           backgroundImage:
             "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
         }}
       />
 
-      {/* ── Edge Vignette (very soft, white) ── */}
+      {/* ── Soft Edge Vignette ── */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 60%, rgba(255,255,255,0.04) 100%)",
+            "radial-gradient(ellipse at center, transparent 65%, rgba(255,255,255,0.08) 100%)",
         }}
       />
     </div>

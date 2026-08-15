@@ -20,6 +20,7 @@ from app.core.middleware import setup_middleware
 from app.db.engine import dispose_engine
 
 # API routers
+# API routers
 from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
 from app.api.v1.chat import router as chat_router
@@ -32,6 +33,7 @@ from app.api.v1.debug import router as debug_router
 from app.api.v1.emotion_ws import router as emotion_ws_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.music import router as music_router
 
 
 settings = get_settings()
@@ -120,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(emotion_ws_router, prefix=api_prefix)
     app.include_router(dashboard_router, prefix=api_prefix)
     app.include_router(analytics_router, prefix=api_prefix)
+    app.include_router(music_router, prefix=api_prefix)
 
     return app
 

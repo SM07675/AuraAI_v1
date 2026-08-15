@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, MessageCircle, Activity, History as HistoryIcon, FileText, Wind, Heart, ArrowRight, Send, Plus, X } from "lucide-react";
+import { Mic, MicOff, MessageCircle, Activity, History as HistoryIcon, FileText, Wind, Heart, ArrowRight, Send, Plus, X, LogOut, User as UserIcon, LogIn, ShieldCheck } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, LineChart, Line } from "recharts";
 import { GlassCard } from "./glass-card";
 import { AuraRobot } from "./aura-robot";
@@ -16,8 +16,15 @@ const QUICK_ACTIONS = [
 ];
 
 /* ─────────────────────────── HOME ─────────────────────────── */
-export function HomeScreen({ onStart }: { onStart: () => void }) {
-  const [actionsOpen, setActionsOpen] = useState(false);
+export function HomeScreen({ onStart, onLogout, onNavigateToAuth }: { onStart: () => void; onLogout?: () => void; onNavigateToAuth?: () => void }) {
+  const user = (() => {
+    try {
+      const saved = localStorage.getItem("aura_user");
+      return saved ? JSON.parse(saved) : { name: "Hardik", email: "guest@aura.ai" };
+    } catch {
+      return { name: "Hardik", email: "guest@aura.ai" };
+    }
+  })();
 
   return (
     <div>
@@ -31,7 +38,7 @@ export function HomeScreen({ onStart }: { onStart: () => void }) {
             Welcome
             <br />
             <span style={{ background: "linear-gradient(120deg,#0284C7,#38BDF8,#0284C7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              back, Hardik
+              back, {user.name}
             </span>
           </h1>
           <p style={{ fontSize: "clamp(16px, 1.15vw, 19px)", color: "#5c5c78", maxWidth: 400, marginTop: 20, lineHeight: 1.55 }}>
@@ -75,59 +82,8 @@ export function HomeScreen({ onStart }: { onStart: () => void }) {
         </motion.div>
       </div>
 
-      {/* ── Collapsible Floating Quick Actions with Plus (+) Icon ── */}
-      <div className="flex flex-col items-center justify-center mt-16 relative">
-        <AnimatePresence>
-          {actionsOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 15, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 15, scale: 0.9 }}
-              transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              className="flex flex-wrap justify-center gap-3 mb-4 max-w-3xl"
-            >
-              {QUICK_ACTIONS.map((a, i) => {
-                const Icon = a.icon;
-                return (
-                  <motion.button
-                    key={a.label}
-                    initial={{ opacity: 0, scale: 0.8, y: 10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                    whileHover={{ y: -4, scale: 1.05 }}
-                    whileTap={{ scale: 0.9 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 20, delay: i * 0.05 }}
-                    onClick={onStart}
-                    className="liquid-glass flex items-center gap-2.5 rounded-full px-5 py-3 shadow-md cursor-pointer"
-                  >
-                    <span className="grid place-items-center rounded-full" style={{ width: 30, height: 30, background: "linear-gradient(135deg,#0284C7,#38BDF8)" }}>
-                      <Icon size={15} color="#fff" />
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: "#1e2740" }}>{a.label}</span>
-                  </motion.button>
-                );
-              })}
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-        {/* Plus (+) Floating Button */}
-        <motion.button
-          onClick={() => setActionsOpen(!actionsOpen)}
-          whileHover={{ scale: 1.08, boxShadow: "0 12px 30px rgba(2,132,199,0.4)" }}
-          whileTap={{ scale: 0.92 }}
-          transition={{ type: "spring", stiffness: 450, damping: 18 }}
-          className="liquid-glass flex items-center gap-2.5 rounded-full px-6 py-3.5 shadow-xl cursor-pointer"
-          style={{ background: "linear-gradient(135deg,#0284C7,#38BDF8)", color: "#fff", fontWeight: 700, fontSize: 15 }}
-        >
-          <motion.div animate={{ rotate: actionsOpen ? 45 : 0 }} transition={{ type: "spring", stiffness: 400, damping: 22 }}>
-            <Plus size={20} color="#fff" />
-          </motion.div>
-          <span>{actionsOpen ? "Close Quick Actions" : "Quick Actions"}</span>
-        </motion.button>
-      </div>
-
-      <div className="grid gap-6 mt-14" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+      <div className="grid gap-6 mt-14" style={{ gridTemplateColumns: "1.2fr 1fr 0.95fr" }}>
         <GlassCard delay={0.6} style={{ padding: 28 }}>
           <div className="flex items-center justify-between mb-4">
             <span style={{ fontWeight: 700, fontSize: 18 }}>Recent Session</span>
@@ -167,6 +123,48 @@ export function HomeScreen({ onStart }: { onStart: () => void }) {
                 </motion.div>
               );
             })}
+          </div>
+        </GlassCard>
+
+        {/* Account & Session Controls (Login / Logout) */}
+        <GlassCard delay={0.8} style={{ padding: 28 }}>
+          <div className="flex items-center justify-between mb-4">
+            <span style={{ fontWeight: 700, fontSize: 18 }}>Account & Auth</span>
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Active
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/60 border border-slate-200/70 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-sky-400 grid place-items-center text-white font-bold text-sm shadow-sm shrink-0">
+              {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-slate-800 text-sm truncate">{user.name}</div>
+              <div className="text-xs text-slate-500 truncate">{user.email || "Registered User"}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={onLogout}
+              className="w-full py-3 px-4 rounded-xl font-bold text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer flex items-center justify-center gap-2 transition-all shadow-sm"
+            >
+              <LogOut size={15} />
+              <span>Log Out from Dashboard</span>
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={onNavigateToAuth || onLogout}
+              className="w-full py-2.5 px-4 rounded-xl font-semibold text-xs text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 cursor-pointer flex items-center justify-center gap-2 transition-all"
+            >
+              <LogIn size={15} />
+              <span>Sign In / Switch Account</span>
+            </motion.button>
           </div>
         </GlassCard>
       </div>
@@ -234,7 +232,8 @@ export function ChatScreen() {
         });
       } else if (data.type === "error") {
         setTyping(false);
-        setMsgs((m) => [...m, { id: "error-" + Date.now(), from: "aura", text: "Sorry, I ran into an issue connecting to my brain." }]);
+        const errTxt = data.error || data.message || "Sorry, I ran into an issue connecting to my brain.";
+        setMsgs((m) => [...m, { id: "error-" + Date.now(), from: "aura", text: errTxt }]);
       }
     };
 
@@ -264,6 +263,62 @@ export function ChatScreen() {
     ws.current.send(JSON.stringify({ type: "message", content: t }));
   };
 
+  const [listening, setListening] = useState(false);
+  const listeningRef = useRef(listening);
+  listeningRef.current = listening;
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let recognition: any = null;
+    let isMounted = true;
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        let final = "";
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+
+        if (interim) setText(interim);
+        if (final) {
+          setText(final.trim());
+        }
+      };
+
+      recognition.onend = () => {
+        if (isMounted && listeningRef.current) {
+          try { recognition.start(); } catch (e) {}
+        }
+      };
+
+      if (listening) {
+        recognition.start();
+      }
+    } catch (e) {
+      console.warn("Chat SpeechRecognition error:", e);
+    }
+
+    return () => {
+      isMounted = false;
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    };
+  }, [listening]);
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center gap-4 mb-6">
@@ -290,18 +345,18 @@ export function ChatScreen() {
                 style={{ maxWidth: "78%" }}
               >
                 <div
-                  className="rounded-[24px] px-5 py-3"
+                  className="rounded-[22px] px-5 py-3.5 shadow-sm"
                   style={
                     m.from === "user"
-                      ? { background: "linear-gradient(135deg,#2458FF,#00C6FF)", color: "#fff", boxShadow: "0 8px 20px rgba(36,88,255,0.3)" }
-                      : { background: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.7)", color: "#25253c", backdropFilter: "blur(20px)" }
+                      ? { background: "linear-gradient(135deg,#0077FF,#00BFFF)", color: "#ffffff", boxShadow: "0 8px 22px rgba(0,119,255,0.35)" }
+                      : { background: "rgba(255,255,255,0.88)", border: "1px solid rgba(255,255,255,0.95)", color: "#2D3748", boxShadow: "0 4px 16px rgba(0,0,0,0.02)", backdropFilter: "blur(16px)" }
                   }
                 >
-                  <span style={{ fontSize: 15, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{m.text}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.45, whiteSpace: "pre-wrap", fontWeight: m.from === "user" ? 500 : 400 }}>{m.text}</span>
                 </div>
                 {m.from === "user" && (
                   <div className="text-right mt-1">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/70 backdrop-blur-sm text-[11px] font-semibold text-blue-600 border border-blue-200 shadow-sm">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/80 backdrop-blur-sm text-[11px] font-semibold text-blue-600 border border-blue-100 shadow-xs">
                       Text Emotion: {m.text.toLowerCase().includes("sad") || m.text.toLowerCase().includes("bad") ? "Sadness 😔" : m.text.toLowerCase().includes("happy") || m.text.toLowerCase().includes("good") ? "Joy 😊" : "Neutral 😌"}
                     </span>
                   </div>
@@ -310,10 +365,10 @@ export function ChatScreen() {
             );
           })}
           {typing && (
-            <div className="self-start rounded-[24px] px-5 py-4" style={{ background: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.7)" }}>
+            <div className="self-start rounded-[22px] px-5 py-4" style={{ background: "rgba(255,255,255,0.88)", border: "1px solid rgba(255,255,255,0.95)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
               <div className="flex gap-1.5">
                 {[0, 1, 2].map((i) => (
-                  <motion.span key={i} style={{ width: 8, height: 8, borderRadius: 99, background: "#2458FF" }} animate={{ y: [0, -6, 0], opacity: [0.4, 1, 0.4] }} transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }} />
+                  <motion.span key={i} style={{ width: 8, height: 8, borderRadius: 99, background: "#0077FF" }} animate={{ y: [0, -6, 0], opacity: [0.4, 1, 0.4] }} transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }} />
                 ))}
               </div>
             </div>
@@ -326,11 +381,22 @@ export function ChatScreen() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="Tell Aura how you feel…"
-            className="flex-1 rounded-full px-5 py-3 outline-none"
-            style={{ background: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.7)", fontSize: 15 }}
+            placeholder={listening ? "Listening to your voice..." : "Tell Aura how you feel…"}
+            className="flex-1 rounded-full px-5 py-3.5 outline-none transition-all placeholder:text-slate-400"
+            style={{ background: "rgba(240, 244, 255, 0.8)", border: "1px solid rgba(215, 226, 252, 0.9)", fontSize: 15, color: "#2D3748" }}
           />
-          <motion.button whileTap={{ scale: 0.88 }} onClick={send} className="grid place-items-center rounded-full" style={{ width: 48, height: 48, background: "linear-gradient(135deg,#2458FF,#00C6FF)", boxShadow: "0 8px 20px rgba(36,88,255,0.4)" }}>
+          <motion.button
+            whileTap={{ scale: 0.88 }}
+            onClick={() => setListening(!listening)}
+            className={`grid place-items-center rounded-full shrink-0 transition-all ${
+              listening ? "bg-rose-500 text-white shadow-lg shadow-rose-500/40 animate-pulse" : "bg-slate-200/80 text-slate-600 hover:bg-slate-300/80"
+            }`}
+            style={{ width: 48, height: 48 }}
+            title={listening ? "Pause Voice Input" : "Start Voice Input"}
+          >
+            {listening ? <MicOff size={18} /> : <Mic size={18} />}
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.88 }} onClick={send} className="grid place-items-center rounded-full shrink-0 cursor-pointer" style={{ width: 48, height: 48, background: "linear-gradient(135deg,#0077FF,#00BFFF)", boxShadow: "0 8px 22px rgba(0,119,255,0.4)" }}>
             <Send size={18} color="#fff" />
           </motion.button>
         </div>

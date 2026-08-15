@@ -123,7 +123,18 @@ class ConversationService:
 
     async def _get_user(self, user_id: int) -> User:
         result = await self._db.execute(select(User).where(User.id == user_id))
-        return result.scalar_one_or_none()  # type: ignore
+        user = result.scalar_one_or_none()
+        if not user:
+            user = User(
+                id=user_id,
+                email=f"guest_{user_id}@aura.ai",
+                name="Guest User",
+                password_hash="guest_dev_password_hash",
+            )
+            self._db.add(user)
+            await self._db.commit()
+            await self._db.refresh(user)
+        return user
 
     async def _get_conversation_history(self, session_id: int, limit: int = 10) -> list[dict]:
         """Get recent messages formatted for prompt injection."""

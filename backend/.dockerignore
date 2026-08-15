@@ -1,0 +1,28 @@
+# Pytest cache
+.pytest_cache/
+
+# Python virtual environment & caches
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Environment files
+.env
+.env.*
+
+# Logs and databases
+*.log
+backend_logs.txt
+*.sqlite3
+
+# Git and IDE
+.git/
+.gitignore
+.kiro/
+.vscode/
+.idea/

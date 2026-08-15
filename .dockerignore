@@ -1,0 +1,29 @@
+# Pytest & test cache
+**/.pytest_cache/
+.pytest_cache/
+
+# Python virtual environment & caches
+**/.venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Node modules & frontend builds
+**/node_modules/
+**/dist/
+**/.next/
+
+# Environment files
+.env
+.env.*
+
+# Logs and system files
+*.log
+backend_logs.txt
+.git/
+.gitignore
+.kiro/
+.vscode/
+.idea/
