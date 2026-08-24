@@ -29,7 +29,10 @@ export function MemoryScreen() {
   const fetchMemories = () => {
     setLoading(true);
     fetch("/api/v1/memory")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
       .then((data) => {
         setMemories(data.memories || []);
         setLoading(false);
@@ -104,26 +107,33 @@ export function MemoryScreen() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto select-none px-2 sm:px-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Memory Timeline</h2>
-          <p style={{ color: "#5c5c78", fontSize: 16, marginTop: 6 }}>
-            Long-term facts, goals, interests, and emotional context learned by Aura.
+          <div className="inline-flex items-center gap-2 rounded-full px-3.5 py-1 mb-2 clay-pill text-[#7B59DC] font-bold text-xs">
+            <Sparkles size={13} className="text-[#9A80E5]" />
+            AURA LONG-TERM MEMORY
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] tracking-tight">Active Context & Preferences</h1>
+          <p className="text-[#7A7A96] dark:text-[#9E98B4] text-xs sm:text-sm mt-1 font-medium">
+            Explicit goals, interests, facts, and communication parameters remembered by Aura across sessions.
           </p>
         </div>
-        <button
+
+        <motion.button
+          whileHover={{ scale: 1.04, y: -1 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             closeModal();
             setShowModal(true);
           }}
-          className="flex items-center gap-2 rounded-full px-5 py-3 text-white font-semibold text-sm shadow-lg shadow-blue-500/30"
-          style={{ background: "linear-gradient(135deg,#2458FF,#00C6FF)" }}
+          className="clay-button flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-[#7B59DC]"
+          style={{ borderRadius: 9999 }}
         >
-          <Plus size={18} />
+          <Plus size={16} />
           Add Memory
-        </button>
+        </motion.button>
       </div>
 
       {/* Controls */}
@@ -131,119 +141,120 @@ export function MemoryScreen() {
         {/* Filters */}
         <div className="flex gap-2">
           {["all", "goal", "interest", "preference", "fact"].map((t) => (
-            <button
+            <motion.button
               key={t}
+              whileTap={{ scale: 0.95 }}
               onClick={() => setFilterType(t)}
-              className="capitalize rounded-full px-4 py-1.5 text-xs font-semibold transition-all border"
-              style={
-                filterType === t
-                  ? { background: "#2458FF", color: "#fff", borderColor: "#2458FF" }
-                  : { background: "rgba(255,255,255,0.6)", color: "#475569", borderColor: "rgba(255,255,255,0.8)" }
-              }
+              className={`capitalize px-4 py-1.5 text-xs font-bold transition-all cursor-pointer border-none outline-none ${
+                filterType === t ? "clay-active-nav" : "clay-pill text-[#6B6B85] dark:text-[#9E98B4]"
+              }`}
             >
               {t}
-            </button>
+            </motion.button>
           ))}
         </div>
 
         {/* Search */}
-        <div className="relative w-64">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="clay-pill relative w-64 flex items-center px-3 py-1.5">
+          <Search size={14} className="text-[#9E9EB2] dark:text-[#6E6882] mr-2 shrink-0" />
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search memories…"
-            className="w-full rounded-full pl-9 pr-4 py-2 bg-white/70 border border-white/80 outline-none text-xs text-slate-800"
+            className="w-full bg-transparent border-none outline-none text-xs text-[#2D2D42] dark:text-[#E8E4F2] placeholder-[#9E9EB2] dark:placeholder-[#6E6882] font-medium"
           />
         </div>
       </div>
 
       {/* Timeline Grid */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {filtered.map((m) => (
           <motion.div key={m.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <GlassCard style={{ padding: 20 }}>
+            <div className="clay-card p-5 rounded-[28px]">
               <div className="flex items-center justify-between mb-3">
-                <span className="capitalize px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">
+                <span className="clay-pill capitalize px-3 py-0.5 text-[10.5px] font-bold text-[#7B59DC]">
                   {m.type}
                 </span>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => openEdit(m)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500">
-                    <Edit2 size={14} />
+                  <button onClick={() => openEdit(m)} className="p-1.5 hover:bg-white/20 rounded-lg text-[#7A7A96] dark:text-[#9E98B4] border-none cursor-pointer">
+                    <Edit2 size={13} />
                   </button>
-                  <button onClick={() => handleDelete(m.id)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-500">
-                    <Trash2 size={14} />
+                  <button onClick={() => handleDelete(m.id)} className="p-1.5 hover:bg-red-500/20 rounded-lg text-red-500 border-none cursor-pointer">
+                    <Trash2 size={13} />
                   </button>
                 </div>
               </div>
 
-              <h4 className="font-bold text-slate-900 text-base mb-1">{m.key}</h4>
-              <p className="text-slate-600 text-xs leading-relaxed mb-4">{m.value}</p>
+              <h4 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-sm mb-1">{m.key}</h4>
+              <p className="text-[#6B6B85] dark:text-[#9E98B4] text-xs leading-relaxed mb-4 font-medium">{m.value}</p>
 
               {/* Importance Score Bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] font-medium text-slate-500">
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-[10.5px] font-bold text-[#6B6B85] dark:text-[#9E98B4]">
                   <span>Importance Score</span>
-                  <span className="font-bold text-blue-600">{Math.round(m.importance * 100)}%</span>
+                  <span className="text-[#7B59DC]">{Math.round(m.importance * 100)}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-blue-100 overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded-full" style={{ width: `${Math.round(m.importance * 100)}%` }} />
+                <div className="clay-track-inset h-2 w-full overflow-hidden">
+                  <div className="clay-progress-fill h-full" style={{ width: `${Math.round(m.importance * 100)}%` }} />
                 </div>
               </div>
-            </GlassCard>
+            </div>
           </motion.div>
         ))}
       </div>
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <GlassCard style={{ width: 440, padding: 28 }} hover={false}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="clay-card p-6 w-full max-w-[440px] rounded-[32px]">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-bold text-lg text-slate-900">{editingId ? "Edit Memory" : "Add Memory"}</h3>
-              <button onClick={closeModal} className="p-1 text-slate-400 hover:text-slate-600">
-                <X size={20} />
+              <h3 className="font-extrabold text-base text-[#2D2D42] dark:text-[#FFFFFF]">{editingId ? "Edit Memory" : "Add Memory"}</h3>
+              <button onClick={closeModal} className="p-1 text-[#9E9EB2] hover:text-[#2D2D42] dark:hover:text-white border-none cursor-pointer">
+                <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-4 text-xs">
+            <div className="space-y-3.5 text-xs">
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Memory Type</label>
+                <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Memory Type</label>
                 <select
                   value={formType}
                   onChange={(e) => setFormType(e.target.value)}
-                  className="w-full rounded-xl p-2.5 bg-white/80 border border-slate-200 text-slate-800 outline-none"
+                  className="clay-input w-full p-2.5 text-xs text-[#2D2D42] dark:text-[#E8E4F2]"
+                  style={{ borderRadius: 16 }}
                 >
-                  <option value="goal">Goal</option>
-                  <option value="interest">Interest</option>
-                  <option value="preference">Preference</option>
-                  <option value="fact">Fact</option>
+                  <option value="goal" className="bg-[#171424] text-[#E8E4F2]">Goal</option>
+                  <option value="interest" className="bg-[#171424] text-[#E8E4F2]">Interest</option>
+                  <option value="preference" className="bg-[#171424] text-[#E8E4F2]">Preference</option>
+                  <option value="fact" className="bg-[#171424] text-[#E8E4F2]">Fact</option>
                 </select>
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Title / Key</label>
+                <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Title / Key</label>
                 <input
                   value={formKey}
                   onChange={(e) => setFormKey(e.target.value)}
                   placeholder="e.g. Placement Goal"
-                  className="w-full rounded-xl p-2.5 bg-white/80 border border-slate-200 text-slate-800 outline-none"
+                  className="clay-input w-full p-2.5 text-xs text-[#2D2D42] dark:text-[#E8E4F2]"
+                  style={{ borderRadius: 16 }}
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Detail / Value</label>
+                <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Detail / Value</label>
                 <textarea
                   value={formValue}
                   onChange={(e) => setFormValue(e.target.value)}
                   placeholder="Describe this memory item…"
                   rows={3}
-                  className="w-full rounded-xl p-2.5 bg-white/80 border border-slate-200 text-slate-800 outline-none resize-none"
+                  className="clay-input w-full p-2.5 text-xs text-[#2D2D42] dark:text-[#E8E4F2] resize-none"
+                  style={{ borderRadius: 16 }}
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Importance (0.1 - 1.0)</label>
+                <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Importance (0.1 - 1.0)</label>
                 <input
                   type="number"
                   step="0.1"
@@ -251,20 +262,26 @@ export function MemoryScreen() {
                   max="1.0"
                   value={formImportance}
                   onChange={(e) => setFormImportance(parseFloat(e.target.value))}
-                  className="w-full rounded-xl p-2.5 bg-white/80 border border-slate-200 text-slate-800 outline-none"
+                  className="clay-input w-full p-2.5 text-xs text-[#2D2D42] dark:text-[#E8E4F2]"
+                  style={{ borderRadius: 16 }}
                 />
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3">
-                <button onClick={closeModal} className="px-4 py-2 rounded-xl text-slate-600 font-semibold hover:bg-slate-100">
+                <button onClick={closeModal} className="px-4 py-2 rounded-xl text-[#6B6B85] dark:text-[#9E98B4] font-bold border-none cursor-pointer hover:bg-white/10">
                   Cancel
                 </button>
-                <button onClick={handleSave} className="px-5 py-2 rounded-xl bg-blue-600 text-white font-semibold shadow-md shadow-blue-500/30">
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={handleSave}
+                  className="clay-button px-5 py-2 rounded-xl text-[#7B59DC] font-bold cursor-pointer"
+                >
                   Save Memory
-                </button>
+                </motion.button>
               </div>
             </div>
-          </GlassCard>
+          </div>
         </div>
       )}
     </div>

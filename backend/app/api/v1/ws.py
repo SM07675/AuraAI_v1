@@ -134,32 +134,46 @@ async def websocket_chat(websocket: WebSocket) -> None:
                         continue
 
                     session_id = msg.get("session_id") or current_session_id
+                    mode = msg.get("mode")
+                    enable_thinking = msg.get("enable_thinking")
 
                     # Reset cancel event for this new generation
                     cancel_event.clear()
 
-                    # Stream the response
-                    service = ConversationService(db)
-                    async for event in service.process_text_message(
-                        user_id=user_id,
-                        content=content,
-                        session_id=session_id,
-                    ):
-                        # Check for barge-in cancellation
-                        if cancel_event.is_set() and event.get("type") in ("chunk", "start"):
-                            await _send_json(websocket, {"type": "interrupted"})
-                            break
+                    try:
+                        # Stream the response
+                        service = ConversationService(db)
+                        async for event in service.process_text_message(
+                            user_id=user_id,
+                            content=content,
+                            session_id=session_id,
+                            mode=mode,
+                            enable_thinking=enable_thinking,
+                        ):
+                            # Check for barge-in cancellation
+                            if cancel_event.is_set() and event.get("type") in ("chunk", "start"):
+                                await _send_json(websocket, {"type": "interrupted"})
+                                break
 
-                        await _send_json(websocket, event)
+                            await _send_json(websocket, event)
 
-                        # Track session ID
-                        if event.get("type") == "session_start":
-                            current_session_id = event.get("session_id")
+                            # Track session ID
+                            if event.get("type") == "session_start":
+                                current_session_id = event.get("session_id")
+                    except Exception as m_err:
+                        logger.error("Message processing error", user_id=user_id, error=str(m_err))
+                        fallback_txt = "I hear you, and I'm right here with you. Take a slow, deep breath. What's on your mind today?"
+                        await _send_json(websocket, {"type": "start"})
+                        await _send_json(websocket, {"type": "chunk", "content": fallback_txt})
+                        await _send_json(websocket, {"type": "done", "response": fallback_txt})
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected", user_id=user_id)
     except Exception as exc:
         logger.error("WebSocket error", user_id=user_id, error=str(exc))
-        await _send_json(websocket, {"type": "error", "error": "Server error", "code": "SERVER_ERROR"})
+        try:
+            await _send_json(websocket, {"type": "error", "error": "Connection error", "code": "SERVER_ERROR"})
+        except Exception:
+            pass
     finally:
         logger.info("WebSocket closed", user_id=user_id)

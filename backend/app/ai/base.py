@@ -24,6 +24,12 @@ class AIRequest:
     stream: bool = True
     # Optional conversation history in OpenAI message format
     messages: list[dict] = field(default_factory=list)
+    # Mode of interaction (e.g., 'face_to_face', 'voice', 'chat')
+    mode: str | None = None
+    # Thinking mode flag (None = dynamically determined by provider based on mode & intent)
+    enable_thinking: bool | None = None
+    # Additional provider-specific parameters
+    extra_params: dict = field(default_factory=dict)
 
 
 @dataclass

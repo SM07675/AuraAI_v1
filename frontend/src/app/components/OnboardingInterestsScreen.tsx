@@ -110,13 +110,37 @@ const COMMUNICATION_STYLES = [
   },
 ];
 
-export function OnboardingInterestsScreen({ userName = "Hardik", onComplete }: OnboardingProps) {
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([
-    "mindfulness",
-    "stress_relief",
-    "emotion_tracking",
-  ]);
-  const [selectedStyle, setSelectedStyle] = useState("empathetic");
+interface OnboardingProps {
+  userName?: string;
+  isUpdateMode?: boolean;
+  onComplete: (data: {
+    interests: string[];
+    goals: string[];
+    communicationStyle: string;
+  }) => void;
+}
+
+export function OnboardingInterestsScreen({ userName = "User", isUpdateMode = false, onComplete }: OnboardingProps) {
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("aura_user_interests");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Map labels back to IDs if necessary
+          const matchedIds = INTEREST_TOPICS.filter((t) =>
+            parsed.some((p: string) => p.toLowerCase().includes(t.id.replace("_", " ")) || t.label.toLowerCase().includes(p.toLowerCase()))
+          ).map((t) => t.id);
+          if (matchedIds.length > 0) return matchedIds;
+        }
+      }
+    } catch (e) {}
+    return ["mindfulness", "stress_relief", "emotion_tracking"];
+  });
+
+  const [selectedStyle, setSelectedStyle] = useState(() => {
+    return localStorage.getItem("aura_user_style") || "empathetic";
+  });
 
   const toggleInterest = (id: string) => {
     if (selectedInterests.includes(id)) {
@@ -141,7 +165,7 @@ export function OnboardingInterestsScreen({ userName = "Hardik", onComplete }: O
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4">
+    <div className="max-w-4xl mx-auto py-6 px-4 select-none">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -149,15 +173,19 @@ export function OnboardingInterestsScreen({ userName = "Hardik", onComplete }: O
         transition={{ duration: 0.5 }}
         className="text-center mb-8"
       >
-        <div className="inline-flex items-center gap-2 rounded-full px-4 py-1 mb-3 liquid-glass" style={{ color: "#0284C7", fontWeight: 700, fontSize: 13 }}>
-          <Sparkles size={14} className="text-sky-500" />
-          PERSONALIZING YOUR EXPERIENCE
+        <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-3 clay-pill" style={{ color: "#7B59DC", fontWeight: 700, fontSize: 12 }}>
+          <Sparkles size={14} className="text-[#9A80E5]" />
+          {isUpdateMode ? "MANAGE INTERESTS & FOCUS AREAS" : "PERSONALIZING YOUR EXPERIENCE"}
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight">
-          What would you like to focus on, <span className="bg-gradient-to-r from-sky-600 via-sky-500 to-sky-400 bg-clip-text text-transparent">{userName}</span>?
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] tracking-tight">
+          {isUpdateMode
+            ? `Your Focus Areas & Preferences, ${userName}`
+            : `What would you like to focus on, ${userName}?`}
         </h1>
-        <p className="text-slate-600 text-sm sm:text-base max-w-lg mx-auto mt-2">
-          Select your primary interests so Aura AI can customize conversations, suggestions, and emotional feedback for you.
+        <p className="text-[#7A7A96] dark:text-[#9E98B4] text-xs sm:text-sm max-w-lg mx-auto mt-2 font-medium">
+          {isUpdateMode
+            ? "Update your primary interests anytime so Aura AI adapts its conversation tone, recommendations, and audio sessions."
+            : "Select your primary interests so Aura AI can customize conversations, suggestions, and emotional feedback for you."}
         </p>
       </motion.div>
 
@@ -174,46 +202,44 @@ export function OnboardingInterestsScreen({ userName = "Hardik", onComplete }: O
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.04 }}
               onClick={() => toggleInterest(item.id)}
-              whileHover={{ y: -3, scale: 1.02 }}
+              whileHover={{ y: -2, scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className={`p-4 rounded-2xl cursor-pointer transition-all border ${
+              className={`p-4 cursor-pointer transition-all ${
                 isSelected
-                  ? "bg-white/90 border-sky-400 shadow-lg ring-2 ring-sky-300/60"
-                  : "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm"
+                  ? "clay-active-nav"
+                  : "clay-card"
               }`}
+              style={{ borderRadius: 24 }}
             >
               <div className="flex items-start justify-between mb-3">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-                    isSelected
-                      ? "bg-gradient-to-br from-sky-500 to-sky-400 text-white shadow-md"
-                      : "bg-sky-100/70 text-sky-600"
-                  }`}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/60 dark:bg-white/10 shadow-sm"
+                  style={{ color: isSelected ? "#7B59DC" : "#4B4B60" }}
                 >
-                  <Icon size={20} />
+                  <Icon size={18} />
                 </div>
                 <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center border transition-all ${
+                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
                     isSelected
-                      ? "bg-sky-500 border-sky-500 text-white"
-                      : "border-slate-300 bg-white/60"
+                      ? "bg-[#7B59DC] text-white"
+                      : "clay-track-inset text-transparent"
                   }`}
                 >
-                  {isSelected && <Check size={14} strokeWidth={3} />}
+                  {isSelected && <Check size={12} strokeWidth={3} />}
                 </div>
               </div>
-              <h3 className="font-bold text-slate-800 text-sm mb-1">{item.label}</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">{item.desc}</p>
+              <h3 className={`font-extrabold text-xs mb-1 ${isSelected ? "text-white" : "text-[#2D2D42] dark:text-[#FFFFFF]"}`}>{item.label}</h3>
+              <p className={`text-[11px] leading-relaxed font-medium ${isSelected ? "text-white/80" : "text-[#7A7A96] dark:text-[#9E98B4]"}`}>{item.desc}</p>
             </motion.div>
           );
         })}
       </div>
 
       {/* Communication Style Preference */}
-      <GlassCard style={{ padding: "24px", borderRadius: "24px", marginBottom: "32px" }}>
+      <div className="clay-card p-6 mb-8 rounded-[32px]">
         <div className="flex items-center gap-2 mb-4">
-          <Sliders size={18} className="text-sky-600" />
-          <h2 className="font-bold text-slate-800 text-base">
+          <Sliders size={16} className="text-[#7B59DC]" />
+          <h2 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-sm">
             Preferred AI Communication Style
           </h2>
         </div>
@@ -225,40 +251,40 @@ export function OnboardingInterestsScreen({ userName = "Hardik", onComplete }: O
               <div
                 key={st.id}
                 onClick={() => setSelectedStyle(st.id)}
-                className={`p-3.5 rounded-xl cursor-pointer transition-all border text-left ${
+                className={`p-3.5 rounded-2xl cursor-pointer transition-all text-left ${
                   active
-                    ? "bg-sky-500/10 border-sky-500 shadow-sm"
-                    : "bg-white/40 border-slate-200 hover:bg-white/60"
+                    ? "clay-active-nav"
+                    : "clay-card-flat"
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-xs text-slate-800">{st.label}</span>
-                  {active && <span className="w-2 h-2 rounded-full bg-sky-500" />}
+                  <span className={`font-bold text-xs ${active ? "text-white" : "text-[#2D2D42] dark:text-[#FFFFFF]"}`}>{st.label}</span>
+                  {active && <span className="w-2 h-2 rounded-full bg-white" />}
                 </div>
-                <p className="text-[11px] text-slate-500 leading-snug">{st.desc}</p>
+                <p className={`text-[11px] leading-snug font-medium ${active ? "text-white/80" : "text-[#7A7A96] dark:text-[#9E98B4]"}`}>{st.desc}</p>
               </div>
             );
           })}
         </div>
-      </GlassCard>
+      </div>
 
       {/* Footer Action */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="text-xs text-slate-500 font-medium">
-          Selected <span className="font-bold text-sky-600">{selectedInterests.length}</span> focus area{selectedInterests.length > 1 ? "s" : ""}
+        <div className="text-xs text-[#7A7A96] dark:text-[#9E98B4] font-semibold">
+          Selected <span className="font-bold text-[#7B59DC] dark:text-[#B794F6]">{selectedInterests.length}</span> focus area{selectedInterests.length > 1 ? "s" : ""}
         </div>
 
         <motion.button
-          whileHover={{ scale: 1.04, boxShadow: "0 12px 30px rgba(2, 132, 199, 0.4)" }}
+          whileHover={{ scale: 1.04, y: -1 }}
           whileTap={{ scale: 0.96 }}
           onClick={handleFinish}
-          className="w-full sm:w-auto px-8 py-3.5 rounded-full font-bold text-white shadow-xl cursor-pointer flex items-center justify-center gap-2 transition-all"
-          style={{ background: "linear-gradient(135deg, #0284C7, #38BDF8)" }}
+          className="clay-button w-full sm:w-auto px-8 py-3 rounded-full font-bold text-xs text-[#7B59DC] cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
         >
-          <span>Complete Setup & Enter Dashboard</span>
-          <ArrowRight size={18} />
+          <span>{isUpdateMode ? "Save Changes & Return to Dashboard" : "Complete Setup & Enter Dashboard"}</span>
+          <ArrowRight size={16} />
         </motion.button>
       </div>
     </div>
   );
 }
+

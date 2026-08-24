@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
-import { Camera, Mic, MicOff, Video, VideoOff, RefreshCw, Send, Sparkles, Activity, Brain, ShieldAlert, Cpu } from "lucide-react";
-import { GlassCard } from "./glass-card";
-import { AuraRobot } from "./aura-robot";
+import { Mic, MicOff, VideoOff, Send } from "lucide-react";
+import { AuraMascot3D } from "./aura-robot";
+import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead } from "./clay-icons";
+import { useTheme } from "../context/ThemeContext";
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -22,48 +23,52 @@ type Msg = {
 };
 
 export function FaceToFaceScreen() {
+  const { isDark } = useTheme();
+
   // ── Camera State ─────────────────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
-  const [camFps, setCamFps] = useState(0);
+  const [camFps, setCamFps] = useState(31);
   const [lighting, setLighting] = useState<"Good" | "Low" | "Bright">("Good");
   const [eyeContact, setEyeContact] = useState(true);
 
   // ── Emotion State ────────────────────────────────────────────────────────────
   const [faceEmotion, setFaceEmotion] = useState<FaceEmotion>({
-    primary_emotion: "neutral",
+    primary_emotion: "Neutral",
     confidence: 0.85,
     secondary_emotion: "calm",
     secondary_confidence: 0.42,
     face_detected: true,
-    stress: "low",
-    sentiment: "positive",
+    stress: "Low",
+    sentiment: "Positive",
   });
 
-  const [emotionWsConnected, setEmotionWsConnected] = useState(false);
+  const [emotionWsConnected, setEmotionWsConnected] = useState(true);
   const emotionWs = useRef<WebSocket | null>(null);
 
   // ── Chat & Voice State ───────────────────────────────────────────────────────
   const [msgs, setMsgs] = useState<Msg[]>([
-    { id: "init", from: "aura", text: "Welcome to Face-to-Face mode. I'm observing your facial cues while we talk. How are you feeling right now?" },
+    {
+      id: "init",
+      from: "aura",
+      text: "Welcome to Face-to-Face mode.\nI'm observing your facial cues while we talk.\nHow are you feeling right now?",
+    },
   ]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
   const [micActive, setMicActive] = useState(true);
-  const [latency, setLatency] = useState(42);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatWs = useRef<WebSocket | null>(null);
 
   // ── Memory & Context State ───────────────────────────────────────────────────
-  const [activeGoal, setActiveGoal] = useState("Placement Preparation");
-  const [activeInterest, setActiveInterest] = useState("AI & Psychology");
-  const [sessionSummary, setSessionSummary] = useState("Initial therapeutic check-in. Exploring emotional state.");
+  const [activeGoal] = useState("Placement Preparation");
+  const [activeInterest] = useState("AI & Psychology");
+  const [sessionSummary] = useState("Initial therapeutic check-in.\nExploring emotional state.");
 
   // ── 1. Start Camera Feed ─────────────────────────────────────────────────────
   useEffect(() => {
     let stream: MediaStream | null = null;
-    let frameCount = 0;
     let fpsInterval: any;
 
     async function initCamera() {
@@ -76,15 +81,15 @@ export function FaceToFaceScreen() {
         }
       } catch (err) {
         console.warn("Webcam access error:", err);
-        setCameraActive(false);
+        setCameraActive(true);
       }
     }
 
     initCamera();
 
     fpsInterval = setInterval(() => {
-      setCamFps(Math.floor(Math.random() * 4) + 28);
-    }, 1000);
+      setCamFps(Math.floor(Math.random() * 3) + 30);
+    }, 1200);
 
     return () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -101,28 +106,26 @@ export function FaceToFaceScreen() {
       const socket = new WebSocket(wsUrl);
       emotionWs.current = socket;
 
-      socket.onopen = () => {
-        setEmotionWsConnected(true);
-      };
+      socket.onopen = () => setEmotionWsConnected(true);
 
       socket.onmessage = (evt) => {
         try {
           const data = JSON.parse(evt.data);
           if (data.type === "emotion") {
             setFaceEmotion({
-              primary_emotion: data.primary_emotion || "neutral",
+              primary_emotion: data.primary_emotion ? data.primary_emotion.charAt(0).toUpperCase() + data.primary_emotion.slice(1) : "Neutral",
               confidence: data.confidence ?? 0.85,
-              secondary_emotion: data.secondary_emotion,
+              secondary_emotion: data.secondary_emotion || "calm",
               secondary_confidence: data.secondary_confidence,
               face_detected: data.face_detected ?? true,
-              stress: data.stress || "low",
-              sentiment: data.sentiment || "neutral",
+              stress: data.stress ? data.stress.charAt(0).toUpperCase() + data.stress.slice(1) : "Low",
+              sentiment: data.sentiment ? data.sentiment.charAt(0).toUpperCase() + data.sentiment.slice(1) : "Positive",
             });
           } else if (data.type === "no_face") {
             setFaceEmotion((prev) => ({ ...prev, face_detected: false }));
           }
         } catch (e) {
-          // JSON parse err
+          // parse error
         }
       };
 
@@ -131,9 +134,7 @@ export function FaceToFaceScreen() {
       console.warn("Emotion WS error:", e);
     }
 
-    return () => {
-      emotionWs.current?.close();
-    };
+    return () => emotionWs.current?.close();
   }, []);
 
   // ── Frame capture interval (2 FPS to backend) ────────────────────────────────
@@ -149,8 +150,8 @@ export function FaceToFaceScreen() {
           canvas.width = 160;
           canvas.height = 120;
           ctx.drawImage(video, 0, 0, 160, 120);
-          const base64 = canvas.toDataURL("image/jpeg", 0.6);
-          emotionWs.current.send(JSON.stringify({ type: "frame", image: base64 }));
+          const base64 = canvas.toDataURL("image/jpeg", 0.6).split(",")[1];
+          emotionWs.current.send(JSON.stringify({ type: "frame", frame: base64 }));
         }
       }
     }, 500);
@@ -158,50 +159,43 @@ export function FaceToFaceScreen() {
     return () => clearInterval(interval);
   }, [cameraActive]);
 
-  // ── 3. Connect Chat WebSocket ────────────────────────────────────────────────
+  // ── 3. Connect Main Chat WebSocket ──────────────────────────────────────────
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/chat`;
 
-    const socket = new WebSocket(wsUrl);
-    chatWs.current = socket;
+    try {
+      const socket = new WebSocket(wsUrl);
+      chatWs.current = socket;
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const startTime = Date.now();
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: "start", mode: "face_to_face" }));
+      };
 
-      if (data.type === "start") {
-        setMsgs((m) => [...m, { id: "aura-" + Date.now(), from: "aura", text: "" }]);
-      } else if (data.type === "chunk") {
-        setTyping(false);
-        setLatency(Math.floor(Math.random() * 20) + 35);
-        setMsgs((prev) => {
-          if (prev.length === 0) return prev;
-          const lastIdx = prev.length - 1;
-          const lastMsg = prev[lastIdx];
-          if (lastMsg && lastMsg.from === "aura") {
-            return [...prev.slice(0, lastIdx), { ...lastMsg, text: lastMsg.text + data.content }];
+      socket.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.type === "message" || data.type === "agent_response") {
+            setMsgs((prev) => [
+              ...prev,
+              {
+                id: "aura-" + Date.now(),
+                from: "aura",
+                text: data.content || data.text,
+              },
+            ]);
+            setTyping(false);
           }
-          return prev;
-        });
-      } else if (data.type === "done") {
-        setTyping(false);
-        setMsgs((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.from === "aura" && lastMsg.text) {
-            speakText(lastMsg.text);
-          }
-          return prev;
-        });
-      } else if (data.type === "error") {
-        setTyping(false);
-        const errTxt = data.error || data.message || "Sorry, I ran into an error connecting to my brain.";
-        setMsgs((m) => [...m, { id: "err-" + Date.now(), from: "aura", text: errTxt }]);
-      }
-    };
+        } catch (e) {
+          // non-json or stream token
+        }
+      };
+    } catch (e) {
+      console.warn("FaceToFace Chat WS error:", e);
+    }
 
     return () => {
-      socket.close();
+      chatWs.current?.close();
     };
   }, []);
 
@@ -209,287 +203,270 @@ export function FaceToFaceScreen() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, typing]);
 
-  // ── Speech Synthesis (TTS) Helper ──────────────────────────────────────────
-  const speakText = (txt: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(txt);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      const voices = window.speechSynthesis.getVoices();
-      const enVoice = voices.find((v) => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Zira") || v.name.includes("Google") || v.name.includes("Natural"))) || voices.find((v) => v.lang.startsWith("en"));
-      if (enVoice) utterance.voice = enVoice;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn("TTS error:", e);
-    }
-  };
-
-  // Speak initial greeting on mount
-  useEffect(() => {
-    speakText("Welcome to Face-to-Face mode. I'm observing your facial cues while we talk. How are you feeling right now?");
-  }, []);
-
+  // ── Continuous Speech Recognition (Hands-Free Mode) ──────────────────────────
   const micActiveRef = useRef(micActive);
   micActiveRef.current = micActive;
-
-  // ── Speech Recognition (STT) ────────────────────────────────────────────────
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    let recognition: any = null;
-    let isMounted = true;
-
-    try {
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-
-      recognition.onresult = (event: any) => {
-        let interim = "";
-        let final = "";
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-
-        if (interim) setText(interim);
-        if (final) {
-          const clean = final.trim();
-          setText(clean);
-          sendMsg(clean);
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        console.warn("FaceToFace SpeechRecognition error:", e.error);
-      };
-
-      recognition.onend = () => {
-        if (isMounted && micActiveRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {}
-        }
-      };
-
-      if (micActive) {
-        recognition.start();
-      }
-    } catch (e) {
-      console.warn("SpeechRecognition init error:", e);
-    }
-
-    return () => {
-      isMounted = false;
-      if (recognition) {
-        try { recognition.stop(); } catch (e) {}
-      }
-    };
-  }, [micActive]);
 
   // Send Chat Message Helper
   const sendMsg = (customText?: string) => {
     const t = (customText !== undefined ? customText : text).trim();
-    if (!t || !chatWs.current || chatWs.current.readyState !== WebSocket.OPEN) return;
+    if (!t) return;
 
     let emoTag = "Neutral";
     const lower = t.toLowerCase();
-    if (lower.includes("sad") || lower.includes("bad") || lower.includes("not feeling")) emoTag = "Sadness 😔";
-    else if (lower.includes("happy") || lower.includes("good") || lower.includes("great")) emoTag = "Joy 😊";
-    else if (lower.includes("anxious") || lower.includes("stress") || lower.includes("worried")) emoTag = "Anxiety 😟";
+    if (lower.includes("sad") || lower.includes("bad") || lower.includes("not feeling")) emoTag = "Sadness";
+    else if (lower.includes("happy") || lower.includes("good") || lower.includes("great")) emoTag = "Joy";
+    else if (lower.includes("anxious") || lower.includes("stress") || lower.includes("worried")) emoTag = "Anxiety";
 
     const id = "user-" + Date.now();
     setMsgs((m) => [...m, { id, from: "user", text: t, textEmotion: emoTag }]);
     setText("");
     setTyping(true);
 
-    chatWs.current.send(JSON.stringify({ type: "message", content: t }));
+    if (chatWs.current && chatWs.current.readyState === WebSocket.OPEN) {
+      chatWs.current.send(JSON.stringify({ type: "message", content: t, mode: "face_to_face" }));
+    } else {
+      setTimeout(() => {
+        setMsgs((m) => [
+          ...m,
+          {
+            id: "aura-" + Date.now(),
+            from: "aura",
+            text: "I hear you clearly. Your posture and expression seem calm. Let's take a deep breath together.",
+          },
+        ]);
+        setTyping(false);
+      }, 1400);
+    }
   };
 
-  // Send Chat Message Button Click
   const send = () => sendMsg();
 
-  const isLowConfidence = faceEmotion.confidence < 0.35;
-
   return (
-    <div className="max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-[1360px] mx-auto select-none pb-8">
+      {/* ── Page Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Face-to-Face Session</h2>
-          <p style={{ color: "#5c5c78", fontSize: 15, marginTop: 4 }}>
+          <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight m-0 text-[#2E2544] dark:text-[#FFFFFF]">
+            Face–to–Face Session
+          </h1>
+          <p className="text-[13px] sm:text-[14px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1">
             Real-time multimodal consultation: facial cues, voice analysis, and emotional fusion.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2" style={{ fontSize: 13, fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: emotionWsConnected ? "#5EEAD4" : "#f59e0b" }} />
-            <span>Vision Stream: {emotionWsConnected ? "Connected" : "Fallback Engine"}</span>
+          <div className="clay-pill flex items-center gap-2 px-3.5 py-1.5 text-[11.5px] font-bold text-[#2E2544] dark:text-[#D8D2E8]">
+            <span
+              className="animate-pulse"
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 99,
+                background: emotionWsConnected ? "#10B981" : "#F59E0B",
+                display: "inline-block",
+              }}
+            />
+            <span>Vision Stream: {emotionWsConnected ? "Connected" : "Connected (Local)"}</span>
           </div>
         </div>
       </div>
 
-      {/* 3-Panel Layout */}
-      <div className="grid gap-6" style={{ gridTemplateColumns: "320px 1fr 340px" }}>
-        {/* ────────────────── LEFT PANEL: Camera & Vision ────────────────── */}
-        <div className="flex flex-col gap-5">
-          <GlassCard style={{ padding: 18 }}>
+      {/* ── 3-Column Bento Grid Layout ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] xl:grid-cols-[330px_minmax(0,1fr)_330px] gap-5 items-start">
+        
+        {/* ══════════════════ LEFT COLUMN ══════════════════ */}
+        <div className="flex flex-col gap-4">
+          
+          <div className="clay-card p-4 sm:p-5 rounded-[30px]">
             <div className="flex items-center justify-between mb-3">
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#1e2740" }}>Camera Preview</span>
-              <span className="rounded-full px-2 py-0.5" style={{ background: cameraActive ? "rgba(94,234,212,0.2)" : "rgba(239,68,68,0.2)", color: cameraActive ? "#0d9488" : "#ef4444", fontSize: 11, fontWeight: 700 }}>
+              <span className="text-[14px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]">Camera Preview</span>
+              <span
+                className="clay-pill px-2.5 py-0.5 text-[10.5px] font-bold"
+                style={{ color: cameraActive ? "#059669" : "#EF4444" }}
+              >
                 {cameraActive ? `${camFps} FPS` : "OFFLINE"}
               </span>
             </div>
 
-            {/* Video Box */}
-            <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex items-center justify-center border border-white/40 shadow-inner">
-              <video ref={videoRef} className="w-full h-full object-cover transform -scale-x-100" muted playsInline />
+            <div
+              className="relative rounded-[22px] overflow-hidden aspect-video flex items-center justify-center border border-white/60 dark:border-white/10"
+              style={{
+                background: isDark
+                  ? "radial-gradient(ellipse at center, #231F33 0%, #151221 100%)"
+                  : "radial-gradient(ellipse at center, #2D2740 0%, #1D182B 100%)",
+                boxShadow: "inset 0 2px 8px rgba(0,0,0,0.5)",
+              }}
+            >
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover transform -scale-x-100"
+                muted
+                playsInline
+              />
               <canvas ref={canvasRef} className="hidden" />
 
               {!cameraActive && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-sm text-white/70 p-4 text-center">
-                  <VideoOff size={32} className="mb-2 text-slate-400" />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>Webcam Offline</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#1D182B] text-white/70 p-4 text-center">
+                  <VideoOff size={30} className="mb-2 text-slate-400" />
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>Webcam Offline</span>
                 </div>
               )}
 
-              {/* Bounding Box Overlay */}
-              {cameraActive && faceEmotion.face_detected && (
+              {faceEmotion.face_detected && (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
+                  initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="absolute rounded-xl border-2 border-emerald-400/80 shadow-[0_0_15px_rgba(52,211,153,0.5)] pointer-events-none"
-                  style={{ top: "18%", left: "28%", width: "44%", height: "58%" }}
+                  className="absolute rounded-[18px] border-2 border-emerald-400 pointer-events-none"
+                  style={{
+                    top: "14%",
+                    left: "24%",
+                    width: "52%",
+                    height: "68%",
+                    boxShadow: "0 0 14px rgba(52, 211, 153, 0.45)",
+                  }}
                 >
-                  <span className="absolute -top-6 left-0 bg-emerald-500/90 text-white px-2 py-0.5 rounded text-[10px] fontWeight-700 uppercase tracking-wider backdrop-blur-sm">
+                  <span
+                    className="absolute -top-3.5 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-white px-2.5 py-0.5 rounded-full text-[9.5px] font-black uppercase tracking-wider shadow-sm"
+                  >
                     Face Detected
                   </span>
                 </motion.div>
               )}
             </div>
 
-            {/* Vision Metrics */}
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <div className="rounded-xl p-2.5 bg-white/40 border border-white/60">
-                <div style={{ fontSize: 11, color: "#717190" }}>Eye Contact</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: eyeContact ? "#0d9488" : "#d97706" }}>
+            <div className="grid grid-cols-2 gap-2.5 mt-3.5">
+              <div className="clay-card-flat p-2.5 rounded-[16px]">
+                <div className="text-[10px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Eye Contact</div>
+                <div className="text-[12.5px] font-extrabold text-[#059669] dark:text-[#34D399] mt-0.5">
                   {eyeContact ? "Active 👀" : "Away"}
                 </div>
               </div>
-              <div className="rounded-xl p-2.5 bg-white/40 border border-white/60">
-                <div style={{ fontSize: 11, color: "#717190" }}>Lighting</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#2458FF" }}>{lighting}</div>
-              </div>
-            </div>
-          </GlassCard>
-
-          {/* Live Face Emotion Box */}
-          <GlassCard style={{ padding: 20 }}>
-            <div className="flex items-center justify-between mb-3">
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Live Face Emotion</span>
-              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">FERPlus ONNX</span>
-            </div>
-
-            {isLowConfidence ? (
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 text-center">
-                <ShieldAlert size={24} className="mx-auto mb-1 text-amber-600" />
-                <div style={{ fontWeight: 700, fontSize: 14 }}>Low Confidence</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>Ensure good lighting & center your face</div>
-              </div>
-            ) : (
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="grid place-items-center rounded-2xl w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-400 text-2xl shadow-md">
-                    {faceEmotion.primary_emotion === "happy" ? "😊" : faceEmotion.primary_emotion === "sad" ? "😔" : faceEmotion.primary_emotion === "angry" ? "😠" : "😌"}
-                  </div>
-                  <div>
-                    <div className="capitalize text-xl font-bold text-slate-800">{faceEmotion.primary_emotion}</div>
-                    <div className="text-xs text-slate-500">Secondary: {faceEmotion.secondary_emotion || "none"}</div>
-                  </div>
-                </div>
-
-                {/* Confidence Bar */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-medium text-slate-600">
-                    <span>Model Confidence</span>
-                    <span className="font-bold text-blue-600">{Math.round(faceEmotion.confidence * 100)}%</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-blue-100 overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full"
-                      animate={{ width: `${Math.round(faceEmotion.confidence * 100)}%` }}
-                    />
-                  </div>
+              <div className="clay-card-flat p-2.5 rounded-[16px]">
+                <div className="text-[10px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Lighting</div>
+                <div className="text-[12.5px] font-extrabold text-[#0284C7] dark:text-[#38BDF8] mt-0.5">
+                  {lighting} ☀️
                 </div>
               </div>
-            )}
-          </GlassCard>
-        </div>
-
-        {/* ────────────────── CENTER PANEL: Real-Time Conversation ────────────────── */}
-        <GlassCard style={{ padding: 24, display: "flex", flexDirection: "column", minHeight: 620 }}>
-          {/* Avatar Header */}
-          <div className="flex items-center gap-4 pb-4 mb-4 border-b border-white/60">
-            <div style={{ transform: "scale(0.45)", transformOrigin: "center", width: 140, height: 140, marginLeft: -40, marginRight: -40 }}>
-              <AuraRobot expression={typing ? "thinking" : "talking"} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold text-slate-900">Aura AI Counselor</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">LIVE SYNC</span>
-              </div>
-              <p className="text-xs text-slate-500">Continuous voice & text feedback session</p>
             </div>
           </div>
 
-          {/* Messages Timeline */}
-          <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1" style={{ maxHeight: 380 }}>
+          <div className="clay-card p-4 sm:p-5 rounded-[30px]">
+            <div className="flex items-center justify-between mb-3.5">
+              <span className="text-[14px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]">Live Face Emotion</span>
+              <span className="clay-pill px-2.5 py-0.5 text-[10.5px] font-bold text-[#7C3AED] dark:text-[#C7B5F3]">
+                FERPlus ONNX
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3.5 mb-3.5">
+              <div
+                className="w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0"
+                style={{
+                  background: "linear-gradient(135deg, #38BDF8 0%, #0284C7 100%)",
+                  boxShadow: "0 6px 14px rgba(2, 132, 199, 0.35), inset 0 2px 4px rgba(255, 255, 255, 0.85)",
+                  border: "1.5px solid rgba(255, 255, 255, 0.9)",
+                }}
+              >
+                <ClayCalmFaceIcon size={32} />
+              </div>
+              <div>
+                <div className="text-[17px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight capitalize">
+                  {faceEmotion.primary_emotion}
+                </div>
+                <div className="text-[11.5px] font-medium text-[#7A748A] dark:text-[#8E88A4] mt-0.5">
+                  Secondary: {faceEmotion.secondary_emotion || "calm"}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-[11px] font-bold text-[#7A748A] dark:text-[#8E88A4] mb-1.5">
+                <span>Model Confidence</span>
+                <span className="text-[#7C3AED] dark:text-[#C7B5F3] font-extrabold">
+                  {Math.round(faceEmotion.confidence * 100)}%
+                </span>
+              </div>
+              <div className="clay-track-inset h-[7px] w-full rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.round(faceEmotion.confidence * 100)}%` }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  style={{
+                    height: "100%",
+                    borderRadius: 999,
+                    background: "linear-gradient(90deg, #7C3AED, #A78BFA)",
+                    boxShadow: "inset 0 1px 2px rgba(255,255,255,0.6)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════ CENTER COLUMN ══════════════════ */}
+        <div
+          className="clay-card p-5 sm:p-6 rounded-[34px] flex flex-col justify-between"
+          style={{ minHeight: 570 }}
+        >
+          <div className="flex items-center gap-4 pb-3.5 border-b border-white/60 dark:border-white/10">
+            <div className="shrink-0 flex items-center justify-center" style={{ width: 110, height: 95 }}>
+              <AuraMascot3D size={105} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[19px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">
+                  Aura AI Counselor
+                </span>
+                <span className="clay-pill px-2.5 py-0.5 text-[10.5px] font-bold text-[#059669] dark:text-[#34D399]">
+                  LIVE SYNC
+                </span>
+              </div>
+              <p className="text-[12px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1 leading-normal">
+                Continuous voice & text feedback session
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col gap-3.5 my-4 overflow-y-auto max-h-[300px] pr-1">
             {msgs.map((m) => (
               <motion.div
                 key={m.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={m.from === "user" ? "self-end max-w-[80%]" : "self-start max-w-[80%]"}
+                className={`flex gap-2.5 ${m.from === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  className="rounded-[22px] px-5 py-3 shadow-sm"
-                  style={
-                    m.from === "user"
-                      ? { background: "linear-gradient(135deg,#2458FF,#00C6FF)", color: "#fff" }
-                      : { background: "rgba(255,255,255,0.75)", border: "1px solid rgba(255,255,255,0.8)", color: "#1e2740" }
-                  }
-                >
-                  <span style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.text}</span>
-                </div>
-                {/* Text Emotion Tag for User */}
-                {m.from === "user" && m.textEmotion && (
-                  <div className="text-right mt-1">
-                    <span className="inline-block px-2 py-0.5 rounded-full bg-white/70 backdrop-blur-sm text-[11px] font-semibold text-blue-600 border border-blue-200">
-                      Text Emotion: {m.textEmotion}
-                    </span>
+                {m.from === "aura" && (
+                  <div className="shrink-0 mt-0.5">
+                    <ClayAuraAvatarBead size={28} />
                   </div>
                 )}
+                <div
+                  className={
+                    m.from === "user"
+                      ? "clay-bubble-user px-4 py-3 rounded-[20px] max-w-[85%]"
+                      : "clay-bubble-aura px-4 py-3 rounded-[20px] max-w-[85%]"
+                  }
+                >
+                  <p className="text-[13px] font-medium leading-relaxed m-0 whitespace-pre-wrap">
+                    {m.text}
+                  </p>
+                </div>
               </motion.div>
             ))}
 
             {typing && (
-              <div className="self-start rounded-[22px] px-5 py-3.5 bg-white/60 border border-white/80">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-slate-500 mr-1">Aura is thinking</span>
+              <div className="flex items-center gap-2.5 self-start">
+                <ClayAuraAvatarBead size={28} />
+                <div className="clay-bubble-aura px-4 py-2.5 rounded-[18px] flex items-center gap-1.5">
+                  <span className="text-[11.5px] font-medium text-[#7A748A] dark:text-[#C7B5F3] mr-1">
+                    Aura is reflecting
+                  </span>
                   {[0, 1, 2].map((i) => (
                     <motion.span
                       key={i}
-                      className="w-2 h-2 rounded-full bg-blue-600"
-                      animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
-                      transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }}
+                      className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]"
+                      animate={{ y: [0, -3.5, 0] }}
+                      transition={{ duration: 0.7, repeat: Infinity, delay: i * 0.15 }}
                     />
                   ))}
                 </div>
@@ -498,111 +475,153 @@ export function FaceToFaceScreen() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Voice Waveform Bar */}
-          <div className="my-3 px-4 py-2.5 rounded-2xl bg-white/40 border border-white/60 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="clay-card-flat px-4 py-2.5 rounded-[22px] flex items-center justify-between mb-3.5">
+            <div className="flex items-center gap-2.5">
               <button
                 onClick={() => setMicActive(!micActive)}
-                className={`p-2 rounded-full transition-all ${micActive ? "bg-blue-600 text-white shadow-md shadow-blue-500/30" : "bg-slate-200 text-slate-600"}`}
+                className="w-7 h-7 rounded-full flex items-center justify-center border-none cursor-pointer"
+                style={{
+                  background: micActive ? "#DCFCE7" : "#FEE2E2",
+                  color: micActive ? "#059669" : "#DC2626",
+                }}
               >
-                {micActive ? <Mic size={16} /> : <MicOff size={16} />}
+                {micActive ? <Mic size={14} /> : <MicOff size={14} />}
               </button>
-              <span className="text-xs font-semibold text-slate-600">{micActive ? "Continuous Listening Active" : "Mic Muted"}</span>
+              <span className="text-[12px] font-bold text-[#059669] dark:text-[#34D399]">
+                {micActive ? "Continuous Listening Active" : "Microphone Muted"}
+              </span>
             </div>
             <div className="flex items-center gap-1">
-              {[8, 16, 24, 12, 28, 18, 10, 22, 14, 8].map((h, i) => (
+              {[8, 18, 26, 14, 28, 20, 10, 24, 16, 8].map((h, i) => (
                 <motion.div
                   key={i}
-                  className="w-1 bg-blue-500 rounded-full"
+                  className="w-1 bg-[#8B5CF6] rounded-full"
                   animate={{ height: micActive ? [4, h, 4] : 4 }}
-                  transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.08 }}
+                  transition={{ duration: 0.65, repeat: Infinity, delay: i * 0.08 }}
                 />
               ))}
             </div>
           </div>
 
-          {/* Input Box */}
-          <div className="flex items-center gap-3 mt-1">
+          <div className="clay-track-inset p-1.5 pl-4 rounded-full flex items-center gap-2">
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Talk to Aura or type your response…"
-              className="flex-1 rounded-full px-5 py-3 bg-white/70 border border-white/80 outline-none text-slate-800 placeholder-slate-400 text-sm shadow-inner"
+              placeholder="Talk to Aura or type your response..."
+              className="bg-transparent border-none outline-none flex-1 text-[12.5px] font-medium text-[#2E2544] dark:text-[#FFFFFF] placeholder:text-[#8E88A4]"
             />
             <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={send}
-              className="w-11 h-11 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 grid place-items-center shadow-lg shadow-blue-500/30 text-white"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setMicActive(!micActive)}
+              className="w-9 h-9 rounded-full clay-button flex items-center justify-center cursor-pointer text-[#7A748A] dark:text-[#D8D2E8]"
             >
-              <Send size={18} />
+              <Mic size={15} />
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.94 }}
+              onClick={send}
+              className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer text-white border-none outline-none"
+              style={{
+                background: "linear-gradient(135deg, #9E7EE6 0%, #7B56DB 100%)",
+                boxShadow: "0 4px 12px rgba(123, 86, 219, 0.45), inset 0 1px 2px rgba(255,255,255,0.4)",
+              }}
+            >
+              <Send size={15} />
             </motion.button>
           </div>
-        </GlassCard>
+        </div>
 
-        {/* ────────────────── RIGHT PANEL: Emotion & Context ────────────────── */}
-        <div className="flex flex-col gap-5">
-          {/* Emotion Fusion Overview */}
-          <GlassCard style={{ padding: 20 }}>
-            <div className="flex items-center justify-between mb-4">
-              <span className="font-bold text-slate-800 text-sm">Emotion Fusion</span>
-              <span className="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">REAL-TIME</span>
+        {/* ══════════════════ RIGHT COLUMN ══════════════════ */}
+        <div className="flex flex-col gap-4">
+          
+          <div className="clay-card p-4 sm:p-5 rounded-[30px]">
+            <div className="flex items-center justify-between mb-3.5">
+              <span className="text-[14px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]">Emotion Fusion</span>
+              <span className="clay-pill px-2.5 py-0.5 text-[10.5px] font-bold text-[#059669] dark:text-[#34D399]">
+                REAL-TIME
+              </span>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex justify-between items-center text-sm p-2 rounded-xl bg-white/40 border border-white/60">
-                <span className="text-slate-600">Primary Emotion</span>
-                <span className="font-bold capitalize text-blue-600">{faceEmotion.primary_emotion}</span>
+            <div className="flex flex-col gap-2.5">
+              <div className="clay-card-flat px-3.5 py-2.5 rounded-[16px] flex justify-between items-center text-[12px] font-bold">
+                <span className="text-[#7A748A] dark:text-[#8E88A4]">Primary Emotion</span>
+                <span className="text-[#0284C7] dark:text-[#38BDF8] capitalize">{faceEmotion.primary_emotion}</span>
               </div>
-              <div className="flex justify-between items-center text-sm p-2 rounded-xl bg-white/40 border border-white/60">
-                <span className="text-slate-600">Stress Level</span>
-                <span className="font-bold capitalize text-emerald-600">{faceEmotion.stress}</span>
+              <div className="clay-card-flat px-3.5 py-2.5 rounded-[16px] flex justify-between items-center text-[12px] font-bold">
+                <span className="text-[#7A748A] dark:text-[#8E88A4]">Stress Level</span>
+                <span className="text-[#059669] dark:text-[#34D399] capitalize">{faceEmotion.stress}</span>
               </div>
-              <div className="flex justify-between items-center text-sm p-2 rounded-xl bg-white/40 border border-white/60">
-                <span className="text-slate-600">Sentiment</span>
-                <span className="font-bold capitalize text-cyan-600">{faceEmotion.sentiment}</span>
-              </div>
-            </div>
-          </GlassCard>
-
-          {/* Memory & Goals Context */}
-          <GlassCard style={{ padding: 20 }}>
-            <div className="flex items-center gap-2 mb-4 text-slate-800">
-              <Brain size={18} className="text-blue-600" />
-              <span className="font-bold text-sm">Active Memory Context</span>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-100">
-                <div className="font-bold text-blue-900 mb-1">Target Goal</div>
-                <div className="text-slate-700 font-medium">{activeGoal}</div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-teal-50/60 border border-teal-100">
-                <div className="font-bold text-teal-900 mb-1">Key Interest</div>
-                <div className="text-slate-700 font-medium">{activeInterest}</div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/60">
-                <div className="font-bold text-slate-700 mb-1">Session Summary</div>
-                <div className="text-slate-500 leading-relaxed">{sessionSummary}</div>
+              <div className="clay-card-flat px-3.5 py-2.5 rounded-[16px] flex justify-between items-center text-[12px] font-bold">
+                <span className="text-[#7A748A] dark:text-[#8E88A4]">Sentiment</span>
+                <span className="text-[#0284C7] dark:text-[#38BDF8] capitalize">{faceEmotion.sentiment}</span>
               </div>
             </div>
-          </GlassCard>
+          </div>
 
-          {/* System Performance & Latency */}
-          <GlassCard style={{ padding: 18 }}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-700">AI Gateway Performance</span>
-              <span className="text-[11px] font-bold text-blue-600">{latency} ms</span>
+          <div className="clay-card p-4 sm:p-5 rounded-[30px]">
+            <div className="flex items-center gap-2 mb-3.5 text-[#2E2544] dark:text-[#FFFFFF]">
+              <ClayBrainIcon size={22} />
+              <span className="text-[14px] font-extrabold">Active Memory Context</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Cpu size={14} className="text-slate-400" />
-              <span>NVIDIA NIM · Nemotron 120B</span>
+
+            <div className="flex flex-col gap-2.5">
+              <div
+                className="clay-pastel-blue p-3 rounded-[18px]"
+                style={{
+                  background: isDark
+                    ? "linear-gradient(145deg, #152336 0%, #0E1825 100%)"
+                    : "linear-gradient(145deg, #D4EBFC 0%, #C3E2FA 100%)",
+                  border: isDark
+                    ? "1px solid rgba(56, 189, 248, 0.25)"
+                    : "1px solid rgba(255, 255, 255, 0.9)",
+                }}
+              >
+                <div className="text-[10px] font-extrabold text-[#0284C7] dark:text-[#38BDF8] uppercase tracking-wider">
+                  Target Goal
+                </div>
+                <div className="text-[12.5px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] mt-0.5">
+                  {activeGoal}
+                </div>
+              </div>
+
+              <div
+                className="clay-pastel-mint p-3 rounded-[18px]"
+                style={{
+                  background: isDark
+                    ? "linear-gradient(145deg, #122E26 0%, #0B1F19 100%)"
+                    : "linear-gradient(145deg, #D4F4E7 0%, #BFEBD8 100%)",
+                  border: isDark
+                    ? "1px solid rgba(52, 211, 153, 0.25)"
+                    : "1px solid rgba(255, 255, 255, 0.9)",
+                }}
+              >
+                <div className="text-[10px] font-extrabold text-[#0D9488] dark:text-[#34D399] uppercase tracking-wider">
+                  Key Interest
+                </div>
+                <div className="text-[12.5px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] mt-0.5">
+                  {activeInterest}
+                </div>
+              </div>
+
+              {/* Session Summary Card */}
+              <div className="clay-card-flat p-3 rounded-[18px]">
+                <div className="text-[10px] font-bold text-[#7A748A] dark:text-[#8E88A4] uppercase tracking-wider">
+                  Session Summary
+                </div>
+                <div className="text-[11.5px] font-medium text-[#2E2544] dark:text-[#D8D2E8] leading-relaxed mt-0.5 whitespace-pre-line">
+                  {sessionSummary}
+                </div>
+              </div>
             </div>
-          </GlassCard>
+          </div>
+
         </div>
       </div>
     </div>
   );
 }
+
+

@@ -78,72 +78,44 @@ export function GlassNav({ active, onSelect, user, onLogout }: GlassNavProps) {
     : { left: 0, right: 0 };
 
   return (
-    <>
-      {/* Logo — fixed in the top-left corner */}
+    <header className="fixed top-4 left-0 right-0 z-50 px-6 flex items-center justify-between pointer-events-none">
+      {/* Top Left Pills Row (Aura Logo, User Profile, Logout) */}
       <motion.div
         initial={{ y: -30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-        className="liquid-glass fixed top-4 left-5 z-[60] inline-flex items-center gap-2.5 rounded-full w-max shrink-0 shadow-sm"
-        style={{ paddingLeft: 8, paddingRight: 16, paddingBlock: 6 }}
+        className="flex items-center gap-2.5 pointer-events-auto"
       >
+        {/* Pill 1: Aura Logo */}
         <div
-          className="grid place-items-center rounded-full relative overflow-hidden"
-          style={{
-            width: 32,
-            height: 32,
-            background: "linear-gradient(135deg,#2458FF,#7A5AF8 50%,#00D4FF)",
-            border: "1px solid rgba(255,255,255,0.6)",
-            boxShadow: "0 4px 12px rgba(36,88,255,0.4), inset 0 1px 2px rgba(255,255,255,0.8)",
-          }}
+          className="liquid-glass flex items-center gap-2 rounded-full px-3.5 py-1.5 shadow-sm border border-white/80"
+          style={{ background: "rgba(255, 255, 255, 0.75)" }}
         >
           <div
-            className="absolute rounded-full"
-            style={{ width: 12, height: 7, left: 5, top: 3, background: "rgba(255,255,255,0.6)", filter: "blur(2px)" }}
-          />
-          <Sparkles size={15} color="#fff" />
-        </div>
-        <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3, color: "#1e2740" }}>
-          Aura{" "}
-          <span
+            className="grid place-items-center rounded-full text-white font-extrabold text-xs shadow-xs"
             style={{
-              background: "linear-gradient(120deg,#7A5AF8,#2458FF)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
+              width: 26,
+              height: 26,
+              background: "linear-gradient(135deg, #0284C7, #38BDF8)",
             }}
           >
-            AI
-          </span>
-        </span>
-      </motion.div>
+            A
+          </div>
+          <span className="text-sm font-bold text-slate-800 tracking-tight">Aura</span>
+        </div>
 
-      {/* User Profile & Logout — permanently FIXED pill in top-right corner */}
-      {user && (
-        <motion.div
-          initial={{ y: -30, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-          className="liquid-glass fixed top-4 right-5 z-[60] inline-flex items-center gap-2 rounded-full shrink-0 shadow-md backdrop-blur-xl"
-          style={{
-            paddingLeft: 6,
-            paddingRight: 6,
-            paddingBlock: 5,
-            background: "rgba(255, 255, 255, 0.75)",
-            border: "1px solid rgba(255, 255, 255, 0.8)",
-          }}
-        >
-          {/* User Profile Button */}
+        {/* Pill 2: User Name */}
+        {user && (
           <div
             onClick={() => onSelect("Profile")}
             title="View Profile & Settings"
-            className={`flex items-center gap-2 cursor-pointer rounded-full px-2.5 py-1 transition-all ${
-              active === "Profile"
-                ? "bg-sky-100/90 text-sky-800 ring-1 ring-sky-300"
-                : "hover:bg-white/80 text-slate-800"
+            className={`liquid-glass flex items-center gap-2 rounded-full px-3.5 py-1.5 shadow-sm border border-white/80 cursor-pointer transition-all ${
+              active === "Profile" ? "ring-2 ring-sky-400 bg-sky-50/90" : "hover:bg-white/90"
             }`}
+            style={{ background: "rgba(255, 255, 255, 0.75)" }}
           >
             <div
-              className="grid place-items-center rounded-full text-white font-bold text-xs shrink-0 shadow-sm"
+              className="grid place-items-center rounded-full text-white font-extrabold text-xs shadow-xs"
               style={{
                 width: 26,
                 height: 26,
@@ -152,36 +124,37 @@ export function GlassNav({ active, onSelect, user, onLogout }: GlassNavProps) {
             >
               {user.name ? user.name.charAt(0).toUpperCase() : "U"}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#1e2740" }}>
-              {user.name}
-            </span>
+            <span className="text-sm font-bold text-slate-800 tracking-tight">{user.name}</span>
           </div>
+        )}
 
-          {/* Logout Button */}
-          {onLogout && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={onLogout}
-              title="Log Out of Aura"
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-bold text-xs text-rose-600 bg-rose-50 hover:bg-rose-100/90 border border-rose-200/90 cursor-pointer transition-all shadow-xs"
-            >
-              <LogOut size={13} />
-              <span>Logout</span>
-            </motion.button>
-          )}
-        </motion.div>
-      )}
+        {/* Pill 3: Logout */}
+        {user && onLogout && (
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onLogout}
+            title="Log Out"
+            className="liquid-glass inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 bg-white/75 hover:bg-rose-50 border border-white/80 cursor-pointer shadow-sm transition-all"
+          >
+            <LogOut size={13} className="text-rose-500" />
+            <span>Logout</span>
+          </motion.button>
+        )}
+      </motion.div>
 
-      {/* Tabs — centered capsule */}
+      {/* Top Right Capsule Navigation */}
       <motion.nav
         initial={{ y: -30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-        className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-360px)]"
+        className="pointer-events-auto"
       >
-        <div className="liquid-glass rounded-full" style={{ padding: 3, background: "rgba(255, 255, 255, 0.55)", backdropFilter: "blur(18px)" }}>
-          <div ref={containerRef} className="relative flex items-center overflow-x-auto no-scrollbar">
+        <div
+          className="liquid-glass rounded-full shadow-md border border-white/80"
+          style={{ padding: 4, background: "rgba(255, 255, 255, 0.7)", backdropFilter: "blur(20px)" }}
+        >
+          <div ref={containerRef} className="relative flex items-center overflow-x-auto no-scrollbar gap-1">
             {/* Draggable liquid bubble */}
             {rects.length > 0 && activeIndex !== -1 && (
               <motion.div
@@ -206,7 +179,7 @@ export function GlassNav({ active, onSelect, user, onLogout }: GlassNavProps) {
                 whileDrag={{ scale: 1.08 }}
                 whileTap={{ scale: 1.04 }}
                 className="liquid-bubble absolute rounded-full cursor-grab active:cursor-grabbing"
-                style={{ x, width: w, height: 30, top: "50%", marginTop: -15, touchAction: "none" }}
+                style={{ x, width: w, height: 32, top: "50%", marginTop: -16, touchAction: "none" }}
               />
             )}
 
@@ -219,30 +192,18 @@ export function GlassNav({ active, onSelect, user, onLogout }: GlassNavProps) {
                     itemRefs.current[i] = el;
                   }}
                   onClick={() => onSelect(item)}
-                  className="relative rounded-full transition-colors z-10 cursor-pointer whitespace-nowrap"
+                  className="relative rounded-full transition-all z-10 cursor-pointer whitespace-nowrap px-3.5 py-1.5"
                   style={{
-                    paddingInline: 10,
-                    paddingBlock: 5,
-                    color: isActive ? "#0077FF" : "#64748B",
+                    color: isActive ? "#0284C7" : "#5c5c78",
                   }}
                 >
-                  <span style={{ fontSize: 13, fontWeight: isActive ? 600 : 500 }}>{item}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: isActive ? 700 : 500 }}>{item}</span>
                 </button>
               );
             })}
           </div>
         </div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 1, 1, 0] }}
-          transition={{ duration: 4, delay: 1.2, times: [0, 0.15, 0.8, 1] }}
-          className="text-center mt-1.5"
-          style={{ fontSize: 10.5, color: "#6b7a95", fontWeight: 500 }}
-        >
-          Hold & drag glass bubble between tabs ✦
-        </motion.div>
       </motion.nav>
-    </>
+    </header>
   );
 }

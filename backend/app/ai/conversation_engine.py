@@ -108,6 +108,8 @@ class ConversationEngine:
         streaming: bool = True,
         interrupt_event: asyncio.Event | None = None,
         debug_out: dict[str, Any] | None = None,
+        mode: str | None = None,
+        enable_thinking: bool | None = None,
     ) -> AsyncIterator[StreamChunk] | str:
         """Main pipeline entrypoint.
 
@@ -254,6 +256,8 @@ class ConversationEngine:
             messages=messages,
             stream=streaming,
             temperature=0.7,
+            mode=mode,
+            enable_thinking=enable_thinking,
         )
 
         logger.info("\n" + "="*50 + "\nPROMPT BUILDER DEBUG\n" + "="*50)
