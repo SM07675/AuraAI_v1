@@ -1,54 +1,58 @@
 import { motion, AnimatePresence } from "motion/react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, Music, Sparkles } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, Sparkles, ChevronUp, ChevronDown, Music2, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { ClayMusicTileIcon } from "./clay-icons";
 
 const TRACKS = [
   {
-    title: "Peaceful Mind",
-    artist: "Aura · Ambient",
+    title: "Lofi Hip Hop Radio – Beats to Relax/Study to",
+    artist: "Lofi Girl · Ambient",
     url: "https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3",
-    cover: "linear-gradient(135deg, #0284C7, #38BDF8)",
   },
   {
-    title: "Ocean Waves & Chill",
+    title: "Peaceful Mind & Serene River",
     artist: "Aura · Lofi Meditation",
     url: "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=ambient-piano-amp-strings-10711.mp3",
-    cover: "linear-gradient(135deg, #7A5AF8, #00D4FF)",
   },
   {
     title: "Aurora Focus Flow",
     artist: "Aura · Ambient Synth",
     url: "https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a70514.mp3?filename=relaxing-light-background-116686.mp3",
-    cover: "linear-gradient(135deg, #2458FF, #5EEAD4)",
   },
 ];
 
-export function MusicPlayer() {
+interface MusicPlayerProps {
+  variant?: "fixed" | "inline";
+  className?: string;
+  defaultExpanded?: boolean;
+}
+
+export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded = false }: MusicPlayerProps) {
   const [tracks, setTracks] = useState(TRACKS);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
   const [vol, setVol] = useState(70);
   const [toastMsg, setToastMsg] = useState("");
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [progress, setProgress] = useState(25);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscNodeRef = useRef<OscillatorNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
 
-  const bars = Array.from({ length: 28 });
   const currentTrack = tracks[trackIdx] || TRACKS[0];
 
-  // Fetch YouTube Music ambient tracks from backend
+  // Fetch YouTube Music ambient tracks from backend if available
   useEffect(() => {
     fetch("/api/v1/music/ambient")
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           const loadedTracks = data.map((t: any, i: number) => ({
-            title: t.title,
-            artist: t.artist || "YouTube Music Ambient",
+            title: t.title || TRACKS[i % TRACKS.length].title,
+            artist: t.artist || "Lofi Girl · Ambient",
             url: t.stream_url || TRACKS[i % TRACKS.length].url,
-            cover: TRACKS[i % TRACKS.length].cover,
           }));
           setTracks(loadedTracks);
         }
@@ -76,7 +80,6 @@ export function MusicPlayer() {
       audioRef.current.src = currentTrack.url;
       if (isPlaying) {
         audioRef.current.play().catch(() => {
-          // If network stream is blocked by CORS/offline, start Web Audio ambient synth fallback
           startAmbientSynth();
         });
       }
@@ -93,11 +96,22 @@ export function MusicPlayer() {
     }
   }, [vol]);
 
+  // Simulated progress update when playing
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setProgress((p) => (p >= 100 ? 0 : p + 0.5));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
   // Web Audio Synth ambient fallback
   const startAmbientSynth = () => {
     try {
       if (!audioCtxRef.current) {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         audioCtxRef.current = new AudioCtx();
       }
       if (audioCtxRef.current.state === "suspended") {
@@ -110,7 +124,7 @@ export function MusicPlayer() {
         const gain = ctx.createGain();
 
         osc.type = "sine";
-        osc.frequency.setValueAtTime(216, ctx.currentTime); // 432Hz ambient harmonic
+        osc.frequency.setValueAtTime(216, ctx.currentTime);
 
         gain.gain.setValueAtTime((vol / 100) * 0.12, ctx.currentTime);
 
@@ -177,7 +191,8 @@ export function MusicPlayer() {
     stopAmbientSynth();
   };
 
-  const togglePlayPause = () => {
+  const togglePlayPause = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (isPlaying) {
       pauseMusic();
     } else {
@@ -185,26 +200,30 @@ export function MusicPlayer() {
     }
   };
 
-  const nextTrack = () => {
-    const next = (trackIdx + 1) % TRACKS.length;
+  const nextTrack = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const next = (trackIdx + 1) % tracks.length;
     setTrackIdx(next);
-    showToast(`Switched to "${TRACKS[next].title}"`);
+    setProgress(0);
+    showToast(`Switched to "${tracks[next].title}"`);
   };
 
-  const prevTrack = () => {
-    const prev = (trackIdx - 1 + TRACKS.length) % TRACKS.length;
+  const prevTrack = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const prev = (trackIdx - 1 + tracks.length) % tracks.length;
     setTrackIdx(prev);
-    showToast(`Switched to "${TRACKS[prev].title}"`);
+    setProgress(0);
+    showToast(`Switched to "${tracks[prev].title}"`);
   };
+
+  // Outer placement wrapper
+  const isFixed = variant === "fixed";
+  const wrapperClasses = isFixed
+    ? `fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-40 select-none ${className}`
+    : `w-full select-none ${className}`;
 
   return (
-    <motion.div
-      initial={{ y: 60, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.7, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40"
-      style={{ width: "min(680px, 92vw)" }}
-    >
+    <div className={wrapperClasses}>
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMsg && (
@@ -212,102 +231,165 @@ export function MusicPlayer() {
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: -45, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            className="absolute left-1/2 -translate-x-1/2 top-0 liquid-glass rounded-full px-4 py-1.5 text-xs font-bold text-sky-900 shadow-md flex items-center gap-2 border border-sky-300/60 pointer-events-none whitespace-nowrap"
+            className="absolute right-0 -top-3 clay-pill px-3.5 py-1.5 text-xs font-bold text-[#2E2544] shadow-md flex items-center gap-2 pointer-events-none whitespace-nowrap z-50"
           >
-            <Sparkles size={13} className="text-sky-500 animate-pulse" />
+            <Sparkles size={13} className="text-[#9E7EE6] animate-pulse" />
             <span>{toastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div
-        className="liquid-glass flex items-center gap-4 px-4 py-3 shadow-xl backdrop-blur-2xl"
-        style={{ borderRadius: 28, background: "rgba(255, 255, 255, 0.65)", border: "1px solid rgba(255, 255, 255, 0.8)" }}
-      >
-        <div
-          className="rounded-2xl shrink-0 grid place-items-center text-white shadow-sm"
-          style={{ width: 48, height: 48, background: currentTrack.cover }}
-        >
-          <Music size={22} className={isPlaying ? "animate-bounce" : ""} />
-        </div>
-
-        <div className="shrink-0" style={{ minWidth: 120 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#1e2740" }} className="truncate">
-            {currentTrack.title}
-          </div>
-          <div style={{ fontSize: 12, color: "#5c5c78" }} className="truncate">
-            {currentTrack.artist}
-          </div>
-        </div>
-
-        {/* Dynamic Waveform Visualizer */}
-        <div className="flex items-center gap-[3px] flex-1 h-8 overflow-hidden">
-          {bars.map((_, i) => (
-            <motion.div
-              key={i}
-              style={{ width: 3, borderRadius: 3, background: "linear-gradient(180deg,#2458FF,#00D4FF)" }}
-              animate={
-                isPlaying
-                  ? { height: [6, 8 + Math.sin(i + Date.now() / 200) * 14 + Math.random() * 8, 6] }
-                  : { height: 6 }
-              }
-              transition={
-                isPlaying
-                  ? { duration: 0.6 + (i % 5) * 0.1, repeat: Infinity, ease: "easeInOut" }
-                  : { duration: 0.3 }
-              }
-            />
-          ))}
-        </div>
-
-        {/* Playback Controls */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={prevTrack}
-            title="Previous Track"
-            className="p-1.5 text-[#4a4a68] hover:text-[#2458FF] transition-colors cursor-pointer"
+      <AnimatePresence initial={false} mode="wait">
+        {!isExpanded ? (
+          /* ── COLLAPSED FLOATING CLAY PILL ── */
+          <motion.div
+            key="collapsed"
+            initial={{ scale: 0.92, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.92, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            whileHover={{ scale: 1.03, y: -2 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setIsExpanded(true)}
+            className="clay-floating-music-pill flex items-center gap-2.5 px-3.5 py-2 cursor-pointer w-fit max-w-[340px]"
+            title="Click to expand music player"
           >
-            <SkipBack size={18} />
-          </button>
+            <div className="shrink-0">
+              <ClayMusicTileIcon size={30} />
+            </div>
 
-          <motion.button
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.85 }}
-            onClick={togglePlayPause}
-            title={isPlaying ? "Pause Music" : "Play Music"}
-            transition={{ type: "spring", stiffness: 500, damping: 12 }}
-            className="grid place-items-center rounded-full cursor-pointer shadow-md"
-            style={{ width: 40, height: 40, background: "linear-gradient(135deg,#0284C7,#38BDF8)" }}
+            <div className="min-w-0 flex-1 pr-1">
+              <div className="text-[12px] font-bold text-[#2E2544] dark:text-[#FFFFFF] truncate leading-tight">
+                {currentTrack.title.replace(/ – .*/, "")}
+              </div>
+              <div className="text-[10.5px] text-[#777287] dark:text-[#9E98B4] font-semibold truncate mt-0.5">
+                {isPlaying ? "Playing Lofi Ambient" : "Paused · Click to expand"}
+              </div>
+            </div>
+
+            {/* Play/Pause Mini Button */}
+            <motion.button
+              whileHover={{ scale: 1.12 }}
+              whileTap={{ scale: 0.88 }}
+              onClick={togglePlayPause}
+              className="clay-music-play-btn w-7 h-7 flex items-center justify-center cursor-pointer border-none shrink-0"
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? (
+                <Pause size={12} color="#FFFFFF" fill="#FFFFFF" />
+              ) : (
+                <Play size={12} color="#FFFFFF" fill="#FFFFFF" className="ml-0.5" />
+              )}
+            </motion.button>
+
+            {/* Expand Indicator */}
+            <div className="text-[#9E98AA] dark:text-[#8E88A4] hover:text-[#2E2544] dark:hover:text-[#FFFFFF] transition-colors p-0.5">
+              <ChevronUp size={15} />
+            </div>
+          </motion.div>
+        ) : (
+          /* ── EXPANDED FLOATING CLAY MINI-PLAYER ── */
+          <motion.div
+            key="expanded"
+            initial={{ scale: 0.92, opacity: 0, y: 8 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.92, opacity: 0, y: 8 }}
+            transition={{ type: "spring", stiffness: 320, damping: 24 }}
+            className="clay-floating-music-expanded p-4 sm:p-4.5 w-[310px] sm:w-[360px] flex flex-col gap-3"
           >
-            {isPlaying ? (
-              <Pause size={18} color="#fff" fill="#fff" />
-            ) : (
-              <Play size={18} color="#fff" fill="#fff" className="ml-0.5" />
-            )}
-          </motion.button>
+            {/* Top Row: Track Metadata + Minimize Button */}
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <ClayMusicTileIcon size={38} />
+                <div className="min-w-0 pr-1">
+                  <div className="text-[12.5px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] truncate leading-tight tracking-tight">
+                    {currentTrack.title}
+                  </div>
+                  <div className="text-[11px] text-[#777287] dark:text-[#9E98B4] font-semibold truncate mt-0.5">
+                    {currentTrack.artist}
+                  </div>
+                </div>
+              </div>
 
-          <button
-            onClick={nextTrack}
-            title="Next Track"
-            className="p-1.5 text-[#4a4a68] hover:text-[#2458FF] transition-colors cursor-pointer"
-          >
-            <SkipForward size={18} />
-          </button>
-        </div>
+              {/* Collapse Button */}
+              <motion.button
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(false);
+                }}
+                className="w-7 h-7 rounded-full bg-[#FAF5F2] dark:bg-[#252136] hover:bg-[#F3EBE6] dark:hover:bg-[#302B45] text-[#777287] dark:text-[#9E98B4] hover:text-[#2E2544] dark:hover:text-[#FFFFFF] flex items-center justify-center border border-white/80 dark:border-white/10 shadow-sm cursor-pointer shrink-0 transition-colors"
+                title="Minimize player"
+              >
+                <ChevronDown size={15} />
+              </motion.button>
+            </div>
 
-        {/* Volume Slider */}
-        <div className="hidden sm:flex items-center gap-2 shrink-0" style={{ width: 110 }}>
-          <Volume2 size={16} color="#717190" />
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={vol}
-            onChange={(e) => setVol(+e.target.value)}
-            className="w-full accent-[#0284C7] cursor-pointer"
-          />
-        </div>
-      </div>
-    </motion.div>
+            {/* Subtle Progress Bar */}
+            <div className="w-full bg-[#E8DDD8] dark:bg-[#100E1A] h-1.5 rounded-full overflow-hidden relative">
+              <div
+                className="h-full bg-gradient-to-r from-[#C7B5F3] to-[#9E7EE6] rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            {/* Controls Row: SkipBack / Play-Pause / SkipForward / Volume */}
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.12 }}
+                  whileTap={{ scale: 0.88 }}
+                  onClick={prevTrack}
+                  title="Previous Track"
+                  className="p-1.5 text-[#777287] dark:text-[#9E98B4] hover:text-[#2E2544] dark:hover:text-[#FFFFFF] transition-colors cursor-pointer border-none bg-transparent flex items-center justify-center"
+                >
+                  <SkipBack size={16} />
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={togglePlayPause}
+                  title={isPlaying ? "Pause Music" : "Play Music"}
+                  className="clay-music-play-btn w-9 h-9 flex items-center justify-center cursor-pointer border-none shrink-0"
+                >
+                  {isPlaying ? (
+                    <Pause size={15} color="#FFFFFF" fill="#FFFFFF" />
+                  ) : (
+                    <Play size={15} color="#FFFFFF" fill="#FFFFFF" className="ml-0.5" />
+                  )}
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.12 }}
+                  whileTap={{ scale: 0.88 }}
+                  onClick={nextTrack}
+                  title="Next Track"
+                  className="p-1.5 text-[#777287] dark:text-[#9E98B4] hover:text-[#2E2544] dark:hover:text-[#FFFFFF] transition-colors cursor-pointer border-none bg-transparent flex items-center justify-center"
+                >
+                  <SkipForward size={16} />
+                </motion.button>
+              </div>
+
+              {/* Volume Slider */}
+              <div className="flex items-center gap-2">
+                <Volume2 size={15} className="text-[#777287] dark:text-[#9E98B4]" />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={vol}
+                  onChange={(e) => setVol(+e.target.value)}
+                  className="clay-slider w-16 sm:w-20 cursor-pointer"
+                  title={`Volume: ${vol}%`}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
+

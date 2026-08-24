@@ -90,6 +90,7 @@ class CommunicationAIGateway:
             max_tokens=max_tokens,
             temperature=temperature,
             stream=True,
+            mode="voice",
         )
 
     async def stream_with_interrupt(

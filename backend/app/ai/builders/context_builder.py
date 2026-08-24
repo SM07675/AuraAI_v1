@@ -158,59 +158,61 @@ class ContextBuilder:
             )
 
         # ── Long-term memories ────────────────────────────────────
-        mem_stmt = (
-            select(LongTermMemory)
-            .where(LongTermMemory.user_id == user.id)
-            .order_by(LongTermMemory.importance_score.desc())
-            .limit(10)
-        )
-        if self._db is None:
-            memories = []
-        else:
-            mem_result = await self._db.execute(mem_stmt)
-            scalars = getattr(mem_result, "scalars", None)
-            if scalars is not None and hasattr(scalars, "all"):
-                items = scalars.all()
-                if hasattr(items, "__await__"):
-                    items = await items
-            else:
-                items = []
-            if items is None:
-                items = []
-            memories = [
-                {
-                    "type": m.memory_type,
-                    "key": m.key,
-                    "value": m.value,
-                    "importance": m.importance_score,
-                }
-                for m in items
-            ]
+        memories = []
+        if self._db is not None:
+            try:
+                mem_stmt = (
+                    select(LongTermMemory)
+                    .where(LongTermMemory.user_id == user.id)
+                    .order_by(LongTermMemory.importance_score.desc())
+                    .limit(10)
+                )
+                mem_result = await self._db.execute(mem_stmt)
+                scalars = getattr(mem_result, "scalars", None)
+                if scalars is not None and hasattr(scalars, "all"):
+                    items = scalars.all()
+                    if hasattr(items, "__await__"):
+                        items = await items
+                else:
+                    items = []
+                if items is not None:
+                    memories = [
+                        {
+                            "type": m.memory_type,
+                            "key": m.key,
+                            "value": m.value,
+                            "importance": m.importance_score,
+                        }
+                        for m in items
+                    ]
+            except Exception:
+                memories = []
 
         # ── Active goals ──────────────────────────────────────────
-        goals_stmt = (
-            select(UserGoal)
-            .where(
-                UserGoal.user_id == user.id,
-                UserGoal.status == GoalStatus.ACTIVE.value,
-            )
-            .order_by(UserGoal.priority.desc())
-            .limit(10)
-        )
-        if self._db is None:
-            active_goals = []
-        else:
-            goals_result = await self._db.execute(goals_stmt)
-            scalars = getattr(goals_result, "scalars", None)
-            if scalars is not None and hasattr(scalars, "all"):
-                items = scalars.all()
-                if hasattr(items, "__await__"):
-                    items = await items
-            else:
-                items = []
-            if items is None:
-                items = []
-            active_goals = [g.to_context_dict() for g in items]
+        active_goals = []
+        if self._db is not None:
+            try:
+                goals_stmt = (
+                    select(UserGoal)
+                    .where(
+                        UserGoal.user_id == user.id,
+                        UserGoal.status == GoalStatus.ACTIVE.value,
+                    )
+                    .order_by(UserGoal.priority.desc())
+                    .limit(10)
+                )
+                goals_result = await self._db.execute(goals_stmt)
+                scalars = getattr(goals_result, "scalars", None)
+                if scalars is not None and hasattr(scalars, "all"):
+                    items = scalars.all()
+                    if hasattr(items, "__await__"):
+                        items = await items
+                else:
+                    items = []
+                if items is not None:
+                    active_goals = [g.to_context_dict() for g in items]
+            except Exception:
+                active_goals = []
 
         # ── Current time ──────────────────────────────────────────
         now = datetime.now(timezone.utc).astimezone()

@@ -84,7 +84,10 @@ class MemoryBuilder:
             Number of new memories created.
         """
         # Load existing memories for dedup context
-        existing = await self._get_existing_memories(db, user.id)
+        try:
+            existing = await self._get_existing_memories(db, user.id)
+        except Exception:
+            existing = []
         existing_summary = "\n".join(
             f"- {m.key}: {m.value}" for m in existing[:20]
         ) or "None"

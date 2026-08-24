@@ -39,8 +39,8 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
   }, []);
 
   const handleSave = () => {
-    const interests = interestsStr.split(",").map((i) => i.trim());
-    const goals = goalsStr.split(",").map((g) => g.trim());
+    const interests = interestsStr.split(",").map((i) => i.trim()).filter(Boolean);
+    const goals = goalsStr.split(",").map((g) => g.trim()).filter(Boolean);
 
     // Update profile
     fetch("/api/v1/users/me", {
@@ -49,11 +49,29 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
       body: JSON.stringify({ name, communication_style: commStyle }),
     }).catch(() => {});
 
+    // Update interests
+    fetch("/api/v1/users/me/interests", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interests }),
+    }).catch(() => {});
+
+    // Update goals
+    fetch("/api/v1/users/me/goals", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goals }),
+    }).catch(() => {});
+
     // Update local storage
     try {
       const savedUser = localStorage.getItem("aura_user");
       const updated = savedUser ? { ...JSON.parse(savedUser), name } : { name, email };
       localStorage.setItem("aura_user", JSON.stringify(updated));
+      localStorage.setItem(`aura_profile_${email}`, JSON.stringify({ name, email, communication_style: commStyle, interests, goals }));
+      localStorage.setItem("aura_user_interests", JSON.stringify(interests));
+      localStorage.setItem("aura_user_goals", JSON.stringify(goals));
+      localStorage.setItem("aura_user_style", commStyle);
     } catch (e) {}
 
     setSaved(true);
@@ -61,126 +79,133 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 select-none px-2 sm:px-4">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: -1, margin: 0 }}>User Profile</h2>
-          <p style={{ color: "#5c5c78", fontSize: 16, marginTop: 6 }}>
+          <h2 className="text-[28px] font-extrabold tracking-tight m-0 text-[#2D2D42] dark:text-[#FFFFFF]">User Profile</h2>
+          <p className="text-[14px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1">
             Personalize your identity, communication style, and active goals for Aura.
           </p>
         </div>
-        <button
+        <motion.button
+          whileHover={{ scale: 1.04, y: -1 }}
+          whileTap={{ scale: 0.95 }}
           onClick={handleSave}
-          className="flex items-center gap-2 rounded-full px-6 py-3 text-white font-semibold text-sm shadow-lg shadow-blue-500/30 cursor-pointer"
-          style={{ background: "linear-gradient(135deg,#2458FF,#00C6FF)" }}
+          className="clay-button flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-[#7B59DC] cursor-pointer"
+          style={{ borderRadius: 9999 }}
         >
-          {saved ? <Check size={18} /> : <Save size={18} />}
+          {saved ? <Check size={16} /> : <Save size={16} />}
           {saved ? "Saved!" : "Save Profile"}
-        </button>
+        </motion.button>
       </div>
 
-      <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
         {/* Basic Info */}
-        <GlassCard style={{ padding: 24 }}>
+        <div className="clay-card p-6 rounded-[32px]">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-full bg-blue-100 grid place-items-center text-blue-600">
-              <UserIcon size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-[#DDD2FC] dark:bg-[#372B5E] grid place-items-center text-[#7B59DC] dark:text-[#C7B5F3] shadow-sm">
+              <UserIcon size={18} />
             </div>
-            <h3 className="font-bold text-slate-900 text-lg">Identity & Style</h3>
+            <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base">Identity & Style</h3>
           </div>
 
           <div className="space-y-4 text-xs">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Full Name</label>
+              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Full Name</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-xl p-3 bg-white/80 border border-slate-200 text-slate-800 outline-none font-medium"
+                className="clay-input w-full p-3 text-xs font-semibold text-[#2D2D42] dark:text-[#E8E4F2]"
+                style={{ borderRadius: 16 }}
               />
             </div>
 
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Email</label>
+              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Email</label>
               <input
                 value={email}
                 disabled
-                className="w-full rounded-xl p-3 bg-slate-100/80 border border-slate-200 text-slate-500 outline-none font-medium"
+                className="clay-input w-full p-3 text-xs font-medium text-[#7A748A] dark:text-[#6E6882] opacity-80"
+                style={{ borderRadius: 16 }}
               />
             </div>
 
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Communication Style</label>
+              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Communication Style</label>
               <select
                 value={commStyle}
                 onChange={(e) => setCommStyle(e.target.value)}
-                className="w-full rounded-xl p-3 bg-white/80 border border-slate-200 text-slate-800 outline-none font-medium"
+                className="clay-input w-full p-3 text-xs font-semibold text-[#2D2D42] dark:text-[#E8E4F2]"
+                style={{ borderRadius: 16 }}
               >
-                <option value="balanced">Balanced & Empathetic</option>
-                <option value="direct">Direct & Solution-Focused</option>
-                <option value="gentle">Gentle & Supportive</option>
+                <option value="balanced" className="bg-[#171424] text-[#E8E4F2]">Balanced & Empathetic</option>
+                <option value="direct" className="bg-[#171424] text-[#E8E4F2]">Direct & Solution-Focused</option>
+                <option value="gentle" className="bg-[#171424] text-[#E8E4F2]">Gentle & Supportive</option>
               </select>
             </div>
           </div>
-        </GlassCard>
+        </div>
 
         {/* Goals & Interests */}
-        <GlassCard style={{ padding: 24 }}>
+        <div className="clay-card p-6 rounded-[32px]">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-full bg-teal-100 grid place-items-center text-teal-600">
-              <Target size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-[#D0F6EC] dark:bg-[#1A453F] grid place-items-center text-[#0D9488] dark:text-[#34D399] shadow-sm">
+              <Target size={18} />
             </div>
-            <h3 className="font-bold text-slate-900 text-lg">Goals & Hobbies</h3>
+            <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base">Goals & Hobbies</h3>
           </div>
 
           <div className="space-y-4 text-xs">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Active Goals (comma-separated)</label>
+              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Active Goals (comma-separated)</label>
               <textarea
                 value={goalsStr}
                 onChange={(e) => setGoalsStr(e.target.value)}
                 rows={3}
-                className="w-full rounded-xl p-3 bg-white/80 border border-slate-200 text-slate-800 outline-none font-medium resize-none"
+                className="clay-input w-full p-3 text-xs font-medium text-[#2D2D42] dark:text-[#E8E4F2] resize-none"
+                style={{ borderRadius: 16 }}
               />
             </div>
 
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Interests & Hobbies (comma-separated)</label>
+              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Interests & Hobbies (comma-separated)</label>
               <textarea
                 value={interestsStr}
                 onChange={(e) => setInterestsStr(e.target.value)}
                 rows={3}
-                className="w-full rounded-xl p-3 bg-white/80 border border-slate-200 text-slate-800 outline-none font-medium resize-none"
+                className="clay-input w-full p-3 text-xs font-medium text-[#2D2D42] dark:text-[#E8E4F2] resize-none"
+                style={{ borderRadius: 16 }}
               />
             </div>
           </div>
-        </GlassCard>
+        </div>
       </div>
 
       {/* Account Security & Sign Out Section */}
       {onLogout && (
-        <GlassCard style={{ padding: 24 }}>
-          <div className="flex items-center justify-between">
+        <div className="clay-card p-6 rounded-[32px]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-100 grid place-items-center text-rose-600">
-                <ShieldAlert size={20} />
+              <div className="w-10 h-10 rounded-2xl bg-[#FEE0E0] dark:bg-[#592323] grid place-items-center text-[#D65548] dark:text-[#F87171] shadow-sm">
+                <ShieldAlert size={18} />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 text-base">Account Session & Authentication</h3>
-                <p className="text-xs text-slate-500">Sign out of your active session and return to the Sign In screen.</p>
+                <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-sm">Account Session & Authentication</h3>
+                <p className="text-xs text-[#7A748A] dark:text-[#9E98B4] font-medium mt-0.5">Sign out of your active session and return to the Sign In screen.</p>
               </div>
             </div>
 
             <motion.button
-              whileHover={{ scale: 1.03 }}
+              whileHover={{ scale: 1.03, y: -1 }}
               whileTap={{ scale: 0.97 }}
               onClick={onLogout}
-              className="px-6 py-2.5 rounded-full font-bold text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer flex items-center gap-2 transition-all shadow-sm"
+              className="clay-logout-btn px-6 py-2.5 rounded-full font-bold text-xs cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
             >
-              <LogOut size={16} />
+              <LogOut size={15} />
               <span>Log Out of Aura</span>
             </motion.button>
           </div>
-        </GlassCard>
+        </div>
       )}
     </div>
   );

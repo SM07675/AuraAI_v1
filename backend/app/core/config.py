@@ -107,10 +107,10 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
 
     # ── AI Providers ─────────────────────────────────────────────
-    # NVIDIA NIM
-    nvidia_nim_api_key: str = ""
+    # NVIDIA NIM (Main Brain)
+    nvidia_nim_api_key: str = "YOUR_NVIDIA_API_KEY_HERE"
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_nim_model: str = "meta/llama-3.1-70b-instruct"
+    nvidia_nim_model: str = "meta/llama-3.1-8b-instruct"
 
     # Google Gemini
     gemini_api_key: str = ""

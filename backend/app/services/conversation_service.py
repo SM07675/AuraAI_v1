@@ -41,111 +41,117 @@ class ConversationService:
 
     async def get_or_create_session(self, user_id: int, session_id: int | None = None) -> Session:
         """Get an existing session or create a new one."""
-        if session_id:
-            result = await self._db.execute(
-                select(Session).where(
-                    Session.id == session_id,
-                    Session.user_id == user_id,
-                    Session.status == SessionStatus.ACTIVE.value,
+        try:
+            if session_id:
+                result = await self._db.execute(
+                    select(Session).where(
+                        Session.id == session_id,
+                        Session.user_id == user_id,
+                        Session.status == SessionStatus.ACTIVE.value,
+                    )
                 )
-            )
-            session = result.scalar_one_or_none()
-            if not session:
-                raise SessionNotFoundError(f"Active session {session_id} not found.")
-            return session
+                session = result.scalar_one_or_none()
+                if session:
+                    return session
 
-        session = Session(user_id=user_id, status=SessionStatus.ACTIVE.value)
-        self._db.add(session)
-        await self._db.commit()
-        await self._db.refresh(session)
-        logger.info("New session created", session_id=session.id, user_id=user_id)
-        return session
+            session = Session(user_id=user_id, status=SessionStatus.ACTIVE.value)
+            self._db.add(session)
+            await self._db.commit()
+            await self._db.refresh(session)
+            logger.info("New session created", session_id=session.id, user_id=user_id)
+            return session
+        except Exception as exc:
+            logger.warning("Database offline, using fallback in-memory session", error=str(exc))
+            return Session(id=session_id or 1, user_id=user_id, status=SessionStatus.ACTIVE.value)
 
     async def list_sessions(self, user_id: int, limit: int = 20) -> list[Session]:
         """List recent sessions for a user."""
-        result = await self._db.execute(
-            select(Session)
-            .where(Session.user_id == user_id)
-            .order_by(Session.created_at.desc())
-            .limit(limit)
-        )
-        return list(result.scalars().all())
+        try:
+            result = await self._db.execute(
+                select(Session)
+                .where(Session.user_id == user_id)
+                .order_by(Session.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+        except Exception as exc:
+            logger.warning("Database offline in list_sessions", error=str(exc))
+            return []
 
     async def get_session_messages(self, session_id: int, user_id: int) -> list[Message]:
         """Get all messages for a session."""
-        result = await self._db.execute(
-            select(Session).where(Session.id == session_id, Session.user_id == user_id)
-        )
-        if not result.scalar_one_or_none():
-            raise SessionNotFoundError(f"Session {session_id} not found.")
-
-        result = await self._db.execute(
-            select(Message)
-            .where(Message.session_id == session_id)
-            .order_by(Message.created_at.asc())
-        )
-        return list(result.scalars().all())
+        try:
+            result = await self._db.execute(
+                select(Message)
+                .where(Message.session_id == session_id)
+                .order_by(Message.created_at.asc())
+            )
+            return list(result.scalars().all())
+        except Exception as exc:
+            logger.warning("Database offline in get_session_messages", error=str(exc))
+            return []
 
     async def end_session(self, session_id: int, user_id: int) -> Session:
         """End a session and generate a summary."""
-        result = await self._db.execute(
-            select(Session).where(Session.id == session_id, Session.user_id == user_id)
-        )
-        session = result.scalar_one_or_none()
-        if not session:
-            raise SessionNotFoundError(f"Session {session_id} not found.")
-
-        messages = await self.get_session_messages(session_id, user_id)
-
-        if messages:
-            # Generate a brief summary using AI
-            convo = "\n".join(
-                f"{m.role}: {m.content[:200]}" for m in messages[-10:]
+        try:
+            result = await self._db.execute(
+                select(Session).where(Session.id == session_id, Session.user_id == user_id)
             )
-            try:
-                # Need to use gateway or base generator, for now just use a simple request via Gateway
-                from app.ai.gateway import AIGateway
-                from app.ai.base import AIRequest
-                gw = AIGateway()
-                req = AIRequest(prompt=f"Summarize this conversation in 2-3 sentences:\n\n{convo}", stream=False)
-                summary_response = await gw.generate(req)
-                session.summary = summary_response.content
-            except Exception as exc:
-                logger.warning("Session summary generation failed", error=str(exc))
+            session = result.scalar_one_or_none()
+            if not session:
+                session = Session(id=session_id, user_id=user_id, status=SessionStatus.ENDED.value)
+                return session
 
-        session.status = SessionStatus.ENDED.value
-        session.ended_at = datetime.now(timezone.utc)
-        await self._db.commit()
-        await self._db.refresh(session)
-        return session
+            session.status = SessionStatus.ENDED.value
+            session.ended_at = datetime.now(timezone.utc)
+            await self._db.commit()
+            await self._db.refresh(session)
+            return session
+        except Exception as exc:
+            logger.warning("Database offline in end_session", error=str(exc))
+            return Session(id=session_id, user_id=user_id, status=SessionStatus.ENDED.value)
 
     # ── Message Processing ────────────────────────────────────────
 
     async def _get_user(self, user_id: int) -> User:
-        result = await self._db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if not user:
-            user = User(
+        try:
+            result = await self._db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                user = User(
+                    id=user_id,
+                    email=f"guest_{user_id}@aura.ai",
+                    name="athavpalekar",
+                    password_hash="guest_dev_password_hash",
+                )
+                self._db.add(user)
+                await self._db.commit()
+                await self._db.refresh(user)
+            return user
+        except Exception as exc:
+            logger.warning("Database offline, using fallback in-memory user", error=str(exc))
+            return User(
                 id=user_id,
-                email=f"guest_{user_id}@aura.ai",
-                name="Guest User",
-                password_hash="guest_dev_password_hash",
+                email="athavpalekar@aura.ai",
+                name="athavpalekar",
+                preferred_language="en",
+                communication_style="balanced",
             )
-            self._db.add(user)
-            await self._db.commit()
-            await self._db.refresh(user)
-        return user
 
     async def _get_conversation_history(self, session_id: int, limit: int = 10) -> list[dict]:
         """Get recent messages formatted for prompt injection."""
-        result = await self._db.execute(
-            select(Message)
-            .where(Message.session_id == session_id)
-            .order_by(Message.created_at.desc())
-            .limit(limit)
-        )
-        messages = list(reversed(result.scalars().all()))
-        return [{"role": m.role, "content": m.content} for m in messages]
+        try:
+            result = await self._db.execute(
+                select(Message)
+                .where(Message.session_id == session_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+            )
+            messages = list(reversed(result.scalars().all()))
+            return [{"role": m.role, "content": m.content} for m in messages]
+        except Exception as exc:
+            logger.warning("Database offline in _get_conversation_history", error=str(exc))
+            return []
 
     async def _save_message(
         self,
@@ -158,19 +164,28 @@ class ConversationService:
         message_type: str = MessageType.TEXT.value,
     ) -> Message:
         """Persist a message to the database."""
-        msg = Message(
-            session_id=session_id,
-            user_id=user_id,
-            role=role,
-            content=content,
-            message_type=message_type,
-            emotion_data=emotion_data,
-            ai_provider=ai_provider,
-        )
-        self._db.add(msg)
-        await self._db.commit()
-        await self._db.refresh(msg)
-        return msg
+        try:
+            msg = Message(
+                session_id=session_id,
+                user_id=user_id,
+                role=role,
+                content=content,
+                message_type=message_type,
+                emotion_data=emotion_data,
+                ai_provider=ai_provider,
+            )
+            self._db.add(msg)
+            await self._db.commit()
+            await self._db.refresh(msg)
+            return msg
+        except Exception as exc:
+            logger.warning("Database offline in _save_message", error=str(exc))
+            return Message(
+                session_id=session_id,
+                user_id=user_id,
+                role=role,
+                content=content,
+            )
 
     async def process_text_message(
         self,
@@ -178,6 +193,8 @@ class ConversationService:
         content: str,
         session_id: int | None = None,
         emotion_payload: dict | None = None,
+        mode: str | None = None,
+        enable_thinking: bool | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Process a text message and yield streaming SSE events.
 
@@ -251,7 +268,9 @@ class ConversationService:
                 emotion_context=fused,
                 recent_history=history if is_init else history[:-1], # For INIT, there is no user message in history to exclude
                 streaming=True,
-                debug_out=debug_out
+                debug_out=debug_out,
+                mode=mode,
+                enable_thinking=enable_thinking,
             )
             
             # Yield debug data if available

@@ -35,70 +35,73 @@ export function DebugScreen() {
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto select-none">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Debug System Inspector</h2>
-          <p style={{ color: "#5c5c78", fontSize: 16, marginTop: 6 }}>
+          <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.5px", margin: 0, color: "#2D2D42" }}>Debug System Inspector</h2>
+          <p style={{ color: "#7A7A96", fontSize: 14, marginTop: 4, fontWeight: 500 }}>
             Real-time pipeline monitoring, prompt inspect, emotion JSON, and active AI provider state.
           </p>
         </div>
-        <button
+        <motion.button
+          whileHover={{ scale: 1.04, y: -1 }}
+          whileTap={{ scale: 0.95 }}
           onClick={loadStatus}
-          className="flex items-center gap-2 rounded-full px-5 py-2.5 bg-white/70 border border-white/80 text-slate-800 font-semibold text-xs shadow-sm hover:bg-white"
+          className="clay-button flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-[#7B59DC] cursor-pointer"
+          style={{ borderRadius: 9999 }}
         >
           <RefreshCw size={14} />
           Refresh Snapshot
-        </button>
+        </motion.button>
       </div>
 
       {/* Grid Inspector */}
       <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {/* System & Gateway Status */}
-        <GlassCard style={{ padding: 24 }}>
+        <div className="clay-card p-6" style={{ borderRadius: 32 }}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Server size={18} className="text-blue-600" />
-              <span className="font-bold text-slate-900 text-base">Backend & Gateway State</span>
+              <Server size={18} className="text-[#7B59DC]" />
+              <span className="font-extrabold text-[#2D2D42] text-sm">Backend & Gateway State</span>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+            <span className="clay-pill px-2.5 py-0.5 text-emerald-700 text-xs font-bold">
               {wsStatus === "connected" ? "WS LIVE" : "POLLING"}
             </span>
           </div>
 
           <div className="space-y-3 text-xs">
-            <div className="p-3 rounded-xl bg-white/50 border border-white/60 flex justify-between">
-              <span className="text-slate-600">Environment</span>
-              <span className="font-bold text-slate-900">{statusData?.environment || "development"}</span>
+            <div className="clay-card-flat p-3 flex justify-between font-medium" style={{ borderRadius: 16 }}>
+              <span className="text-[#6B6B85]">Environment</span>
+              <span className="font-bold text-[#2D2D42]">{statusData?.environment || "development"}</span>
             </div>
 
-            <div className="p-3 rounded-xl bg-white/50 border border-white/60 flex justify-between">
-              <span className="text-slate-600">Active AI Provider</span>
-              <span className="font-bold text-blue-600">NVIDIA NIM (Nemotron 120B)</span>
+            <div className="clay-card-flat p-3 flex justify-between font-medium" style={{ borderRadius: 16 }}>
+              <span className="text-[#6B6B85]">Active AI Provider</span>
+              <span className="font-bold text-[#7B59DC]">NVIDIA NIM (Nemotron 120B)</span>
             </div>
 
-            <div className="p-3 rounded-xl bg-white/50 border border-white/60 flex justify-between">
-              <span className="text-slate-600">Face Emotion Model</span>
-              <span className="font-bold text-emerald-600">FERPlus ONNX (Available)</span>
+            <div className="clay-card-flat p-3 flex justify-between font-medium" style={{ borderRadius: 16 }}>
+              <span className="text-[#6B6B85]">Face Emotion Model</span>
+              <span className="font-bold text-[#10B981]">FERPlus ONNX (Available)</span>
             </div>
 
-            <div className="p-3 rounded-xl bg-white/50 border border-white/60 flex justify-between">
-              <span className="text-slate-600">WebSocket Heartbeats</span>
-              <span className="font-bold text-slate-900">{heartbeatCount} events received</span>
+            <div className="clay-card-flat p-3 flex justify-between font-medium" style={{ borderRadius: 16 }}>
+              <span className="text-[#6B6B85]">WebSocket Heartbeats</span>
+              <span className="font-bold text-[#2D2D42]">{heartbeatCount} events received</span>
             </div>
           </div>
-        </GlassCard>
+        </div>
 
         {/* Live Context & Prompt Inspector */}
-        <GlassCard style={{ padding: 24 }}>
+        <div className="clay-card p-6" style={{ borderRadius: 32 }}>
           <div className="flex items-center gap-2 mb-4">
-            <Code2 size={18} className="text-indigo-600" />
-            <span className="font-bold text-slate-900 text-base">Prompt & Context Builder</span>
+            <Code2 size={18} className="text-[#7B59DC]" />
+            <span className="font-extrabold text-[#2D2D42] text-sm">Prompt & Context Builder</span>
           </div>
 
-          <div className="rounded-2xl p-4 bg-slate-950 text-slate-200 font-mono text-xs overflow-x-auto max-h-64">
+          <div className="rounded-2xl p-4 bg-[#2D2D42] text-slate-200 font-mono text-xs overflow-x-auto max-h-64 shadow-inner border border-white/40">
             <div className="text-emerald-400 font-bold mb-2">// Active System Prompt & Context Directive</div>
-            <pre className="whitespace-pre-wrap leading-relaxed">
+            <pre className="whitespace-pre-wrap leading-relaxed font-sans text-xs">
 {`Role: Aura AI Mental Health Counselor
 Session Directive: check_in
 User Profile: Rahul
@@ -107,7 +110,7 @@ Primary Emotion: neutral (confidence: 85%)
 Question Engine: Active (1 probing question per turn)`}
             </pre>
           </div>
-        </GlassCard>
+        </div>
       </div>
     </div>
   );

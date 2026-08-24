@@ -124,7 +124,10 @@ class GoalEngine:
         main pipeline.
         """
         # Get existing goals for context
-        existing = await self.get_all_goals(db, user_id)
+        try:
+            existing = await self.get_all_goals(db, user_id)
+        except Exception:
+            existing = []
         existing_summary = "\n".join(
             f"- [ID {g.id}] {g.title} ({g.status}, {g.category})"
             for g in existing

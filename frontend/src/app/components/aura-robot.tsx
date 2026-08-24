@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import confetti from "canvas-confetti";
+import auraMascotPng from "../../assets/aura-mascot-3d.png";
 
 export type Expression = 
   | "happy" 
@@ -321,6 +322,7 @@ export function AuraRobot({ expression = "happy" }: { expression?: Expression })
         </div>
       </motion.div>
 
+
       {/* Reflective platform */}
       <motion.div
         className="absolute rounded-full"
@@ -337,3 +339,216 @@ export function AuraRobot({ expression = "happy" }: { expression?: Expression })
     </div>
   );
 }
+
+/* ─────────────────────────── REFERENCE IMAGE 3D CLAY MASCOT ─────────────────────────── */
+
+export function AuraMascot3D({ 
+  size = 210, 
+  className = "",
+  interactive = true 
+}: { 
+  size?: number; 
+  className?: string; 
+  interactive?: boolean;
+}) {
+  const s = size / 210;
+
+  return (
+    <div
+      className={`relative flex items-center justify-center select-none ${className}`}
+      style={{ width: size * 1.15, height: size * 1.05 }}
+    >
+      {/* ── Decorative Clay Object 1: Top-Left Lavender Sphere ── */}
+      <motion.div
+        animate={{ y: [0, -4 * s, 0] }}
+        transition={{ duration: 5.8, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute pointer-events-none"
+        style={{
+          top: 10 * s,
+          left: -15 * s,
+          width: 24 * s,
+          height: 24 * s,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #E6DCFA 0%, #C7B5F3 50%, #A98BE8 100%)",
+          boxShadow: `${3 * s}px ${4 * s}px ${10 * s}px rgba(169, 139, 232, 0.4), inset 1.5px 1.5px 3px rgba(255,255,255,0.9)`,
+          border: "1px solid rgba(255,255,255,0.85)",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ── Decorative Clay Object 2: Upper Puffy Pink Blob ── */}
+      <motion.div
+        animate={{ y: [0, -3.5 * s, 0], scale: [1, 1.02, 1] }}
+        transition={{ duration: 6.4, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+        className="absolute pointer-events-none"
+        style={{
+          top: 4 * s,
+          left: 45 * s,
+          width: 28 * s,
+          height: 18 * s,
+          borderRadius: `${14 * s}px ${16 * s}px ${14 * s}px ${18 * s}px`,
+          background: "linear-gradient(135deg, #FDE2E2 0%, #F1A6A6 60%, #E88383 100%)",
+          boxShadow: `${2 * s}px ${4 * s}px ${8 * s}px rgba(241, 166, 166, 0.38), inset 1px 1.5px 2px rgba(255,255,255,0.9)`,
+          border: "1px solid rgba(255,255,255,0.85)",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ── Decorative Clay Object 3: Top-Right Mint Sphere ── */}
+      <motion.div
+        animate={{ y: [0, -4 * s, 0] }}
+        transition={{ duration: 5.4, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
+        className="absolute pointer-events-none"
+        style={{
+          top: 8 * s,
+          right: 5 * s,
+          width: 18 * s,
+          height: 18 * s,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #E2FAF2 0%, #BFE6D8 50%, #76D1B7 100%)",
+          boxShadow: `${2 * s}px ${3 * s}px ${8 * s}px rgba(120, 210, 185, 0.35), inset 1px 1px 2px rgba(255,255,255,0.9)`,
+          border: "1px solid rgba(255,255,255,0.85)",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ── Decorative Clay Object 4: Mid-Right Soft Blue Sphere ── */}
+      <motion.div
+        animate={{ y: [0, -3 * s, 0] }}
+        transition={{ duration: 6.0, repeat: Infinity, ease: "easeInOut", delay: 2.2 }}
+        className="absolute pointer-events-none"
+        style={{
+          top: 75 * s,
+          right: -10 * s,
+          width: 16 * s,
+          height: 16 * s,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #E8F4FD 0%, #BBDCF5 50%, #72B2E6 100%)",
+          boxShadow: `${2 * s}px ${3 * s}px ${8 * s}px rgba(115, 180, 230, 0.35), inset 1px 1px 2px rgba(255,255,255,0.9)`,
+          border: "1px solid rgba(255,255,255,0.85)",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ── Decorative Clay Object 5: Small Bottom-Left Purple Pebbles ── */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          bottom: 12 * s,
+          left: -4 * s,
+          width: 15 * s,
+          height: 11 * s,
+          borderRadius: `${8 * s}px ${10 * s}px ${7 * s}px ${9 * s}px`,
+          background: "linear-gradient(135deg, #EDE5FB 0%, #C7B5F3 60%, #9A7DE5 100%)",
+          boxShadow: `${2 * s}px ${3 * s}px ${6 * s}px rgba(154, 125, 229, 0.35), inset 1px 1px 2px rgba(255,255,255,0.85)`,
+          border: "1px solid rgba(255,255,255,0.8)",
+          zIndex: 3,
+        }}
+      />
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          bottom: 6 * s,
+          left: 14 * s,
+          width: 10 * s,
+          height: 8 * s,
+          borderRadius: `${6 * s}px`,
+          background: "linear-gradient(135deg, #EDE5FB 0%, #C7B5F3 60%, #9A7DE5 100%)",
+          boxShadow: `${1.5 * s}px ${2 * s}px ${4 * s}px rgba(154, 125, 229, 0.3), inset 0.8px 0.8px 1.5px rgba(255,255,255,0.85)`,
+          border: "1px solid rgba(255,255,255,0.8)",
+          zIndex: 3,
+        }}
+      />
+
+      {/* ── Soft Lavender Clay Platform Puddle (Anchors Mascot) ── */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          bottom: 2 * s,
+          width: size * 0.96,
+          height: 38 * s,
+          borderRadius: "50%",
+          background: "linear-gradient(140deg, #E6DCFA 0%, #D4C5F6 50%, #C4B0F2 100%)",
+          boxShadow:
+            `0 ${10 * s}px ${24 * s}px rgba(180, 155, 225, 0.42), -3px -3px 8px rgba(255,255,255,0.9), inset 2px 2px 5px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(160, 135, 215, 0.28)`,
+          border: "1.5px solid rgba(255,255,255,0.9)",
+          zIndex: 0,
+        }}
+      />
+
+      {/* ── Soft Physical Ground Shadow on the Platform (Breathing Sync) ── */}
+      <motion.div
+        animate={{ scale: [0.96, 1.04, 0.96], opacity: [0.45, 0.65, 0.45] }}
+        transition={{ duration: 4.8, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute pointer-events-none"
+        style={{
+          bottom: 12,
+          width: size * 0.6,
+          height: 18,
+          borderRadius: "50%",
+          background: "radial-gradient(ellipse, rgba(145, 115, 205, 0.55) 0%, rgba(160, 135, 220, 0.25) 50%, transparent 80%)",
+          filter: "blur(4px)",
+          zIndex: 1,
+        }}
+      />
+
+      {/* ── 3D Clay Robot Render (Calm Float + Tiny Scale Breathing) ── */}
+      <motion.div
+        className="relative z-10 flex items-center justify-center"
+        animate={{
+          y: [0, -5, 0],
+          scale: [1, 1.012, 1],
+          rotate: [0, 0.5, -0.5, 0],
+        }}
+        whileHover={interactive ? { scale: 1.035, y: -7, transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] } } : undefined}
+        whileTap={interactive ? { scale: 0.97, y: 1 } : undefined}
+        transition={{
+          y: { duration: 4.8, repeat: Infinity, ease: "easeInOut" },
+          scale: { duration: 4.8, repeat: Infinity, ease: "easeInOut" },
+          rotate: { duration: 6.4, repeat: Infinity, ease: "easeInOut" },
+        }}
+      >
+        <img
+          src={auraMascotPng}
+          alt="Aura 3D Clay Mascot"
+          className="object-contain"
+          style={{
+            width: size,
+            height: "auto",
+            maxHeight: size * 1.05,
+            filter: "drop-shadow(0 14px 22px rgba(150, 120, 215, 0.32))",
+          }}
+          draggable={false}
+        />
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── REFERENCE IMAGE PURPLE BLOB MASCOT ─────────────────────────── */
+
+export function AuraBlobMascot({ size = 56 }: { size?: number }) {
+  return (
+    <div className="relative flex items-center justify-center shrink-0 select-none" style={{ width: size, height: size }}>
+      {/* Soft Purple Clay Blob Character (Reference Image Interaction Bar) */}
+      <motion.div
+        animate={{ y: [0, -3, 0], scale: [1, 1.03, 1] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        className="w-full h-full rounded-[26px] bg-gradient-to-br from-[#D4C5F7] to-[#B8A2F4] shadow-[4px_6px_14px_rgba(160,135,225,0.45),-3px_-3px_8px_rgba(255,255,255,0.9),inset_1.5px_1.5px_3px_rgba(255,255,255,0.85)] border border-white/85 flex flex-col items-center justify-center relative overflow-hidden"
+      >
+        {/* Specular Highlight */}
+        <div
+          className="absolute top-1.5 left-2 w-4 h-2 rounded-full pointer-events-none"
+          style={{ background: "rgba(255,255,255,0.85)", filter: "blur(0.5px)", transform: "rotate(-20deg)" }}
+        />
+        {/* Eyes & Cute Smile */}
+        <div className="flex items-center gap-2 mb-0.5 relative z-10">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#201838]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#201838]" />
+        </div>
+        <div className="w-3.5 h-1.5 border-b-2 border-[#201838] rounded-full relative z-10" />
+      </motion.div>
+    </div>
+  );
+}
+

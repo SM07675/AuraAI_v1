@@ -1,224 +1,920 @@
-/* ===== Rendering smoothness (165Hz-friendly) ===== */
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+/* ===== Aura AI — Centralized Pastel Claymorphism Design Tokens ===== */
+
+:root {
+  /* ── Canvas & Surface Tokens (Warm Cream / Off-White Clay Canvas) ── */
+  --color-bg: #F4EBE6;
+  --color-card-bg: linear-gradient(150deg, #FAF4F0 0%, #F5ECE5 100%);
+  --color-card-flat-bg: linear-gradient(145deg, #FAF4F0 0%, #F5ECE5 100%);
+  --color-sidebar-bg: linear-gradient(160deg, #FAF4F0 0%, #F5ECE5 100%);
+
+  /* ── Centralized Pastel Palette (Matching TARGET) ── */
+  --color-lavender: #C7B5F3;
+  --color-purple: #A98BE8;
+  --color-purple-dark: #6E50B7;
+  
+  --color-mint: #BFE6D8;
+  --color-mint-light: #D5F2E7;
+  --color-mint-dark: #1F7E67;
+
+  --color-peach: #F7C8BA;
+  --color-peach-light: #FDE0D7;
+  --color-peach-dark: #C25B48;
+
+  --color-yellow: #F3D991;
+  --color-yellow-light: #FCEBC0;
+  --color-yellow-dark: #A16A18;
+
+  --color-blue: #BBDCF5;
+  --color-blue-light: #D8ECFB;
+  --color-blue-dark: #2B72B8;
+
+  --color-coral: #F1A6A6;
+  --color-coral-light: #FBD3D3;
+  --color-coral-dark: #B23D3D;
+
+  /* ── Typography Tokens ── */
+  --color-text-primary: #2E2544;
+  --color-text-muted: #777287;
+  --color-text-subtle: #A39EB2;
+
+  /* ── Clay Lighting & Bevel System (Top-Left 135° Lighting, Warm Ambient Clay) ── */
+  --clay-border: 1.5px solid rgba(255, 255, 255, 0.95);
+  --clay-shadow-light: -8px -8px 20px rgba(255, 255, 255, 0.98);
+  --clay-shadow-dark: 10px 14px 28px rgba(195, 172, 162, 0.32);
+  --clay-inner-light: inset 3px 3px 6px rgba(255, 255, 255, 0.95);
+  --clay-inner-dark: inset -3px -3px 8px rgba(185, 160, 150, 0.16);
 }
 
-/* Promote every animated background layer to its own compositor layer so
-   scale/rotate/translate just transform a cached bitmap (no per-frame reblur). */
-.aura-bg > * {
-  will-change: transform, opacity;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+/* ── LEVEL 1: Canvas Background ── */
+body {
+  background: linear-gradient(135deg, #FBF4F0 0%, #F4EBE6 50%, #ECE1DB 100%);
+  background-attachment: fixed;
+  color: var(--color-text-primary);
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-height: 100vh;
 }
 
-/* Glass surfaces + bubble live on their own layer for jank-free motion. */
-.liquid-glass,
-.liquid-bubble {
-  will-change: transform, opacity;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-}
-
-/* ===== iOS 26/27 Liquid Glass ===== */
-
-/* Clear, refractive glass — content shows through, bright lensed edges */
-.liquid-glass {
+/* ── LEVEL 2: Raised Container (Parent Clay Surface) ── */
+.clay-card {
   position: relative;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.30),
-    rgba(255, 255, 255, 0.08) 55%,
-    rgba(255, 255, 255, 0.18)
-  );
-  backdrop-filter: blur(14px) saturate(180%) brightness(1.08);
-  -webkit-backdrop-filter: blur(14px) saturate(180%) brightness(1.08);
-  border: 1px solid rgba(255, 255, 255, 0.30);
+  background: var(--color-card-bg);
+  border-radius: 32px;
+  border: var(--clay-border);
   box-shadow:
-    0 12px 40px rgba(90, 120, 200, 0.16),
-    0 2px 10px rgba(0, 0, 0, 0.05),
-    inset 0 1px 1.5px rgba(255, 255, 255, 0.95),
-    inset 0 -10px 24px rgba(255, 255, 255, 0.14),
-    inset 0 0 40px rgba(255, 255, 255, 0.10);
-}
-
-/* Refractive specular rim — bright lensed edge catching light top-left + bottom-right */
-.liquid-glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  background: linear-gradient(
-    140deg,
-    rgba(255, 255, 255, 1),
-    rgba(255, 255, 255, 0) 30%,
-    rgba(180, 220, 255, 0.25) 50%,
-    rgba(255, 255, 255, 0) 70%,
-    rgba(255, 255, 255, 0.75)
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-/* Soft moving specular sheen streak — slowly drifts across the surface */
-.liquid-glass::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    115deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.40) 45%,
-    rgba(255, 255, 255, 0.05) 55%,
-    transparent 70%
-  );
-  background-size: 250% 250%;
-  opacity: 0.7;
-  pointer-events: none;
-  animation: liquid-sheen 9s ease-in-out infinite;
-}
-
-@keyframes liquid-sheen {
-  0% { background-position: 150% 0%; }
-  50% { background-position: -50% 100%; }
-  100% { background-position: 150% 0%; }
-}
-
-.liquid-glass > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* Draggable selection bubble — Apple Liquid Glass (per nav spec) */
-.liquid-bubble {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.55),
-    rgba(255, 255, 255, 0.35) 55%,
-    rgba(210, 225, 255, 0.42)
-  );
-  backdrop-filter: blur(55px) saturate(180%);
-  -webkit-backdrop-filter: blur(55px) saturate(180%);
-  box-shadow:
-    0 18px 50px rgba(120, 150, 255, 0.18),
-    0 0 35px rgba(150, 190, 255, 0.30),
-    inset 0 2px 2px rgba(255, 255, 255, 0.85),
-    inset 0 -6px 14px rgba(150, 190, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-}
-
-/* Top specular highlight for the bubble */
-.liquid-bubble::before {
-  content: "";
-  position: absolute;
-  left: 12%;
-  right: 12%;
-  top: 4px;
-  height: 42%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-/* ===== Apple Liquid Glass Modal & Buttons ===== */
-
-.liquid-glass-modal {
-  position: relative;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.68) 0%,
-    rgba(255, 255, 255, 0.38) 50%,
-    rgba(224, 242, 254, 0.55) 100%
-  );
-  backdrop-filter: blur(28px) saturate(210%) brightness(1.06);
-  -webkit-backdrop-filter: blur(28px) saturate(210%) brightness(1.06);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  box-shadow:
-    0 24px 60px rgba(2, 132, 199, 0.22),
-    0 8px 24px rgba(0, 0, 0, 0.05),
-    inset 0 2px 3px rgba(255, 255, 255, 0.95),
-    inset 0 -8px 22px rgba(186, 230, 253, 0.30),
-    inset 0 0 35px rgba(255, 255, 255, 0.25);
-}
-
-.liquid-glass-modal::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, 0.2) 35%,
-    rgba(56, 189, 248, 0.4) 65%,
-    rgba(255, 255, 255, 0.95) 100%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-/* Authentic Liquid Glass Button */
-.liquid-glass-btn {
-  position: relative;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.70) 0%,
-    rgba(255, 255, 255, 0.35) 100%
-  );
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  box-shadow:
-    0 4px 16px rgba(2, 132, 199, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.04),
-    inset 0 1.5px 2px rgba(255, 255, 255, 0.95),
-    inset 0 -3px 8px rgba(2, 132, 199, 0.06);
+    10px 14px 28px rgba(195, 172, 162, 0.32),
+    -8px -8px 20px rgba(255, 255, 255, 0.98),
+    inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+    inset -3px -3px 8px rgba(185, 160, 150, 0.16);
   transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.liquid-glass-btn:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.94) 0%,
-    rgba(224, 242, 254, 0.88) 100%
-  );
-  border-color: rgba(56, 189, 248, 0.7);
-  box-shadow:
-    0 10px 28px rgba(2, 132, 199, 0.24),
-    0 2px 6px rgba(0, 0, 0, 0.04),
-    inset 0 1.5px 2.5px rgba(255, 255, 255, 1),
-    inset 0 -4px 10px rgba(56, 189, 248, 0.18);
-}
-
-/* Liquid Icon Orb Container */
-.liquid-icon-orb {
+/* ── Secondary Raised Clay Container / Flat Card ── */
+.clay-card-flat {
   position: relative;
-  background: linear-gradient(135deg, #0284C7 0%, #38BDF8 100%);
+  background: var(--color-card-flat-bg);
+  border-radius: 20px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
   box-shadow:
-    0 6px 18px rgba(2, 132, 199, 0.38),
-    inset 0 1.5px 2px rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.65);
+    5px 7px 16px rgba(195, 172, 162, 0.25),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.9),
+    inset -2px -2px 5px rgba(185, 160, 150, 0.14);
 }
 
-.liquid-icon-orb::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 18%;
-  right: 18%;
-  height: 38%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0));
-  pointer-events: none;
+/* ── Sidebar Persistent Clay Container ── */
+.clay-sidebar {
+  position: relative;
+  background: var(--color-sidebar-bg);
+  border-radius: 36px;
+  border: 1.5px solid rgba(255, 255, 255, 0.98);
+  box-shadow:
+    12px 18px 36px rgba(190, 168, 158, 0.35),
+    -10px -10px 26px rgba(255, 255, 255, 0.98),
+    inset 4px 4px 8px rgba(255, 255, 255, 0.95),
+    inset -4px -4px 10px rgba(185, 160, 150, 0.16);
 }
+
+/* ── LEVEL 3: Raised Child Objects & Interactive Elements ── */
+
+/* ── Interactive Clay Button (General) ── */
+.clay-button {
+  position: relative;
+  background: linear-gradient(145deg, #FFFDFD 0%, #F6ECEF 100%);
+  border-radius: 20px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    5px 7px 16px rgba(198, 178, 190, 0.32),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.9),
+    inset -2px -2px 5px rgba(190, 170, 182, 0.16);
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.clay-button:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    7px 10px 22px rgba(198, 178, 190, 0.38),
+    -5px -5px 14px rgba(255, 255, 255, 0.98),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.95),
+    inset -2px -2px 5px rgba(190, 170, 182, 0.18);
+}
+
+.clay-button:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow:
+    2px 3px 6px rgba(198, 178, 190, 0.25),
+    -1px -1px 4px rgba(255, 255, 255, 0.85),
+    inset 2px 2px 5px rgba(185, 165, 175, 0.28);
+}
+
+/* ── Clay Pill / Capsule ── */
+.clay-pill {
+  position: relative;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  background: linear-gradient(145deg, #FFFDFD 0%, #F7EEF0 100%);
+  box-shadow:
+    4px 6px 14px rgba(198, 178, 190, 0.3),
+    -3px -3px 8px rgba(255, 255, 255, 0.98),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.95),
+    inset -1.5px -1.5px 4px rgba(190, 170, 182, 0.14);
+}
+
+/* ── Active Status Pill (Green Active Badge) ── */
+.clay-pill-active {
+  background: linear-gradient(145deg, #E6FAF1 0%, #D4F5E6 100%) !important;
+  color: #059669 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow:
+    3px 4px 10px rgba(5, 150, 105, 0.22),
+    -2px -2px 6px rgba(255, 255, 255, 0.9),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
+    inset -1.5px -1.5px 3px rgba(5, 150, 105, 0.12) !important;
+}
+
+/* ── Sidebar Active Nav Pill: Lavender / Purple (Matching TARGET) ── */
+.clay-active-purple,
+.clay-active-nav {
+  background: linear-gradient(140deg, #C7B5F3 0%, #A98BE8 100%) !important;
+  color: #FFFFFF !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow:
+    5px 8px 18px rgba(169, 139, 232, 0.42),
+    -3px -3px 8px rgba(255, 255, 255, 0.92),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.75),
+    inset -2px -2px 5px rgba(140, 115, 205, 0.25) !important;
+}
+
+/* ── Sidebar Logout Button: Soft Salmon / Coral (Matching TARGET) ── */
+.clay-logout-btn {
+  background: linear-gradient(140deg, #FBD1C7 0%, #F1A6A6 100%) !important;
+  color: #B23D3D !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow:
+    4px 6px 14px rgba(241, 166, 166, 0.38),
+    -3px -3px 8px rgba(255, 255, 255, 0.92),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
+    inset -1.5px -1.5px 3px rgba(200, 120, 120, 0.22) !important;
+}
+
+/* ── PASTEL CLAY TILES (Tactile 3D Inflated Cushions) ── */
+
+/* 1. Chat: Lavender */
+.clay-pastel-purple {
+  background: linear-gradient(145deg, #D4C5F7 0%, #C7B5F3 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(180, 160, 230, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(160, 140, 215, 0.25);
+}
+
+/* 2. Voice Mode & Breathing: Mint */
+.clay-pastel-mint {
+  background: linear-gradient(145deg, #D2F2E7 0%, #BFE6D8 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(160, 210, 195, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(140, 190, 175, 0.25);
+}
+
+/* 3. Face-to-Face: Peach */
+.clay-pastel-peach {
+  background: linear-gradient(145deg, #FDE0D7 0%, #F7C8BA 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(235, 175, 160, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(215, 155, 140, 0.25);
+}
+
+/* 4. Memory & Journal: Soft Warm Yellow */
+.clay-pastel-yellow {
+  background: linear-gradient(145deg, #F9E7B3 0%, #F3D991 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(225, 195, 130, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(205, 175, 110, 0.25);
+}
+
+/* 5. Focus & Emotion Square: Soft Blue */
+.clay-pastel-blue {
+  background: linear-gradient(145deg, #D4EBFC 0%, #BBDCF5 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(160, 195, 230, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(145, 180, 215, 0.25);
+}
+
+/* 6. Music: Coral / Pink */
+.clay-pastel-coral {
+  background: linear-gradient(145deg, #FBD5D5 0%, #F1A6A6 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    6px 8px 18px rgba(235, 160, 160, 0.38),
+    -4px -4px 12px rgba(255, 255, 255, 0.95),
+    inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+    inset -2.5px -2.5px 6px rgba(210, 140, 140, 0.25);
+}
+
+/* ── LEVEL 4: Recessed / Inset 3D Fields & Tracks ── */
+.clay-inset {
+  background: #EAE0E3;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 3px 3px 7px rgba(185, 165, 175, 0.4),
+    inset -3px -3px 7px rgba(255, 255, 255, 0.9);
+}
+
+.clay-track-inset {
+  background: #E8DDE1;
+  border-radius: 9999px;
+  box-shadow:
+    inset 2px 2px 4px rgba(185, 165, 175, 0.38),
+    inset -2px -2px 4px rgba(255, 255, 255, 0.85);
+}
+
+.clay-progress-fill {
+  background: linear-gradient(90deg, #38BDF8 0%, #0284C7 100%);
+  border-radius: 9999px;
+  box-shadow:
+    2px 3px 6px rgba(2, 132, 199, 0.32),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.7);
+}
+
+/* ── Clay Input Field ── */
+.clay-input {
+  background: #EBE1E5;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 3px 3px 6px rgba(185, 165, 175, 0.38),
+    inset -3px -3px 6px rgba(255, 255, 255, 0.9);
+  outline: none;
+  color: var(--color-text-primary);
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+}
+
+.clay-input::placeholder {
+  color: var(--color-text-subtle);
+}
+
+/* ── Floating Sphere Animation ── */
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+/* ── Clay Motion & Tactile Physics Utilities ── */
+.clay-interactive {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, box-shadow;
+}
+
+.clay-interactive:hover {
+  transform: translateY(-3px) scale(1.015);
+}
+
+.clay-interactive:active {
+  transform: translateY(1.5px) scale(0.975);
+}
+
+/* ── Compact Horizontal Quick Actions Container ── */
+.quick-actions-container {
+  background: linear-gradient(145deg, #FBF7F4 0%, #F5EDE8 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  border-radius: 30px !important;
+  box-shadow:
+    0 10px 24px rgba(160, 140, 150, 0.16),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.95),
+    inset 0 -1.5px 3px rgba(180, 160, 150, 0.1) !important;
+}
+
+/* ── Compact Muted Pastel Clay Cards ── */
+.quick-card-journal {
+  background: linear-gradient(145deg, #FFF7EA 0%, #F6E7CF 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 21px !important;
+  box-shadow:
+    0 6px 14px rgba(130, 105, 80, 0.12),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.9),
+    inset 0 -1.5px 3px rgba(170, 140, 115, 0.08) !important;
+}
+
+.quick-card-breathing {
+  background: linear-gradient(145deg, #EAF7F1 0%, #D4EFE3 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 21px !important;
+  box-shadow:
+    0 6px 14px rgba(70, 120, 100, 0.12),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.9),
+    inset 0 -1.5px 3px rgba(120, 160, 145, 0.08) !important;
+}
+
+.quick-card-focus {
+  background: linear-gradient(145deg, #EEF4F8 0%, #DCE7EE 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 21px !important;
+  box-shadow:
+    0 6px 14px rgba(80, 105, 125, 0.12),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.9),
+    inset 0 -1.5px 3px rgba(125, 145, 165, 0.08) !important;
+}
+
+.quick-card-music {
+  background: linear-gradient(145deg, #FDF0F0 0%, #F5DCDD 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 21px !important;
+  box-shadow:
+    0 6px 14px rgba(140, 90, 95, 0.12),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.9),
+    inset 0 -1.5px 3px rgba(180, 130, 135, 0.08) !important;
+}
+
+/* ── CHAT SCREEN SPECIFIC CLAY STYLES (Matching TARGET Reference) ── */
+
+/* 1. Large Central Chat Container */
+.clay-chat-panel {
+  position: relative;
+  background: linear-gradient(150deg, #FAF4F0 0%, #F5ECE5 100%);
+  border-radius: 32px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 10px 25px rgba(90, 70, 110, 0.12),
+    -8px -8px 20px rgba(255, 255, 255, 0.95),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset -2px -2px 6px rgba(185, 160, 150, 0.12);
+}
+
+/* 2. Assistant Message Bubble: Warm Cream/White Clay */
+.clay-bubble-aura {
+  position: relative;
+  background: linear-gradient(145deg, #FFFFFF 0%, #FAF6F3 100%);
+  border-radius: 24px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 4px 14px rgba(180, 160, 175, 0.16),
+    inset 0 1.5px 2px #FFFFFF,
+    inset 0 -1.5px 3px rgba(200, 180, 170, 0.1);
+  color: #2E2544;
+}
+
+/* 3. User Message Bubble: Soft Lavender Clay */
+.clay-bubble-user {
+  position: relative;
+  background: linear-gradient(145deg, #E2D7F8 0%, #D4C5F7 100%);
+  border-radius: 24px;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    0 4px 14px rgba(160, 135, 225, 0.22),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.95),
+    inset 0 -1.5px 3px rgba(140, 115, 205, 0.15);
+  color: #2E2544;
+}
+
+/* 4. Chat Recessed Input Bar */
+.clay-chat-input-pill {
+  position: relative;
+  background: #EFE6E2;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 2px 3px 6px rgba(185, 165, 175, 0.35),
+    inset -2px -3px 6px rgba(255, 255, 255, 0.9);
+  color: #2E2544;
+}
+
+.clay-chat-input-pill::placeholder {
+  color: #9E98AA;
+}
+
+/* 5. Circular Microphone Button */
+.clay-btn-mic {
+  background: linear-gradient(145deg, #FFFDFD 0%, #F5ECEF 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: 9999px;
+  box-shadow:
+    0 4px 12px rgba(198, 178, 190, 0.35),
+    -2px -2px 6px rgba(255, 255, 255, 0.95),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.9);
+  color: #777287;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clay-btn-mic:hover {
+  transform: translateY(-1px) scale(1.04);
+  color: #2E2544;
+}
+
+.clay-btn-mic.listening {
+  background: linear-gradient(145deg, #FED7D7 0%, #FEB2B2 100%) !important;
+  color: #E53E3E !important;
+  box-shadow:
+    0 4px 14px rgba(229, 62, 62, 0.35),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.9) !important;
+}
+
+/* 6. Circular Raised Lavender Send Button */
+.clay-btn-send {
+  background: linear-gradient(140deg, #9E7EE6 0%, #7B56DB 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border-radius: 9999px;
+  box-shadow:
+    0 6px 16px rgba(123, 86, 219, 0.42),
+    inset 0 2px 3px rgba(255, 255, 255, 0.7),
+    inset 0 -2px 4px rgba(80, 50, 160, 0.25);
+  color: #FFFFFF;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clay-btn-send:hover {
+  transform: translateY(-1px) scale(1.05);
+  box-shadow:
+    0 8px 20px rgba(123, 86, 219, 0.48),
+    inset 0 2px 3px rgba(255, 255, 255, 0.8),
+    inset 0 -2px 4px rgba(80, 50, 160, 0.28);
+}
+
+.clay-btn-send:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+/* 7. Bottom Music Player Bar */
+.clay-music-bar {
+  position: relative;
+  background: linear-gradient(150deg, #FAF4F0 0%, #F5ECE5 100%);
+  border-radius: 28px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 10px 25px rgba(90, 70, 110, 0.12),
+    -6px -6px 18px rgba(255, 255, 255, 0.95),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset -2px -2px 6px rgba(185, 160, 150, 0.12);
+}
+
+/* 8. Raised Lavender Music Play Button */
+.clay-music-play-btn {
+  background: linear-gradient(140deg, #C7B5F3 0%, #A98BE8 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 9999px;
+  box-shadow:
+    0 5px 14px rgba(169, 139, 232, 0.4),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.85),
+    inset 0 -1.5px 3px rgba(140, 115, 205, 0.2);
+  color: #FFFFFF;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clay-music-play-btn:hover {
+  transform: scale(1.06);
+  box-shadow:
+    0 7px 18px rgba(169, 139, 232, 0.48),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.9);
+}
+
+.clay-music-play-btn:active {
+  transform: scale(0.94);
+}
+
+/* 9. Soft Clay Slider */
+.clay-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #E4D8DC;
+  border-radius: 9999px;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(160, 140, 150, 0.35);
+}
+
+.clay-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #C7B5F3 0%, #9E7EE6 100%);
+  border: 1.5px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(158, 126, 230, 0.45);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.clay-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.clay-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #C7B5F3 0%, #9E7EE6 100%);
+  border: 1.5px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(158, 126, 230, 0.45);
+  cursor: pointer;
+}
+
+/* ── 10. VOICE MODE PANEL & BENTO STYLES ── */
+.clay-voice-panel {
+  position: relative;
+  background: linear-gradient(150deg, #FAF4F0 0%, #F5ECE5 100%);
+  border-radius: 32px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 10px 25px rgba(90, 70, 110, 0.12),
+    -8px -8px 20px rgba(255, 255, 255, 0.95),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset -2px -2px 6px rgba(185, 160, 150, 0.12);
+}
+
+.clay-voice-subcard {
+  position: relative;
+  background: #FAF5F2;
+  border-radius: 24px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 4px 14px rgba(180, 160, 175, 0.12),
+    inset 1px 2px 4px rgba(185, 165, 175, 0.15),
+    inset -1px -2px 4px rgba(255, 255, 255, 0.9);
+}
+
+/* 11. Large Raised Lavender Voice Mic Button */
+.clay-voice-mic-btn {
+  background: linear-gradient(140deg, #9E7EE6 0%, #7B56DB 100%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 9999px;
+  box-shadow:
+    0 8px 22px rgba(123, 86, 219, 0.42),
+    inset 0 2px 3px rgba(255, 255, 255, 0.75),
+    inset 0 -2px 4px rgba(80, 50, 160, 0.25);
+  color: #FFFFFF;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clay-voice-mic-btn.paused {
+  background: linear-gradient(145deg, #FFFDFD 0%, #F5ECEF 100%);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 6px 16px rgba(198, 178, 190, 0.35),
+    -2px -2px 6px rgba(255, 255, 255, 0.95),
+    inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.9);
+  color: #777287;
+}
+
+/* 12. Floating Collapsible Music Player */
+.clay-floating-music-pill {
+  position: relative;
+  background: linear-gradient(145deg, #FFFFFF 0%, #FAF5F2 100%);
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 10px 24px rgba(90, 70, 110, 0.16),
+    -4px -4px 12px rgba(255, 255, 255, 0.9),
+    inset 0 1.5px 2px #FFFFFF,
+    inset 0 -1.5px 3px rgba(200, 180, 170, 0.1);
+}
+
+.clay-floating-music-expanded {
+  position: relative;
+  background: linear-gradient(150deg, #FAF4F0 0%, #F5ECE5 100%);
+  border-radius: 28px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 14px 34px rgba(90, 70, 110, 0.18),
+    -6px -6px 18px rgba(255, 255, 255, 0.95),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.85),
+    inset -2px -2px 6px rgba(185, 160, 150, 0.12);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DARK CLAYMORPHIC SYSTEM (SINGLE SOURCE OF TRUTH)
+   Matching Reference: Deep Midnight Obsidian + 3D Dark Clay Depth
+   ══════════════════════════════════════════════════════════════════ */
+
+html.dark,
+body.dark {
+  background-color: #12101B;
+  color: #F3EFFC;
+}
+
+.dark .clay-bg-gradient {
+  background: linear-gradient(135deg, #12101B 0%, #171424 50%, #0E0C17 100%) !important;
+}
+
+/* 1. Dark Clay Cards & Bento Surfaces */
+.dark .clay-card,
+.dark .clay-chat-panel,
+.dark .clay-voice-panel {
+  background: linear-gradient(150deg, #1D192B 0%, #141220 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.6),
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 1px 1.5px 2px rgba(255, 255, 255, 0.11),
+    inset -1px -1.5px 3px rgba(0, 0, 0, 0.55) !important;
+  color: #F3EFFC;
+}
+
+.dark .clay-card-flat,
+.dark .clay-voice-subcard {
+  background: #171422 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.45),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.08),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+  color: #F3EFFC;
+}
+
+/* 2. Inset Wells & Input Tracks */
+.dark .clay-track-inset,
+.dark .clay-chat-input-well,
+.dark .clay-input {
+  background: #100E1A !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    inset 2px 2px 6px rgba(0, 0, 0, 0.65),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.03) !important;
+  color: #E8E4F2 !important;
+}
+
+.dark .clay-input::placeholder {
+  color: #6E6882 !important;
+}
+
+/* 3. Dark Sidebar */
+.dark .clay-sidebar {
+  background: linear-gradient(160deg, #1C1929 0%, #13111E 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    inset 1px 1.5px 2px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 4. Active Navigation Item in Dark Mode (Glowing Purple Pill) */
+.dark .clay-active-nav {
+  background: linear-gradient(135deg, #7B56DB 0%, #6336D4 100%) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow:
+    0 8px 22px rgba(123, 86, 219, 0.55),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.35) !important;
+}
+
+/* 5. Dark Clay Pills & Badges */
+.dark .clay-pill {
+  background: #191626 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #D8D2E8 !important;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.09) !important;
+}
+
+/* 6. Dark Clay Buttons */
+.dark .clay-button {
+  background: linear-gradient(145deg, #231F32 0%, #191626 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #E2DCF0 !important;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.12),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .clay-button:hover {
+  background: linear-gradient(145deg, #2B263D 0%, #1F1C2E 100%) !important;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.15) !important;
+}
+
+/* 7. Theme Toggle Button */
+.clay-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  cursor: pointer;
+  outline: none;
+  background: linear-gradient(145deg, #FFFFFF 0%, #F5ECF0 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 6px 14px rgba(180, 160, 175, 0.2),
+    -2px -2px 6px rgba(255, 255, 255, 0.95),
+    inset 1px 1px 2px #FFFFFF;
+  color: #D97706;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.clay-theme-toggle:hover {
+  transform: scale(1.08) rotate(15deg);
+}
+
+.clay-theme-toggle:active {
+  transform: scale(0.94);
+}
+
+.dark .clay-theme-toggle {
+  background: linear-gradient(140deg, #242034 0%, #181525 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.5),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.15) !important;
+  color: #FBBF24 !important;
+}
+
+/* 8. Chat Message Bubbles in Dark Mode */
+.dark .clay-bubble-aura {
+  background: #201C2E !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  color: #F3EFFC !important;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.4),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .clay-bubble-user {
+  background: linear-gradient(135deg, #7B56DB 0%, #5B30C9 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #FFFFFF !important;
+  box-shadow:
+    0 8px 20px rgba(123, 86, 219, 0.45),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+/* 9. Dark Mode Floating Music Player */
+.dark .clay-floating-music-pill {
+  background: linear-gradient(145deg, #201C2E 0%, #151322 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.6),
+    inset 0 1px 2px rgba(255, 255, 255, 0.12) !important;
+  color: #F3EFFC;
+}
+
+.dark .clay-floating-music-expanded {
+  background: linear-gradient(150deg, #1F1B2C 0%, #151320 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.7),
+    inset 0 1px 2px rgba(255, 255, 255, 0.12) !important;
+  color: #F3EFFC;
+}
+
+.dark .clay-slider {
+  background: #252136 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 10. Mode Action Tiles in Dark Theme (3D Clay Vibrant Cards matching Target) */
+.dark .clay-tile-chat {
+  background: linear-gradient(145deg, #3B2A6F 0%, #25174B 100%) !important;
+  border: 1.5px solid rgba(169, 139, 232, 0.38) !important;
+  box-shadow:
+    0 14px 28px rgba(25, 12, 50, 0.65),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.22),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .clay-tile-voice {
+  background: linear-gradient(145deg, #1C5A51 0%, #103B35 100%) !important;
+  border: 1.5px solid rgba(52, 211, 153, 0.38) !important;
+  box-shadow:
+    0 14px 28px rgba(10, 45, 40, 0.65),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.22),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .clay-tile-face {
+  background: linear-gradient(145deg, #7C3737 0%, #4D1E1E 100%) !important;
+  border: 1.5px solid rgba(248, 113, 113, 0.38) !important;
+  box-shadow:
+    0 14px 28px rgba(60, 20, 20, 0.65),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.22),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .clay-tile-memory {
+  background: linear-gradient(145deg, #8B6528 0%, #563E14 100%) !important;
+  border: 1.5px solid rgba(251, 191, 36, 0.38) !important;
+  box-shadow:
+    0 14px 28px rgba(60, 40, 10, 0.65),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.22),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 11. Quick Action Container & Dark Clay Mini-Tiles (Exact Match with Reference) */
+.dark .quick-actions-container {
+  background: linear-gradient(150deg, #1D192B 0%, #141220 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 30px !important;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.6),
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 1px 1.5px 2px rgba(255, 255, 255, 0.11),
+    inset -1px -1.5px 3px rgba(0, 0, 0, 0.55) !important;
+}
+
+.dark .clay-quick-action,
+.dark .quick-card-journal,
+.dark .quick-card-breathing,
+.dark .quick-card-focus,
+.dark .quick-card-music {
+  background: linear-gradient(145deg, #1C182A 0%, #13101E 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 21px !important;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.1),
+    inset -1px -1px 3px rgba(0, 0, 0, 0.45) !important;
+}
+
+.dark .clay-quick-action:hover,
+.dark .quick-card-journal:hover,
+.dark .quick-card-breathing:hover,
+.dark .quick-card-focus:hover,
+.dark .quick-card-music:hover {
+  background: linear-gradient(145deg, #252038 0%, #181526 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.6),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.15) !important;
+}
+
+/* 12. Dark Sidebar Logout Button */
+.dark .clay-logout-btn {
+  background: linear-gradient(145deg, #221C2B 0%, #171320 100%) !important;
+  color: #F87171 !important;
+  border: 1.5px solid rgba(248, 113, 113, 0.25) !important;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .clay-logout-btn:hover {
+  background: linear-gradient(145deg, #2C2236 0%, #1D1728 100%) !important;
+  border: 1.5px solid rgba(248, 113, 113, 0.35) !important;
+  color: #FCA5A5 !important;
+}
+
+/* ── Respect User's Reduced Motion Preferences ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+
 
