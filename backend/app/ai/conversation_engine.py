@@ -279,27 +279,27 @@ class ConversationEngine:
             debug_out["final_messages"] = messages
             debug_out["is_crisis"] = is_crisis
 
-        # ── Stage 7: Fire Background Profile Tasks ────────────────
-        # These don't block the response — they run concurrently
+        # ── Stage 7 & 8: Fire Background Profile & Memory Tasks ────────────────
+        async def _safe_run(coro, task_name: str):
+            try:
+                await coro
+            except Exception as e:
+                logger.debug(f"Background task {task_name} skipped or completed", error=str(e))
+
         asyncio.create_task(
-            self._interest_builder.build(user, db, user_message),
+            _safe_run(self._interest_builder.build(user, db, user_message), f"interest-{session.id}-{turn}"),
             name=f"interest-{session.id}-{turn}",
         )
         asyncio.create_task(
-            self._goal_engine.detect_and_update(
-                db, user.id, user_message, session.id
-            ),
+            _safe_run(self._goal_engine.detect_and_update(db, user.id, user_message, session.id), f"goals-{session.id}-{turn}"),
             name=f"goals-{session.id}-{turn}",
         )
 
-        # ── Stage 8: Memory Builder (background) ──────────────────
         context_for_memory = "\n".join(
             f"{m['role']}: {m['content']}" for m in recent_history[-4:]
         )
         asyncio.create_task(
-            self._memory_builder.build(
-                user, session, db, user_message, context_for_memory
-            ),
+            _safe_run(self._memory_builder.build(user, session, db, user_message, context_for_memory), f"memory-{session.id}-{turn}"),
             name=f"memory-{session.id}-{turn}",
         )
 

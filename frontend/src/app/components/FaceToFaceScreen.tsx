@@ -207,25 +207,54 @@ export function FaceToFaceScreen() {
       socket.onmessage = (evt) => {
         try {
           const data = JSON.parse(evt.data);
-          if (data.type === "message" || data.type === "agent_response" || data.type === "done") {
-            const reply = data.content || data.text || data.response;
+          if (data.type === "start") {
+            setTyping(true);
+          } else if (data.type === "chunk") {
+            setTyping(false);
+            setMsgs((prev) => {
+              if (prev.length === 0) return prev;
+              const lastIdx = prev.length - 1;
+              const lastMsg = prev[lastIdx];
+              if (lastMsg && lastMsg.from === "aura") {
+                return [
+                  ...prev.slice(0, lastIdx),
+                  { ...lastMsg, text: lastMsg.text + data.content },
+                ];
+              } else {
+                return [
+                  ...prev,
+                  { id: "aura-" + Date.now(), from: "aura", text: data.content },
+                ];
+              }
+            });
+          } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
+            setTyping(false);
+            const reply = data.response || data.content || data.text;
             if (reply) {
-              setMsgs((prev) => [
-                ...prev,
-                {
-                  id: "aura-" + Date.now(),
-                  from: "aura",
-                  text: reply,
-                },
-              ]);
-              setTyping(false);
+              setMsgs((prev) => {
+                const lastIdx = prev.length - 1;
+                const lastMsg = prev[lastIdx];
+                if (lastMsg && lastMsg.from === "aura") {
+                  return [
+                    ...prev.slice(0, lastIdx),
+                    { ...lastMsg, text: reply },
+                  ];
+                }
+                return [...prev, { id: "aura-" + Date.now(), from: "aura", text: reply }];
+              });
               voiceService.speak(reply, { emotion: faceEmotionRef.current.primary_emotion || "calm" });
             }
-          } else if (data.type === "start") {
-            setTyping(true);
+          } else if (data.type === "error") {
+            setTyping(false);
+            const fallbackTxt = "I hear you, and I'm right here with you. Take a slow, deep breath. Can you tell me a little more about what's going on?";
+            setMsgs((prev) => [
+              ...prev,
+              { id: "aura-" + Date.now(), from: "aura", text: fallbackTxt },
+            ]);
+            voiceService.speak(fallbackTxt);
           }
         } catch (e) {
-          // non-json or stream token
+          // non-json
         }
       };
 

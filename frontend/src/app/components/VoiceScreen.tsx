@@ -77,11 +77,13 @@ export function VoiceScreen() {
           } else if (data.type === "chunk") {
             setThinking(false);
             setAiResponse((prev) => prev + data.content);
-          } else if (data.type === "done") {
+          } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
             setThinking(false);
-            setAiResponse((fullText) => {
-              if (fullText) speakText(fullText);
-              return fullText;
+            const fullReply = data.response || data.content || data.text;
+            setAiResponse((prev) => {
+              const res = fullReply || prev;
+              if (res) speakText(res);
+              return res;
             });
           } else if (data.type === "error") {
             setThinking(false);
