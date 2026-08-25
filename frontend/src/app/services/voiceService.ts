@@ -245,7 +245,7 @@ class NaturalVoiceEngine {
     // 1. Check browser memory cache
     const cachedBlobUrl = this.audioCache.get(cacheKey);
     if (cachedBlobUrl) {
-      this.playAudioBlob(cachedBlobUrl, options);
+      this.playAudioBlob(cachedBlobUrl, options, clean, selectedVoice);
       return;
     }
 
@@ -273,7 +273,7 @@ class NaturalVoiceEngine {
       const blobUrl = URL.createObjectURL(blob);
       this.audioCache.set(cacheKey, blobUrl);
 
-      this.playAudioBlob(blobUrl, options);
+      this.playAudioBlob(blobUrl, options, clean, selectedVoice);
     } catch (err: any) {
       if (err.name === "AbortError") return;
 
@@ -290,17 +290,18 @@ class NaturalVoiceEngine {
     options?: {
       onEnd?: () => void;
       onError?: (err: any) => void;
-    }
+    },
+    fallbackText?: string,
+    requestedVoiceId?: string
   ) {
     try {
       const audio = new Audio();
       audio.src = blobUrl;
-      audio.crossOrigin = "anonymous";
       this.currentAudio = audio;
 
-      // Connect Web Audio API Analyser
+      // Unlock AudioContext if present
       try {
-        if (!this.audioContext) {
+        if (!this.audioContext && typeof window !== "undefined") {
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioContextClass) {
             this.audioContext = new AudioContextClass();
@@ -309,18 +310,7 @@ class NaturalVoiceEngine {
         if (this.audioContext && this.audioContext.state === "suspended") {
           this.audioContext.resume();
         }
-        if (this.audioContext && !this.analyser) {
-          this.analyser = this.audioContext.createAnalyser();
-          this.analyser.fftSize = 64;
-        }
-        if (this.audioContext && this.analyser) {
-          this.audioSourceNode = this.audioContext.createMediaElementSource(audio);
-          this.audioSourceNode.connect(this.analyser);
-          this.analyser.connect(this.audioContext.destination);
-        }
-      } catch (e) {
-        // Fallback to standard audio playback if audio node routing is restricted
-      }
+      } catch (e) {}
 
       audio.onended = () => {
         this.setSpeaking(false);
@@ -330,24 +320,36 @@ class NaturalVoiceEngine {
 
       audio.onerror = (e) => {
         console.warn("Audio playback error:", e);
-        this.setSpeaking(false);
-        this.currentAudio = null;
-        options?.onError?.(e);
+        if (fallbackText) {
+          this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+        } else {
+          this.setSpeaking(false);
+          this.currentAudio = null;
+          options?.onError?.(e);
+        }
       };
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((e) => {
           if (e.name !== "AbortError") {
-            console.warn("Audio play prevented by browser autoplay policy:", e);
-            this.setSpeaking(false);
+            console.warn("Audio play prevented by browser autoplay policy, attempting WebSpeech fallback:", e);
+            if (fallbackText) {
+              this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+            } else {
+              this.setSpeaking(false);
+            }
           }
         });
       }
     } catch (err) {
       console.warn("playAudioBlob exception:", err);
-      this.setSpeaking(false);
-      options?.onError?.(err);
+      if (fallbackText) {
+        this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+      } else {
+        this.setSpeaking(false);
+        options?.onError?.(err);
+      }
     }
   }
 

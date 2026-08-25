@@ -41,19 +41,20 @@ export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarPro
     <aside
       className="clay-sidebar hidden lg:flex flex-col justify-between shrink-0 select-none"
       style={{
-        width: 204,
-        minHeight: "calc(100vh - 32px)",
-        margin: "16px 0 16px 16px",
-        padding: "22px 14px 18px 14px",
+        width: 198,
+        height: "calc(100vh - 28px)",
+        maxHeight: "calc(100vh - 28px)",
+        margin: "14px 0 14px 14px",
+        padding: "16px 12px 14px 12px",
       }}
     >
       {/* ── Top: Branding ── */}
       <div>
-        <div className="flex items-center gap-3 px-2 mb-6 cursor-pointer" onClick={() => onSelect("Dashboard")}>
+        <div className="flex items-center gap-2.5 px-2 mb-3.5 cursor-pointer" onClick={() => onSelect("Dashboard")}>
           {/* 3D Lavender flower logo */}
-          <ClayAuraFlowerIcon size={38} />
+          <ClayAuraFlowerIcon size={34} />
           <span
-            className="text-[22px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]"
+            className="text-[20px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]"
             style={{
               letterSpacing: "-0.5px",
             }}

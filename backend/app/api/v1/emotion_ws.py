@@ -105,11 +105,11 @@ async def face_emotion_websocket(
             if msg_type != "frame":
                 continue
 
-            image_data = data.get("image")
+            image_data = data.get("image") or data.get("frame") or data.get("data")
             if not image_data:
                 await websocket.send_json({
                     "type": "error",
-                    "message": "Missing 'image' field in frame message",
+                    "message": "Missing 'image' or 'frame' field in frame message",
                 })
                 continue
 
