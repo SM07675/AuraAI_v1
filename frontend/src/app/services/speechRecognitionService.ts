@@ -270,7 +270,10 @@ class SpeechRecognitionEngine {
 
         if (err === "network") {
           this.consecutiveErrors++;
-          console.warn("SpeechRecognition network glitch, scheduling backoff retry...");
+          // Only warn on first few occurrences to prevent console spam
+          if (this.consecutiveErrors <= 2) {
+            console.warn("SpeechRecognition network glitch, scheduling backoff retry...");
+          }
           return;
         }
 
@@ -280,9 +283,14 @@ class SpeechRecognitionEngine {
       rec.onend = () => {
         this.isRecognizing = false;
 
-        // If user wants to keep listening, schedule an immediate resilient restart
+        // If user wants to keep listening, schedule a resilient restart with backoff
         if (this.isListeningDesired) {
-          const delay = this.consecutiveErrors > 0 ? Math.min(300 * this.consecutiveErrors, 1500) : 150;
+          let delay = 150;
+          if (this.consecutiveErrors > 0) {
+            // Exponential backoff: 500ms, 1000ms, 2000ms, max 5000ms
+            delay = Math.min(500 * Math.pow(1.5, Math.min(this.consecutiveErrors, 6)), 5000);
+          }
+
           this.clearRestartTimer();
           this.restartTimeout = setTimeout(() => {
             if (this.isListeningDesired) {
@@ -295,14 +303,16 @@ class SpeechRecognitionEngine {
       this.recognition = rec;
       rec.start();
     } catch (err: any) {
-      console.warn("SpeechRecognition initialization failed, retrying:", err);
+      if (this.consecutiveErrors <= 2) {
+        console.warn("SpeechRecognition initialization failed, retrying:", err);
+      }
       if (this.isListeningDesired) {
         this.clearRestartTimer();
         this.restartTimeout = setTimeout(() => {
           if (this.isListeningDesired) {
             this.recreateAndStart();
           }
-        }, 400);
+        }, 1000);
       }
     }
   }
