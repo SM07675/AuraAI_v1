@@ -50,6 +50,8 @@ htmlcov/
 backend/app/prompts/templates/*.pyc
 session_reports_pdf/
 tts_outputs/
+*.mp3
+*.wav
 
 # ML Models — large binary files, do not push to GitHub
 model/

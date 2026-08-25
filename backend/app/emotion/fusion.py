@@ -160,3 +160,7 @@ class EmotionFusionEngine:
                     has_negative = True
                     
         return has_positive and has_negative
+
+
+# Backward compatibility alias
+EmotionFusion = EmotionFusionEngine
