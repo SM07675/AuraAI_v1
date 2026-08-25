@@ -4,8 +4,9 @@
  * Provides studio-quality, lifelike human voice synthesis for Aura AI.
  * - Streams high-fidelity 24kHz neural audio from /api/v1/tts/synthesize
  * - Real-time Web Audio API AnalyserNode for reactive mouth/waveform visualizers
- * - Curated human voice personas (Warm, Gentle, Mindful, Confident, British, etc.)
- * - Emotion-aware prosody and speech rate modulation
+ * - Curated human voice personas with default Indian Expressive Female Neural voice (Neerja)
+ * - Support for Hindi / Hinglish (Swara) and regional accents
+ * - Robust acoustic echo cancellation and mutual exclusion to prevent self-listening
  * - Client-side markdown normalization
  * - Resilient fallback to browser Web Speech API if offline
  */
@@ -22,13 +23,37 @@ export interface VoicePersona {
 
 export const CURATED_VOICES: VoicePersona[] = [
   {
+    id: "en-IN-NeerjaExpressiveNeural",
+    name: "Neerja (Indian Expressive)",
+    gender: "Female",
+    locale: "en-IN",
+    accent: "Indian English",
+    persona: "Ultra-natural, expressive Indian English female voice with emotional inflections",
+    is_default: true,
+  },
+  {
+    id: "hi-IN-SwaraNeural",
+    name: "Swara (Hindi & Hinglish)",
+    gender: "Female",
+    locale: "hi-IN",
+    accent: "Indian Hindi",
+    persona: "Warm, authentic Hindi & conversational Hinglish female voice",
+  },
+  {
+    id: "en-IN-NeerjaNeural",
+    name: "Neerja (Indian Classic)",
+    gender: "Female",
+    locale: "en-IN",
+    accent: "Indian English",
+    persona: "Fluent, warm, clear Indian English female voice",
+  },
+  {
     id: "en-US-AriaNeural",
-    name: "Aura (Warm & Empathetic)",
+    name: "Aria (Global Empathetic)",
     gender: "Female",
     locale: "en-US",
     accent: "American",
     persona: "Warm, engaging, highly empathetic companion voice",
-    is_default: true,
   },
   {
     id: "en-US-JennyNeural",
@@ -39,38 +64,6 @@ export const CURATED_VOICES: VoicePersona[] = [
     persona: "Calm, gentle, mindful therapeutic tone",
   },
   {
-    id: "en-US-AvaMultilingualNeural",
-    name: "Ava (Modern & Expressive)",
-    gender: "Female",
-    locale: "en-US",
-    accent: "American",
-    persona: "Natural, dynamic, lifelike modern voice",
-  },
-  {
-    id: "en-US-EmmaNeural",
-    name: "Emma (Patient Guide)",
-    gender: "Female",
-    locale: "en-US",
-    accent: "American",
-    persona: "Supportive, clear, encouraging guide",
-  },
-  {
-    id: "en-US-GuyNeural",
-    name: "Guy (Confident & Reassuring)",
-    gender: "Male",
-    locale: "en-US",
-    accent: "American",
-    persona: "Deep, natural, reassuring male companion",
-  },
-  {
-    id: "en-US-AndrewMultilingualNeural",
-    name: "Andrew (Warm & Friendly)",
-    gender: "Male",
-    locale: "en-US",
-    accent: "American",
-    persona: "Conversational, articulate, friendly male voice",
-  },
-  {
     id: "en-GB-SoniaNeural",
     name: "Sonia (British Elegance)",
     gender: "Female",
@@ -79,20 +72,12 @@ export const CURATED_VOICES: VoicePersona[] = [
     persona: "Gentle, polished British English",
   },
   {
-    id: "en-AU-NatashaNeural",
-    name: "Natasha (Australian Warmth)",
+    id: "mr-IN-AarohiNeural",
+    name: "Aarohi (Marathi)",
     gender: "Female",
-    locale: "en-AU",
-    accent: "Australian",
-    persona: "Relaxed, natural Australian English",
-  },
-  {
-    id: "en-IN-NeerjaNeural",
-    name: "Neerja (Indian English)",
-    gender: "Female",
-    locale: "en-IN",
-    accent: "Indian",
-    persona: "Fluent, warm Indian English voice",
+    locale: "mr-IN",
+    accent: "Indian Marathi",
+    persona: "Authentic, fluent Marathi female voice",
   },
 ];
 
@@ -145,13 +130,15 @@ export function cleanTextForSpeech(text: string): string {
 class NaturalVoiceEngine {
   private currentAudio: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
-  private analyser: AnalyserNode | null = null;
-  private audioSourceNode: MediaElementAudioSourceNode | null = null;
   private isSpeakingState = false;
-  private activeVoiceId = "en-US-AriaNeural";
+  private activeVoiceId = "en-IN-NeerjaExpressiveNeural";
   private audioCache = new Map<string, string>(); // text+voice -> blobUrl
   private listeners: Set<(speaking: boolean) => void> = new Set();
   private abortController: AbortController | null = null;
+
+  // Echo cancellation & self-listening safeguards
+  private lastSpokenCleanText = "";
+  private lastSpeechEndTime = 0;
 
   constructor() {
     // Load saved voice preference from localStorage if present
@@ -180,6 +167,43 @@ class NaturalVoiceEngine {
     return this.isSpeakingState;
   }
 
+  /**
+   * Returns true if text was spoken recently or strongly matches Aura's last speech.
+   * Prevents SpeechRecognition from picking up Aura's own speaker output.
+   */
+  public isEcho(incomingText: string): boolean {
+    if (!incomingText) return false;
+    const now = Date.now();
+
+    // 1. If currently speaking or ended less than 1000ms ago
+    if (this.isSpeakingState || (now - this.lastSpeechEndTime < 1000)) {
+      return true;
+    }
+
+    // 2. Text similarity check with last spoken output
+    if (this.lastSpokenCleanText) {
+      const cleanInc = incomingText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+      const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+
+      if (cleanInc.length > 8 && cleanLast.length > 8) {
+        if (cleanLast.includes(cleanInc) || cleanInc.includes(cleanLast)) {
+          return true;
+        }
+
+        // Substring / word overlap check
+        const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 3);
+        if (incWords.length >= 3) {
+          const matches = incWords.filter((w) => cleanLast.includes(w));
+          if (matches.length / incWords.length >= 0.5) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
   public subscribe(listener: (speaking: boolean) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -187,6 +211,9 @@ class NaturalVoiceEngine {
 
   private setSpeaking(speaking: boolean) {
     this.isSpeakingState = speaking;
+    if (!speaking) {
+      this.lastSpeechEndTime = Date.now();
+    }
     this.listeners.forEach((l) => l(speaking));
   }
 
@@ -235,6 +262,7 @@ class NaturalVoiceEngine {
     const clean = cleanTextForSpeech(text);
     if (!clean) return;
 
+    this.lastSpokenCleanText = clean;
     this.stop();
     this.setSpeaking(true);
     options?.onStart?.();
@@ -283,7 +311,7 @@ class NaturalVoiceEngine {
   }
 
   /**
-   * Internal player for neural MP3 audio blobs with Web Audio analyzer.
+   * Internal player for neural MP3 audio blobs.
    */
   private playAudioBlob(
     blobUrl: string,
@@ -363,24 +391,31 @@ class NaturalVoiceEngine {
   ) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       this.setSpeaking(false);
+      options?.onError?.(new Error("Speech synthesis not supported"));
       return;
     }
 
     try {
       window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 0.98; // Human conversational pacing
-      utterance.pitch = 1.0;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
 
       const voices = window.speechSynthesis.getVoices();
-      // Select best available natural online / enhanced browser voice
-      const naturalVoice =
-        voices.find((v) => v.lang.startsWith("en") && (v.name.includes("Natural") || v.name.includes("Online") || v.name.includes("Neural"))) ||
-        voices.find((v) => v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Samantha") || v.name.includes("Aria") || v.name.includes("Jenny"))) ||
-        voices.find((v) => v.lang.startsWith("en") && v.name.includes("Female")) ||
-        voices.find((v) => v.lang.startsWith("en"));
+      const targetPersona = CURATED_VOICES.find((v) => v.id === requestedVoiceId);
 
-      if (naturalVoice) utterance.voice = naturalVoice;
+      if (voices.length > 0) {
+        const langPrefix = (targetPersona?.locale || "en-IN").split("-")[0].toLowerCase();
+        const matchingVoice =
+          voices.find((v) => v.name.toLowerCase().includes("neerja") || v.name.toLowerCase().includes("swara")) ||
+          voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix) && (v.name.toLowerCase().includes("natural") || v.name.toLowerCase().includes("female"))) ||
+          voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix)) ||
+          voices.find((v) => v.lang.startsWith("en") && v.name.toLowerCase().includes("female")) ||
+          voices[0];
+
+        if (matchingVoice) utterance.voice = matchingVoice;
+      }
 
       utterance.onend = () => {
         this.setSpeaking(false);
@@ -388,33 +423,17 @@ class NaturalVoiceEngine {
       };
 
       utterance.onerror = (e) => {
+        console.warn("WebSpeech utterance error:", e);
         this.setSpeaking(false);
         options?.onError?.(e);
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn("Web Speech API exception:", e);
+      console.warn("Fallback WebSpeech error:", e);
       this.setSpeaking(false);
       options?.onError?.(e);
     }
-  }
-
-  /**
-   * Get audio frequency level (0 to 1) for live mouth and waveform animations.
-   */
-  public getAudioLevel(): number {
-    if (!this.isSpeakingState || !this.analyser) {
-      return this.isSpeakingState ? 0.6 : 0;
-    }
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-    this.analyser.getByteFrequencyData(dataArray);
-    let sum = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-      sum += dataArray[i];
-    }
-    const avg = sum / dataArray.length;
-    return Math.min(1, avg / 128);
   }
 }
 

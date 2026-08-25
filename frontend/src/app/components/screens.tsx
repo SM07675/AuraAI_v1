@@ -807,9 +807,11 @@ export function ChatScreen() {
       recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
+      recognition.lang = "en-IN"; // Supports Indian English, Hindi & global English
 
       recognition.onresult = (event: any) => {
+        if (voiceService.isSpeaking()) return;
+
         let interim = "";
         let final = "";
 
@@ -822,22 +824,27 @@ export function ChatScreen() {
         }
 
         if (interim) {
+          if (voiceService.isEcho(interim)) return;
           setText(interim);
-          if (voiceService.isSpeaking()) voiceService.stop();
         }
         if (final) {
-          setText(final.trim());
-          if (voiceService.isSpeaking()) voiceService.stop();
+          const clean = final.trim();
+          if (voiceService.isEcho(clean) || clean.length < 2) return;
+          setText(clean);
         }
       };
 
       recognition.onend = () => {
         if (isMounted && listeningRef.current) {
-          try { recognition.start(); } catch (e) {}
+          try {
+            if (!voiceService.isSpeaking()) {
+              recognition.start();
+            }
+          } catch (e) {}
         }
       };
 
-      if (listening) {
+      if (listening && !voiceService.isSpeaking()) {
         recognition.start();
       }
     } catch (e) {

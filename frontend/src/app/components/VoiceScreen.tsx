@@ -41,6 +41,14 @@ export function VoiceScreen() {
       onError: () => setSpeaking(false),
     });
   };
+  
+  // Sync speaking state with global voice service
+  useEffect(() => {
+    return voiceService.subscribe((isSpk) => {
+      setSpeaking(isSpk);
+      isSpeakingRef.current = isSpk;
+    });
+  }, []);
 
   // ── Establish WebSocket connection ───────────────────────────────────────────
   useEffect(() => {
@@ -102,18 +110,15 @@ export function VoiceScreen() {
       socket?.close();
       voiceService.stop();
     };
-  }, [selectedVoice]);
+  }, []);
 
   // Send message to AI backend
   const sendToAi = (userSpeech: string) => {
-    if (!userSpeech.trim()) return;
-
-    if (speaking) {
-      voiceService.stop();
-      setSpeaking(false);
-    }
+    if (!userSpeech || userSpeech.trim().length === 0) return;
+    if (voiceService.isEcho(userSpeech)) return;
 
     setThinking(true);
+    setAiResponse("");
 
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: "message", content: userSpeech, mode: "voice" }));
@@ -153,13 +158,18 @@ export function VoiceScreen() {
       recognitionRef.current = recognition;
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
+      recognition.lang = "en-IN";
 
       recognition.onstart = () => {
         setSttError(null);
       };
 
       recognition.onresult = (event: any) => {
+        // Hard-block when Aura is speaking to eliminate acoustic echo loop
+        if (voiceService.isSpeaking() || isSpeakingRef.current) {
+          return;
+        }
+
         let interim = "";
         let final = "";
 
@@ -172,15 +182,13 @@ export function VoiceScreen() {
         }
 
         if (interim) {
+          if (voiceService.isEcho(interim)) return;
           setInterimTranscript(interim);
-          if (voiceService.isSpeaking()) {
-            voiceService.stop();
-            setSpeaking(false);
-          }
         }
 
         if (final) {
           const finalClean = final.trim();
+          if (!finalClean || voiceService.isEcho(finalClean) || finalClean.length < 2) return;
           setTranscript(finalClean);
           setInterimTranscript("");
           sendToAi(finalClean);
@@ -199,12 +207,21 @@ export function VoiceScreen() {
       recognition.onend = () => {
         if (isComponentMounted && isListeningRef.current) {
           try {
-            recognition.start();
+            if (!voiceService.isSpeaking()) {
+              recognition.start();
+            } else {
+              const checkInterval = setInterval(() => {
+                if (!voiceService.isSpeaking() && isComponentMounted && isListeningRef.current) {
+                  clearInterval(checkInterval);
+                  try { recognition.start(); } catch (e) {}
+                }
+              }, 400);
+            }
           } catch (e) {}
         }
       };
 
-      if (listening) {
+      if (listening && !voiceService.isSpeaking()) {
         recognition.start();
       }
     } catch (e: any) {
