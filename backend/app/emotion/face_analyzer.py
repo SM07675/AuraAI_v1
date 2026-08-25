@@ -35,6 +35,7 @@ system continues with text-only emotion (graceful degradation).
 from __future__ import annotations
 
 import base64
+import io
 import logging
 from pathlib import Path
 from typing import Any
@@ -186,7 +187,9 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             EmotionResult with modality='face'. Never raises — returns
             a mock result if face not detected or model unavailable.
         """
-        if input_data in (None, "", b""):
+        if input_data is None:
+            return self._no_face_result(reason="empty_input")
+        if isinstance(input_data, (str, bytes)) and len(input_data) == 0:
             return self._no_face_result(reason="empty_input")
         if not self.is_available:
             return self._no_face_result(reason="model_unavailable")
@@ -209,39 +212,70 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
     # ── Internal pipeline ─────────────────────────────────────────────────────
 
     def _decode_input(self, input_data: Any) -> Any | None:
-        """Decode various input formats to a BGR numpy array."""
+        """Decode various input formats to a BGR numpy array with PIL fallback."""
         np = self._np
         cv2 = self._cv2
 
         if isinstance(input_data, np.ndarray):
             return input_data
 
+        raw_bytes = None
         if isinstance(input_data, bytes):
-            buf = np.frombuffer(input_data, dtype=np.uint8)
-            return cv2.imdecode(buf, cv2.IMREAD_COLOR)
-
-        if isinstance(input_data, str):
-            # Strip data URI prefix if present
+            raw_bytes = input_data
+        elif isinstance(input_data, str):
             if "," in input_data:
                 input_data = input_data.split(",", 1)[1]
             try:
-                raw = base64.b64decode(input_data)
-                buf = np.frombuffer(raw, dtype=np.uint8)
-                return cv2.imdecode(buf, cv2.IMREAD_COLOR)
+                raw_bytes = base64.b64decode(input_data)
             except Exception:
                 return None
 
-        return None
+        if raw_bytes is None:
+            return None
+
+        # 1. Try OpenCV decode
+        if cv2 is not None:
+            try:
+                buf = np.frombuffer(raw_bytes, dtype=np.uint8)
+                img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+                if img is not None:
+                    return img
+            except Exception:
+                pass
+
+        # 2. Try Pillow decode
+        try:
+            from PIL import Image
+            pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            rgb_arr = np.array(pil_img)
+            # RGB -> BGR
+            return rgb_arr[:, :, ::-1]
+        except Exception:
+            return None
 
     def _detect_and_crop(self, frame: Any) -> Any | None:
-        """Detect face and return cropped region.
+        """Detect face and return cropped region."""
+        if frame is None:
+            return None
 
-        Uses BlazeFace ONNX if available, else falls back to OpenCV
-        Haar cascade (faster but less accurate).
-        """
+        face = None
         if self._face_session is not None:
-            return self._detect_blazeface(frame)
-        return self._detect_haar(frame)
+            face = self._detect_blazeface(frame)
+        if face is None:
+            face = self._detect_haar(frame)
+
+        # Fallback: if user is on webcam, center region contains the face
+        if face is None and hasattr(frame, "shape") and len(frame.shape) >= 2:
+            h, w = frame.shape[:2]
+            if h >= 32 and w >= 32:
+                # 70% centered face box
+                y1 = int(h * 0.12)
+                y2 = int(h * 0.88)
+                x1 = int(w * 0.18)
+                x2 = int(w * 0.82)
+                face = frame[y1:y2, x1:x2]
+
+        return face
 
     def _detect_blazeface(self, frame: Any) -> Any | None:
         """BlazeFace-based face detection."""
@@ -258,55 +292,48 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             input_name = self._face_session.get_inputs()[0].name
             outputs = self._face_session.run(None, {input_name: blob})
 
-            # Parse detection boxes — format depends on model version
-            # Try common output shapes
+            # Parse detection boxes
             if outputs and len(outputs) > 0:
-                boxes = outputs[0]  # shape: [N, 4] or [1, N, 4]
+                boxes = outputs[0]
                 if boxes.ndim == 3:
                     boxes = boxes[0]
-                if boxes.shape[0] == 0:
-                    return None
+                if boxes.shape[0] > 0:
+                    box = boxes[0]
+                    if len(box) >= 4:
+                        y1, x1, y2, x2 = box[:4]
+                        x1 = max(0, int(x1 * w))
+                        y1 = max(0, int(y1 * h))
+                        x2 = min(w, int(x2 * w))
+                        y2 = min(h, int(y2 * h))
 
-                # Take highest-confidence box (first entry in most variants)
-                box = boxes[0]
-                if len(box) >= 4:
-                    # Coordinates are relative [0, 1]
-                    y1, x1, y2, x2 = box[:4]
-                    x1 = max(0, int(x1 * w))
-                    y1 = max(0, int(y1 * h))
-                    x2 = min(w, int(x2 * w))
-                    y2 = min(h, int(y2 * h))
-
-                    if x2 > x1 and y2 > y1:
-                        return frame[y1:y2, x1:x2]
+                        if x2 > x1 and y2 > y1:
+                            return frame[y1:y2, x1:x2]
         except Exception as e:
             logger.debug("BlazeFace detection failed", error=str(e))
 
-        # Fall back to Haar on BlazeFace failure
-        return self._detect_haar(frame)
+        return None
 
     def _detect_haar(self, frame: Any) -> Any | None:
-        """OpenCV Haar cascade face detection (fallback)."""
+        """OpenCV face detection fallback."""
         cv2 = self._cv2
+        if cv2 is None or not hasattr(cv2, "CascadeClassifier"):
+            return None
 
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            )
+            cascade_path = getattr(cv2, "data", None)
+            xml_path = getattr(cascade_path, "haarcascades", "") + "haarcascade_frontalface_default.xml"
+            cascade = cv2.CascadeClassifier(xml_path)
             faces = cascade.detectMultiScale(
-                gray, scaleFactor=1.1, minNeighbors=5, minSize=(48, 48)
+                gray, scaleFactor=1.1, minNeighbors=4, minSize=(36, 36)
             )
-            if len(faces) == 0:
-                return None
-
-            # Take largest face
-            x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-            return frame[y:y + fh, x:x + fw]
-
+            if len(faces) > 0:
+                x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+                return frame[y:y + fh, x:x + fw]
         except Exception as e:
             logger.debug("Haar face detection failed", error=str(e))
-            return None
+
+        return None
 
     def _run_ferplus(self, face_crop: Any) -> EmotionResult:
         """Run FERPlus inference on a cropped face image."""

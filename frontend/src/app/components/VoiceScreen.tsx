@@ -256,15 +256,23 @@ export function VoiceScreen() {
     });
   };
 
+  // Speak greeting on mount
+  useEffect(() => {
+    speakText("Hello! I'm Aura, your emotion-aware companion. I'm listening with my natural neural voice—go ahead and talk to me.");
+    return () => {
+      voiceService.stop();
+    };
+  }, []);
+
   const activePersonaObj = CURATED_VOICES.find((v) => v.id === selectedVoice) || CURATED_VOICES[0];
 
   // Waveform Bar Heights (smooth symmetrical animation pattern)
   const waveHeights = [10, 18, 28, 16, 34, 24, 14, 30, 36, 22, 12, 32, 20, 34, 26, 14, 28, 16];
 
   return (
-    <div className="w-full max-w-[760px] mx-auto select-none px-2 sm:px-4">
+    <div className="w-full max-w-[760px] mx-auto select-none h-[calc(100vh-84px)] flex flex-col justify-center overflow-hidden px-2 sm:px-4">
       {/* Main Compact Voice Mode Panel (Bento Container) */}
-      <div className="clay-voice-panel p-4 sm:p-5 lg:p-6 flex flex-col items-center text-center">
+      <div className="clay-voice-panel p-3.5 sm:p-4 lg:p-5 flex flex-col items-center text-center max-h-full justify-between">
         {/* Header Strip */}
         <div className="w-full flex items-center justify-between border-b border-white/60 dark:border-white/10 pb-2.5 mb-2.5">
           <div className="text-left">

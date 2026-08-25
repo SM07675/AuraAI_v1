@@ -173,7 +173,7 @@ function MainApp() {
 
   return (
     <div
-      className="min-h-screen w-full flex overflow-x-hidden selection:bg-[#C7B5F3]/30 transition-colors duration-300"
+      className="h-screen max-h-screen w-full flex overflow-hidden selection:bg-[#C7B5F3]/30 transition-colors duration-300"
       style={{
         background: isDark
           ? "linear-gradient(135deg, #12101B 0%, #171424 50%, #0E0C17 100%)"
@@ -190,17 +190,18 @@ function MainApp() {
         />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 p-3 sm:p-4 lg:p-6 pb-20 lg:pb-6 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 p-2 sm:p-3 lg:p-3.5 pb-20 lg:pb-3.5 h-screen max-h-screen overflow-y-auto lg:overflow-hidden justify-between">
         {user && isOnboarded && <TopBar />}
 
-        <main className="flex-1 w-full">
+        <main className="flex-1 w-full min-h-0 overflow-hidden flex flex-col justify-between">
           <AnimatePresence mode="wait">
             <motion.div
               key={user ? (isOnboarded ? active : "onboarding") : "auth"}
-              initial={{ opacity: 0, y: 16 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="h-full w-full flex flex-col justify-between min-h-0"
               style={{ willChange: "transform, opacity" }}
             >
               {renderScreen()}

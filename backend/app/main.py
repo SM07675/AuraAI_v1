@@ -109,7 +109,8 @@ def create_app() -> FastAPI:
     # Register middleware (CORS, logging, exception handlers)
     setup_middleware(app)
 
-    # Register API routers under /api/v1
+    # Register API routers under /api/v1 and root health check
+    app.include_router(health_router)
     api_prefix = "/api/v1"
     app.include_router(health_router, prefix=api_prefix)
     app.include_router(auth_router, prefix=api_prefix)

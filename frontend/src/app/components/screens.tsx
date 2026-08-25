@@ -57,79 +57,45 @@ export function HomeScreen({
   const userName = user.name || "athavpalekar";
 
   return (
-    <div className="relative w-full select-none" style={{ maxWidth: 1200 }}>
+    <div className="relative w-full select-none h-full max-h-[calc(100vh-80px)] flex flex-col justify-between overflow-hidden" style={{ maxWidth: 1240 }}>
       {/* ═══ MAIN 2-COLUMN LAYOUT (Responsive: Stacks on mobile/tablet, 2 columns on desktop) ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.34fr)_minmax(360px,400px)] gap-5 relative z-[1]">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.32fr)_minmax(330px,370px)] gap-3 relative z-[1] flex-1 min-h-0 items-stretch">
 
         {/* ═══ LEFT COLUMN ═══ */}
-        <div className="flex flex-col gap-4 sm:gap-4.5">
+        <div className="flex flex-col gap-2.5 justify-between h-full min-h-0">
 
-          {/* ── Row 1: Greeting + Enlarged 3D Mascot on Lavender Puddle with Floating Objects ── */}
-          <div className="relative flex flex-col sm:flex-row items-center justify-between gap-4 p-1 min-h-[180px] text-center sm:text-left">
+          {/* ── Row 1: Greeting + Proportional 3D Mascot on Lavender Puddle ── */}
+          <div className="relative flex flex-col sm:flex-row items-center justify-between gap-3 p-1 text-center sm:text-left shrink-0">
             <div>
-              <h1 className="text-[30px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
+              <h1 className="text-[23px] sm:text-[25px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
                 Good to see you,<br />
                 <span className="inline-flex items-center gap-1.5 text-[#9878E0] dark:text-[#B794F6]">
-                  {userName} <ClayWavingHandIcon size={28} />
+                  {userName} <ClayWavingHandIcon size={24} />
                 </span>
               </h1>
-              <p className="text-[13px] text-[#7A748A] dark:text-[#9E98B4] mt-2 leading-relaxed font-medium">
-                I'm Aura, your emotion-aware companion.<br />
-                Let's understand how you feel today.
+              <p className="text-[12px] text-[#7A748A] dark:text-[#9E98B4] mt-1 leading-normal font-medium m-0">
+                I'm Aura, your emotion-aware companion. Let's explore how you feel.
               </p>
             </div>
 
             {/* 3D Mascot Area with Surrounding Clay Floating Orbs */}
-            <div className="relative shrink-0 sm:mr-4">
+            <div className="relative shrink-0 sm:mr-3">
               {/* Floating Purple Sphere (Top Left) */}
               <motion.div
-                animate={{ y: [0, -6, 0] }}
+                animate={{ y: [0, -4, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                className="absolute -top-3 -left-6 w-4.5 h-4.5 rounded-full pointer-events-none"
+                className="absolute -top-2 -left-4 w-3.5 h-3.5 rounded-full pointer-events-none"
                 style={{
                   background: "linear-gradient(135deg, #D4C5F7, #9E7EE6)",
                   boxShadow: "2px 3px 6px rgba(150, 120, 210, 0.35), inset 1px 1px 2px rgba(255,255,255,0.9)",
                 }}
               />
 
-              {/* Floating Pink Cloud Blob (Top Left) */}
-              <motion.div
-                animate={{ y: [0, -8, 0], scale: [1, 1.03, 1] }}
-                transition={{ duration: 5.2, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-                className="absolute top-2 -left-12 w-8 h-5 rounded-full pointer-events-none"
-                style={{
-                  background: "linear-gradient(135deg, #FCDAE8, #F4A6C8)",
-                  boxShadow: "2px 3px 6px rgba(220, 140, 170, 0.3), inset 1px 1px 2px rgba(255,255,255,0.9)",
-                }}
-              />
-
-              {/* Floating Small Blue Sphere (Bottom Left) */}
-              <motion.div
-                animate={{ y: [0, -5, 0] }}
-                transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                className="absolute bottom-5 -left-4 w-3.5 h-3.5 rounded-full pointer-events-none"
-                style={{
-                  background: "linear-gradient(135deg, #D4EBFC, #74C0FC)",
-                  boxShadow: "2px 3px 5px rgba(110, 180, 240, 0.35), inset 1px 1px 2px rgba(255,255,255,0.9)",
-                }}
-              />
-
-              {/* Floating Purple Pebble (Bottom Mid-Left) */}
-              <motion.div
-                animate={{ y: [0, -4, 0] }}
-                transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 0.7 }}
-                className="absolute -bottom-1 -left-1 w-2.5 h-2.5 rounded-full pointer-events-none"
-                style={{
-                  background: "linear-gradient(135deg, #C7B5F3, #9E7EE6)",
-                  boxShadow: "1px 2px 4px rgba(140, 110, 200, 0.35)",
-                }}
-              />
-
               {/* Floating Pink Sphere (Top Right) */}
               <motion.div
-                animate={{ y: [0, -7, 0] }}
+                animate={{ y: [0, -5, 0] }}
                 transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
-                className="absolute -top-4 -right-2 w-4 h-4 rounded-full pointer-events-none"
+                className="absolute -top-2 -right-1 w-3 h-3 rounded-full pointer-events-none"
                 style={{
                   background: "linear-gradient(135deg, #F8B4D9, #EE7EB8)",
                   boxShadow: "2px 3px 6px rgba(220, 120, 160, 0.35), inset 1px 1px 2px rgba(255,255,255,0.9)",
@@ -137,23 +103,23 @@ export function HomeScreen({
               />
 
               {/* Main 3D Mascot on Lavender Platform */}
-              <AuraMascot3D size={190} />
+              <AuraMascot3D size={125} />
             </div>
           </div>
 
           {/* ── Row 2: Main 4-Action Section (Wide Thick Clay Tray) ── */}
           <div
-            className="clay-card"
+            className="clay-card shrink-0"
             style={{
-              padding: "16px 18px",
-              borderRadius: 36,
+              padding: "10px 12px",
+              borderRadius: 24,
             }}
           >
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {/* Chat — Soft Lavender / Dark Purple */}
               <motion.div
-                whileHover={{ y: -3, scale: 1.018 }}
-                whileTap={{ y: 1.5, scale: 0.975 }}
+                whileHover={{ y: -2, scale: 1.015 }}
+                whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Chat")}
                 className={isDark ? "clay-tile-chat" : ""}
@@ -165,30 +131,30 @@ export function HomeScreen({
                     ? "1.5px solid rgba(169, 139, 232, 0.38)"
                     : "1.5px solid rgba(255, 255, 255, 0.85)",
                   boxShadow: isDark
-                    ? "0 14px 28px rgba(25, 12, 50, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
-                    : "0 8px 18px rgba(160, 135, 225, 0.22), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(150, 120, 210, 0.15)",
-                  padding: "16px 12px 14px 12px",
+                    ? "0 10px 20px rgba(25, 12, 50, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
+                    : "0 6px 14px rgba(160, 135, 225, 0.22), inset 0 2px 4px rgba(255, 255, 255, 0.9)",
+                  padding: "10px 8px 8px 8px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
                   textAlign: "center",
                   cursor: "pointer",
-                  minHeight: 126,
-                  borderRadius: 24,
+                  minHeight: 88,
+                  borderRadius: 18,
                 }}
               >
-                <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
-                  <ClayChatIcon size={34} />
+                <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 }}>
+                  <ClayChatIcon size={28} />
                 </div>
-                <div className="text-[14px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Chat</div>
-                <div className="text-[10.5px] font-medium text-[#6E6680] dark:text-[#C7B5F3] mt-0.5">Talk to Aura</div>
+                <div className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Chat</div>
+                <div className="text-[9.5px] font-medium text-[#6E6680] dark:text-[#C7B5F3] mt-0.5">Talk to Aura</div>
               </motion.div>
 
               {/* Voice Mode — Soft Mint / Dark Teal */}
               <motion.div
-                whileHover={{ y: -3, scale: 1.018 }}
-                whileTap={{ y: 1.5, scale: 0.975 }}
+                whileHover={{ y: -2, scale: 1.015 }}
+                whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Voice Mode")}
                 className={isDark ? "clay-tile-voice" : ""}
@@ -200,30 +166,30 @@ export function HomeScreen({
                     ? "1.5px solid rgba(52, 211, 153, 0.38)"
                     : "1.5px solid rgba(255, 255, 255, 0.85)",
                   boxShadow: isDark
-                    ? "0 14px 28px rgba(10, 45, 40, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
-                    : "0 8px 18px rgba(50, 160, 130, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(40, 140, 110, 0.12)",
-                  padding: "16px 12px 14px 12px",
+                    ? "0 10px 20px rgba(10, 45, 40, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
+                    : "0 6px 14px rgba(50, 160, 130, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9)",
+                  padding: "10px 8px 8px 8px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
                   textAlign: "center",
                   cursor: "pointer",
-                  minHeight: 126,
-                  borderRadius: 24,
+                  minHeight: 88,
+                  borderRadius: 18,
                 }}
               >
-                <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
-                  <ClayVoiceWaveBarsIcon size={34} />
+                <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 }}>
+                  <ClayVoiceWaveBarsIcon size={28} />
                 </div>
-                <div className="text-[14px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Voice Mode</div>
-                <div className="text-[10.5px] font-medium text-[#6E6680] dark:text-[#6EE7B7] mt-0.5">Speak your mind</div>
+                <div className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Voice Mode</div>
+                <div className="text-[9.5px] font-medium text-[#6E6680] dark:text-[#6EE7B7] mt-0.5">Speak your mind</div>
               </motion.div>
 
               {/* Face-to-Face — Soft Peach / Dark Coral */}
               <motion.div
-                whileHover={{ y: -3, scale: 1.018 }}
-                whileTap={{ y: 1.5, scale: 0.975 }}
+                whileHover={{ y: -2, scale: 1.015 }}
+                whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Face-to-Face")}
                 className={isDark ? "clay-tile-face" : ""}
@@ -235,30 +201,30 @@ export function HomeScreen({
                     ? "1.5px solid rgba(248, 113, 113, 0.38)"
                     : "1.5px solid rgba(255, 255, 255, 0.85)",
                   boxShadow: isDark
-                    ? "0 14px 28px rgba(60, 20, 20, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
-                    : "0 8px 18px rgba(220, 120, 100, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(190, 90, 70, 0.12)",
-                  padding: "16px 12px 14px 12px",
+                    ? "0 10px 20px rgba(60, 20, 20, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
+                    : "0 6px 14px rgba(220, 120, 100, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9)",
+                  padding: "10px 8px 8px 8px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
                   textAlign: "center",
                   cursor: "pointer",
-                  minHeight: 126,
-                  borderRadius: 24,
+                  minHeight: 88,
+                  borderRadius: 18,
                 }}
               >
-                <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
-                  <ClayFaceCameraIcon size={34} />
+                <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 }}>
+                  <ClayFaceCameraIcon size={28} />
                 </div>
-                <div className="text-[14px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Face-to-Face</div>
-                <div className="text-[10.5px] font-medium text-[#6E6680] dark:text-[#FCA5A5] mt-0.5">Scan your emotion</div>
+                <div className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Face-to-Face</div>
+                <div className="text-[9.5px] font-medium text-[#6E6680] dark:text-[#FCA5A5] mt-0.5">Scan emotion</div>
               </motion.div>
 
               {/* Memory — Soft Warm Yellow / Dark Amber */}
               <motion.div
-                whileHover={{ y: -3, scale: 1.018 }}
-                whileTap={{ y: 1.5, scale: 0.975 }}
+                whileHover={{ y: -2, scale: 1.015 }}
+                whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Memory")}
                 className={isDark ? "clay-tile-memory" : ""}
@@ -270,39 +236,39 @@ export function HomeScreen({
                     ? "1.5px solid rgba(251, 191, 36, 0.38)"
                     : "1.5px solid rgba(255, 255, 255, 0.85)",
                   boxShadow: isDark
-                    ? "0 14px 28px rgba(60, 40, 10, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
-                    : "0 8px 18px rgba(200, 150, 50, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(180, 130, 40, 0.12)",
-                  padding: "16px 12px 14px 12px",
+                    ? "0 10px 20px rgba(60, 40, 10, 0.65), inset 1px 1px 2px rgba(255, 255, 255, 0.22)"
+                    : "0 6px 14px rgba(200, 150, 50, 0.18), inset 0 2px 4px rgba(255, 255, 255, 0.9)",
+                  padding: "10px 8px 8px 8px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
                   textAlign: "center",
                   cursor: "pointer",
-                  minHeight: 126,
-                  borderRadius: 24,
+                  minHeight: 88,
+                  borderRadius: 18,
                 }}
               >
-                <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
-                  <ClayHeartCushionIcon size={34} />
+                <div style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 }}>
+                  <ClayHeartCushionIcon size={28} />
                 </div>
-                <div className="text-[14px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Memory</div>
-                <div className="text-[10.5px] font-medium text-[#6E6680] dark:text-[#FDE047] mt-0.5">Your memories</div>
+                <div className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Memory</div>
+                <div className="text-[9.5px] font-medium text-[#6E6680] dark:text-[#FDE047] mt-0.5">Your memories</div>
               </motion.div>
             </div>
           </div>
 
           {/* ── Row 3: Emotion Trend + Lilac Blob Mascot Check-in Bar ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 flex-1 min-h-0">
             {/* Emotion Trend */}
-            <div className="clay-card" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 168, borderRadius: 30 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <h3 className="text-[14.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Emotion Trend</h3>
-                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} className="clay-pill" style={{ padding: "3px 10px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>
-                  7 Days <span style={{ fontSize: 9 }}>⌄</span>
+            <div className="clay-card flex flex-col justify-between" style={{ padding: "12px 14px", borderRadius: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                <h3 className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Emotion Trend</h3>
+                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} className="clay-pill" style={{ padding: "2px 8px", fontSize: 9.5, fontWeight: 600, cursor: "pointer" }}>
+                  7 Days <span style={{ fontSize: 8 }}>⌄</span>
                 </motion.div>
               </div>
-              <div style={{ height: 105, width: "100%" }}>
+              <div style={{ height: 68, width: "100%" }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
                     data={[
@@ -314,7 +280,7 @@ export function HomeScreen({
                       { d: "Sat", v: 89 },
                       { d: "Sun", v: 94 },
                     ]}
-                    margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
+                    margin={{ top: 4, right: 6, left: 6, bottom: 0 }}
                   >
                     <defs>
                       <linearGradient id="trendLavenderFill" x1="0" y1="0" x2="0" y2="1">
@@ -326,17 +292,17 @@ export function HomeScreen({
                       dataKey="d"
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: isDark ? "#8E88A4" : "#9E98AA", fontSize: 10, fontWeight: 600 }}
-                      dy={4}
+                      tick={{ fill: isDark ? "#8E88A4" : "#9E98AA", fontSize: 9, fontWeight: 600 }}
+                      dy={2}
                     />
                     <Area
                       type="natural"
                       dataKey="v"
                       stroke="#9E7EE6"
-                      strokeWidth={3}
+                      strokeWidth={2.5}
                       fill="url(#trendLavenderFill)"
-                      dot={{ r: 4.5, fill: "#9E7EE6", strokeWidth: 2.5, stroke: isDark ? "#171424" : "#FFFFFF" }}
-                      activeDot={{ r: 6.5, fill: "#7B56DB", strokeWidth: 3, stroke: "#FFFFFF" }}
+                      dot={{ r: 3.5, fill: "#9E7EE6", strokeWidth: 2, stroke: isDark ? "#171424" : "#FFFFFF" }}
+                      activeDot={{ r: 5, fill: "#7B56DB", strokeWidth: 2.5, stroke: "#FFFFFF" }}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -353,30 +319,29 @@ export function HomeScreen({
                   ? "1.5px solid rgba(169, 139, 232, 0.3)"
                   : "1.5px solid rgba(255, 255, 255, 0.85)",
                 boxShadow: isDark
-                  ? "0 10px 24px rgba(0, 0, 0, 0.55), inset 1px 1px 2px rgba(255, 255, 255, 0.1)"
-                  : "0 10px 24px rgba(160, 135, 225, 0.25), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -2px 4px rgba(150, 120, 210, 0.15)",
-                padding: "16px 18px",
+                  ? "0 8px 18px rgba(0, 0, 0, 0.55), inset 1px 1px 2px rgba(255, 255, 255, 0.1)"
+                  : "0 8px 18px rgba(160, 135, 225, 0.22), inset 0 2px 4px rgba(255, 255, 255, 0.9)",
+                padding: "12px 14px",
                 display: "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 12,
-                minHeight: 168,
-                borderRadius: 30,
+                gap: 10,
+                borderRadius: 22,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-                <ClayLilacBlobMascot size={52} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                <ClayLilacBlobMascot size={42} />
                 <div style={{ minWidth: 0 }}>
-                  <div className="text-[13.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-snug">
+                  <div className="text-[12.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight truncate">
                     How are you feeling right now?
                   </div>
-                  <div className="text-[11.5px] font-medium text-[#6E6680] dark:text-[#B2ABC8] mt-1 flex items-center gap-1.5">
+                  <div className="text-[10.5px] font-medium text-[#6E6680] dark:text-[#B2ABC8] mt-0.5 flex items-center gap-1.5">
                     <span>I'm here to listen...</span>
-                    <span style={{ display: "inline-flex", gap: 2.5 }}>
-                      <motion.span animate={{ y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0 }} style={{ width: 3.5, height: 3.5, borderRadius: 99, background: "#9E7EE6" }} />
-                      <motion.span animate={{ y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }} style={{ width: 3.5, height: 3.5, borderRadius: 99, background: "#9E7EE6" }} />
-                      <motion.span animate={{ y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.4 }} style={{ width: 3.5, height: 3.5, borderRadius: 99, background: "#9E7EE6" }} />
+                    <span style={{ display: "inline-flex", gap: 2 }}>
+                      <motion.span animate={{ y: [0, -2.5, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0 }} style={{ width: 3, height: 3, borderRadius: 99, background: "#9E7EE6" }} />
+                      <motion.span animate={{ y: [0, -2.5, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }} style={{ width: 3, height: 3, borderRadius: 99, background: "#9E7EE6" }} />
+                      <motion.span animate={{ y: [0, -2.5, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.4 }} style={{ width: 3, height: 3, borderRadius: 99, background: "#9E7EE6" }} />
                     </span>
                   </div>
                 </div>
@@ -388,68 +353,67 @@ export function HomeScreen({
                 whileHover={{ scale: 1.08, y: -1 }}
                 whileTap={{ scale: 0.95, y: 1 }}
                 onClick={() => onStart("Voice Mode")}
-                className="cursor-pointer border-none outline-none bg-transparent"
+                className="cursor-pointer border-none outline-none bg-transparent shrink-0"
                 style={{ padding: 0 }}
               >
-                <ClayMicCircleButton size={42} />
+                <ClayMicCircleButton size={36} />
               </motion.button>
             </div>
           </div>
         </div>
 
         {/* ═══ RIGHT COLUMN — stacked 3 cards vertically ═══ */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2.5 justify-between h-full min-h-0">
 
           {/* ── 1. Current Emotion ── */}
-          <div className="clay-card" style={{ padding: "18px 20px", borderRadius: 32 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <span className="text-[14.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF]">Current Emotion</span>
+          <div className="clay-card" style={{ padding: "12px 14px", borderRadius: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <span className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF]">Current Emotion</span>
               <div
                 style={{
-                  padding: "3px 10px",
+                  padding: "2px 7px",
                   background: "linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%)",
                   color: "#15803D",
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: 700,
                   display: "flex",
                   alignItems: "center",
-                  gap: 5,
+                  gap: 4,
                   borderRadius: 999,
                   border: "1px solid rgba(255,255,255,0.85)",
-                  boxShadow: "0 2px 5px rgba(34, 197, 94, 0.18)",
                 }}
               >
-                <span className="animate-pulse" style={{ width: 6, height: 6, borderRadius: 999, background: "#15803D", display: "inline-block" }} />
+                <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: 999, background: "#15803D", display: "inline-block" }} />
                 ACTIVE
               </div>
             </div>
 
             {/* Emotion face + label + soft organic sparkline */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <motion.div
                   whileHover={{ scale: 1.05, y: -1 }}
                   whileTap={{ scale: 0.96 }}
                   style={{
-                    width: 52, height: 52, borderRadius: 18,
+                    width: 40, height: 40, borderRadius: 14,
                     background: "linear-gradient(135deg, #BBDCF5 0%, #60A5FA 100%)",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 6px 14px rgba(96, 165, 250, 0.35), inset 0 2px 4px rgba(255,255,255,0.9)",
-                    border: "1.5px solid rgba(255,255,255,0.9)",
+                    boxShadow: "0 4px 10px rgba(96, 165, 250, 0.35), inset 0 1px 3px rgba(255,255,255,0.9)",
+                    border: "1px solid rgba(255,255,255,0.9)",
                     flexShrink: 0,
                     cursor: "pointer",
                   }}
                 >
-                  <ClayCalmFaceIcon size={34} />
+                  <ClayCalmFaceIcon size={26} />
                 </motion.div>
                 <div>
-                  <div className="text-[18px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Calm</div>
-                  <div className="text-[11px] font-medium text-[#9E98AA] dark:text-[#8E88A4] mt-0.5">FERPlus (Fallback)</div>
+                  <div className="text-[15px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Calm</div>
+                  <div className="text-[10px] font-medium text-[#9E98AA] dark:text-[#8E88A4] mt-0.5">FERPlus Live</div>
                 </div>
               </div>
-              <div style={{ width: 110, height: 42 }}>
+              <div style={{ width: 95, height: 32 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={[{ v: 55 }, { v: 72 }, { v: 64 }, { v: 85 }, { v: 80 }, { v: 92 }]} margin={{ top: 4, bottom: 0, left: 2, right: 4 }}>
+                  <AreaChart data={[{ v: 55 }, { v: 72 }, { v: 64 }, { v: 85 }, { v: 80 }, { v: 92 }]} margin={{ top: 2, bottom: 0, left: 2, right: 2 }}>
                     <defs>
                       <linearGradient id="calmSparkFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.35} />
@@ -460,9 +424,9 @@ export function HomeScreen({
                       type="natural"
                       dataKey="v"
                       stroke="#38BDF8"
-                      strokeWidth={2.8}
+                      strokeWidth={2.2}
                       fill="url(#calmSparkFill)"
-                      dot={{ r: 3, fill: "#38BDF8", strokeWidth: 2, stroke: isDark ? "#171424" : "#FFFFFF" }}
+                      dot={{ r: 2.5, fill: "#38BDF8", strokeWidth: 1.5, stroke: isDark ? "#171424" : "#FFFFFF" }}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -470,12 +434,12 @@ export function HomeScreen({
             </div>
 
             {/* Confidence Bar */}
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: isDark ? "#9E98B4" : "#777287", marginBottom: 5 }}>
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 600, color: isDark ? "#9E98B4" : "#777287", marginBottom: 3 }}>
                 <span>Confidence</span>
                 <span style={{ color: "#0284C7", fontWeight: 800 }}>85%</span>
               </div>
-              <div className="w-full h-[7px] rounded-full bg-[#EAE2E6] dark:bg-[#100E1A] overflow-hidden">
+              <div className="w-full h-[5px] rounded-full bg-[#EAE2E6] dark:bg-[#100E1A] overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: "85%" }}
@@ -486,7 +450,7 @@ export function HomeScreen({
             </div>
 
             {/* 4 metric pills */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3.5">
+            <div className="grid grid-cols-4 gap-1.5 mt-2">
               {[
                 { label: "Joy", val: "72%", color: "#F59E0B" },
                 { label: "Focus", val: "64%", color: "#10B981" },
@@ -495,31 +459,31 @@ export function HomeScreen({
               ].map((m) => (
                 <motion.div
                   key={m.label}
-                  whileHover={{ y: -2 }}
+                  whileHover={{ y: -1 }}
                   className="clay-card-flat"
-                  style={{ padding: "8px 4px", display: "flex", flexDirection: "column", alignItems: "center", borderRadius: 14, cursor: "default" }}
+                  style={{ padding: "4px 2px", display: "flex", flexDirection: "column", alignItems: "center", borderRadius: 10, cursor: "default" }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-                    <span style={{ width: 6.5, height: 6.5, borderRadius: 999, background: m.color, display: "inline-block" }} />
-                    <span className="text-[11.5px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]">{m.val}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: 999, background: m.color, display: "inline-block" }} />
+                    <span className="text-[10px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]">{m.val}</span>
                   </div>
-                  <span className="text-[9.5px] font-medium text-[#777287] dark:text-[#8E88A4]">{m.label}</span>
+                  <span className="text-[8.5px] font-medium text-[#777287] dark:text-[#8E88A4]">{m.label}</span>
                 </motion.div>
               ))}
             </div>
           </div>
 
-          {/* ── 2. Today's Insights (Large & Visually Dominant Donut Chart) ── */}
-          <div className="clay-card" style={{ padding: "18px 20px", borderRadius: 32 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <h4 className="text-[14.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Today's Insights</h4>
-              <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} className="clay-pill" style={{ padding: "3px 10px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>
-                Today <span style={{ fontSize: 9 }}>⌄</span>
+          {/* ── 2. Today's Insights (Compact Donut Chart) ── */}
+          <div className="clay-card" style={{ padding: "10px 14px", borderRadius: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <h4 className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Today's Insights</h4>
+              <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} className="clay-pill" style={{ padding: "2px 7px", fontSize: 9.5, fontWeight: 600, cursor: "pointer" }}>
+                Today <span style={{ fontSize: 8 }}>⌄</span>
               </motion.div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ position: "relative", width: 88, height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ position: "relative", width: 62, height: 62, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -529,10 +493,10 @@ export function HomeScreen({
                         { name: "Mint", value: 25, fill: isDark ? "#10B981" : "#8EE0C6" },
                         { name: "Lavender", value: 20, fill: isDark ? "#8B5CF6" : "#C7B5F3" },
                       ]}
-                      innerRadius={27}
-                      outerRadius={41}
-                      paddingAngle={3}
-                      cornerRadius={3}
+                      innerRadius={19}
+                      outerRadius={29}
+                      paddingAngle={2}
+                      cornerRadius={2}
                       dataKey="value"
                     />
                   </PieChart>
@@ -541,164 +505,147 @@ export function HomeScreen({
                   animate={{ scale: [1, 1.05, 1] }}
                   transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
                   style={{
-                    position: "absolute", width: 30, height: 30, borderRadius: "50%",
+                    position: "absolute", width: 22, height: 22, borderRadius: "50%",
                     background: isDark ? "linear-gradient(135deg, #FBBF24 0%, #D97706 100%)" : "linear-gradient(135deg, #FFF4D0 0%, #F9DA8A 100%)",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: "0 2px 6px rgba(220,180,100,0.35), inset 0 1px 2px rgba(255,255,255,0.9)",
+                    boxShadow: "0 2px 4px rgba(220,180,100,0.35)",
                     border: "1px solid #FFFFFF",
                   }}
                 >
-                  <ClaySmileyBeadIcon size={22} />
+                  <ClaySmileyBeadIcon size={16} />
                 </motion.div>
               </div>
 
-              <div className="text-[12.5px] font-semibold text-[#2E2544] dark:text-[#FFFFFF] leading-relaxed">
-                You've been <strong className="text-[#2E2544] dark:text-[#FFFFFF] font-extrabold">mostly calm and focused</strong> today.
-                <br />
-                <span className="text-[#7A748A] dark:text-[#9E98B4] font-medium text-[11.5px]">Great job keeping your balance!</span>
+              <div className="text-[11.5px] font-semibold text-[#2E2544] dark:text-[#FFFFFF] leading-snug">
+                You've been <strong className="text-[#2E2544] dark:text-[#FFFFFF] font-extrabold">mostly calm & focused</strong> today.
               </div>
             </div>
           </div>
 
-          {/* ── 3. Quick Actions (Compact Horizontal Strip matching TARGET) ── */}
-          <div className="quick-actions-container" style={{ padding: "18px 20px 16px 20px", borderRadius: 30 }}>
-            <h4 className="text-[14.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0 mb-3" style={{ letterSpacing: "-0.2px" }}>
+          {/* ── 3. Quick Actions ── */}
+          <div className="quick-actions-container" style={{ padding: "10px 14px", borderRadius: 22 }}>
+            <h4 className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0 mb-2" style={{ letterSpacing: "-0.2px" }}>
               Quick Actions
             </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-[13px]">
-              {/* Journal: Warm Pale Yellow / Dark Clay Tile */}
+            <div className="grid grid-cols-4 gap-2">
+              {/* Journal */}
               <motion.div
-                whileHover={{ y: -2.5, scale: 1.015 }}
+                whileHover={{ y: -2, scale: 1.015 }}
                 whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Chat")}
                 className="clay-quick-action quick-card-journal"
                 style={{
-                  height: 112,
-                  minHeight: 112,
-                  padding: "12px 11px 10px 11px",
+                  height: 78,
+                  minHeight: 78,
+                  padding: "8px 6px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "flex-start",
                   textAlign: "left",
                   cursor: "pointer",
-                  borderRadius: 21,
+                  borderRadius: 16,
                   boxSizing: "border-box",
                 }}
               >
-                <div style={{
-                  width: 30, height: 30,
-                  display: "flex", alignItems: "center", justifyContent: "flex-start",
-                  marginBottom: 6,
-                }}>
-                  <ClayJournalIcon size={28} />
+                <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "flex-start", marginBottom: 3 }}>
+                  <ClayJournalIcon size={20} />
                 </div>
-                <div className="text-[13.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Journal</div>
-                <div className="text-[10.5px] leading-snug text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium">
-                  Write your thoughts
+                <div className="text-[11.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Journal</div>
+                <div className="text-[8.5px] leading-tight text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium truncate w-full">
+                  Write thoughts
                 </div>
               </motion.div>
 
-              {/* Breathing: Pale Mint / Dark Clay Tile */}
+              {/* Breathing */}
               <motion.div
-                whileHover={{ y: -2.5, scale: 1.015 }}
+                whileHover={{ y: -2, scale: 1.015 }}
                 whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 onClick={() => onStart("Voice Mode")}
                 className="clay-quick-action quick-card-breathing"
                 style={{
-                  height: 112,
-                  minHeight: 112,
-                  padding: "12px 11px 10px 11px",
+                  height: 78,
+                  minHeight: 78,
+                  padding: "8px 6px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "flex-start",
                   textAlign: "left",
                   cursor: "pointer",
-                  borderRadius: 21,
+                  borderRadius: 16,
                   boxSizing: "border-box",
                 }}
               >
-                <div style={{
-                  width: 30, height: 30,
-                  display: "flex", alignItems: "center", justifyContent: "flex-start",
-                  marginBottom: 6,
-                }}>
-                  <ClayBreathingIcon size={28} />
+                <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "flex-start", marginBottom: 3 }}>
+                  <ClayBreathingIcon size={20} />
                 </div>
-                <div className="text-[13.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Breathing</div>
-                <div className="text-[10.5px] leading-snug text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium">
-                  Relax & breathe
+                <div className="text-[11.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Breathing</div>
+                <div className="text-[8.5px] leading-tight text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium truncate w-full">
+                  4-7-8 Calm
                 </div>
               </motion.div>
 
-              {/* Focus: Pale Blue / Dark Clay Tile */}
+              {/* Focus */}
               <motion.div
-                whileHover={{ y: -2.5, scale: 1.015 }}
+                whileHover={{ y: -2, scale: 1.015 }}
                 whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                onClick={() => onStart("Face-to-Face")}
+                onClick={() => onStart("Chat")}
                 className="clay-quick-action quick-card-focus"
                 style={{
-                  height: 112,
-                  minHeight: 112,
-                  padding: "12px 11px 10px 11px",
+                  height: 78,
+                  minHeight: 78,
+                  padding: "8px 6px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "flex-start",
                   textAlign: "left",
                   cursor: "pointer",
-                  borderRadius: 21,
+                  borderRadius: 16,
                   boxSizing: "border-box",
                 }}
               >
-                <div style={{
-                  width: 30, height: 30,
-                  display: "flex", alignItems: "center", justifyContent: "flex-start",
-                  marginBottom: 6,
-                }}>
-                  <ClayFocusIcon size={28} />
+                <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "flex-start", marginBottom: 3 }}>
+                  <ClayFocusIcon size={20} />
                 </div>
-                <div className="text-[13.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Focus</div>
-                <div className="text-[10.5px] leading-snug text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium">
-                  Deep work session
+                <div className="text-[11.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Focus</div>
+                <div className="text-[8.5px] leading-tight text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium truncate w-full">
+                  Pomodoro
                 </div>
               </motion.div>
 
-              {/* Music: Dusty Pale Pink / Dark Clay Tile */}
+              {/* Music */}
               <motion.div
-                whileHover={{ y: -2.5, scale: 1.015 }}
+                whileHover={{ y: -2, scale: 1.015 }}
                 whileTap={{ y: 1, scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                onClick={() => onStart("Memory")}
+                onClick={() => onStart("Chat")}
                 className="clay-quick-action quick-card-music"
                 style={{
-                  height: 112,
-                  minHeight: 112,
-                  padding: "12px 11px 10px 11px",
+                  height: 78,
+                  minHeight: 78,
+                  padding: "8px 6px",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "flex-start",
                   textAlign: "left",
                   cursor: "pointer",
-                  borderRadius: 21,
+                  borderRadius: 16,
                   boxSizing: "border-box",
                 }}
               >
-                <div style={{
-                  width: 30, height: 30,
-                  display: "flex", alignItems: "center", justifyContent: "flex-start",
-                  marginBottom: 6,
-                }}>
-                  <ClayMusicIcon size={28} />
+                <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "flex-start", marginBottom: 3 }}>
+                  <ClayMusicIcon size={20} />
                 </div>
-                <div className="text-[13.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Music</div>
-                <div className="text-[10.5px] leading-snug text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium">
-                  Calm your mind
+                <div className="text-[11.5px] font-bold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Music</div>
+                <div className="text-[8.5px] leading-tight text-[#777287] dark:text-[#8E88A4] mt-0.5 font-medium truncate w-full">
+                  Ambient
                 </div>
               </motion.div>
             </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -906,34 +853,32 @@ export function ChatScreen() {
   }, [listening]);
 
   return (
-    <div className="w-full max-w-[1040px] mx-auto flex flex-col gap-4 select-none pb-4">
+    <div className="w-full max-w-[1040px] mx-auto flex flex-col justify-between select-none h-[calc(100vh-84px)] overflow-hidden pb-1">
       {/* ═══ MAIN CHAT CONTAINER (Unified Large Claymorphic Panel) ═══ */}
       <div
-        className="clay-chat-panel flex flex-col justify-between"
+        className="clay-chat-panel flex flex-col justify-between flex-1 min-h-0"
         style={{
-          padding: "24px 28px 24px 28px",
-          minHeight: 560,
+          padding: "16px 20px 14px 20px",
         }}
       >
         {/* ── 1. Compact Header: 3D Aura Mascot with Floating Spheres + Title ── */}
-        <div className="flex items-center gap-4 sm:gap-6 mb-4 sm:mb-6 pt-1 pl-1">
+        <div className="flex items-center gap-3.5 mb-2.5 pt-0.5 pl-0.5 shrink-0 border-b border-white/60 dark:border-white/10 pb-2">
           <div className="shrink-0 flex items-center justify-center">
-            <AuraMascot3D size={110} />
+            <AuraMascot3D size={65} />
           </div>
           <div>
-            <h2 className="text-[22px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
+            <h2 className="text-[19px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
               Live Counseling Session
             </h2>
-            <p className="text-[13px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1">
-              Real-time, continuous session with Aura.
+            <p className="text-[11.5px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-0.5 m-0">
+              Real-time, continuous empathetic session with Aura.
             </p>
           </div>
         </div>
 
         {/* ── 2. Spacious Conversation Thread ── */}
         <div
-          className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1.5"
-          style={{ minHeight: 340, maxHeight: 420 }}
+          className="flex-1 flex flex-col gap-3 overflow-y-auto pr-1 min-h-0 my-1"
         >
           {msgs.map((m) => {
             if (m.from === "aura" && !m.text) return null;
@@ -1108,7 +1053,7 @@ export function ChatScreen() {
       </div>
 
       {/* ═══ MUSIC PLAYER (Horizontal Rounded Clay Bar Directly Below Chat) ═══ */}
-      <div className="w-full">
+      <div className="w-full shrink-0 mt-1.5">
         <MusicPlayer variant="inline" />
       </div>
     </div>
