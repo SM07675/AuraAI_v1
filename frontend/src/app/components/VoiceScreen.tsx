@@ -179,18 +179,18 @@ export function VoiceScreen() {
         }
 
         if (interim) {
+          if (voiceService.isEcho(interim)) return;
           if (voiceService.isSpeaking()) {
             voiceService.stop();
             setSpeaking(false);
           }
-          if (!voiceService.isEcho(interim)) {
-            setInterimTranscript(interim);
-          }
+          setInterimTranscript(interim);
         }
 
         if (final) {
           const finalClean = final.trim();
-          if (finalClean && !voiceService.isEcho(finalClean)) {
+          if (finalClean) {
+            if (voiceService.isEcho(finalClean)) return;
             if (voiceService.isSpeaking()) {
               voiceService.stop();
               setSpeaking(false);
