@@ -55,8 +55,11 @@ async def test_tts_voices_list():
         assert response.status_code == 200
         data = response.json()
         assert "voices" in data
-        assert len(data["voices"]) >= 5
-        assert data["default_voice"] == "en-US-AriaNeural"
+        assert len(data["voices"]) >= 7
+        assert data["default_voice"] == "en-IN-NeerjaExpressiveNeural"
+        voice_ids = [v["id"] for v in data["voices"]]
+        assert "hi-IN-SwaraNeural" in voice_ids
+        assert "hi-IN-MadhurNeural" in voice_ids
 
 
 @pytest.mark.asyncio
@@ -66,11 +69,12 @@ async def test_tts_synthesize_endpoint():
         response = await client.post(
             "/api/v1/tts/synthesize",
             json={
-                "text": "Hello, this is a test of the Aura neural voice synthesis.",
-                "voice": "en-US-AriaNeural",
+                "text": "नमस्ते! यह ऑरा आवाज़ का परीक्षण है।",
+                "voice": "hi-IN-SwaraNeural",
                 "emotion": "calm",
             },
         )
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/mpeg"
         assert len(response.content) > 100
+

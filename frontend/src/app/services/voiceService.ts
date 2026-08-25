@@ -40,12 +40,28 @@ export const CURATED_VOICES: VoicePersona[] = [
     persona: "Warm, authentic Hindi & conversational Hinglish female voice",
   },
   {
+    id: "hi-IN-MadhurNeural",
+    name: "Madhur (Hindi Male)",
+    gender: "Male",
+    locale: "hi-IN",
+    accent: "Indian Hindi",
+    persona: "Deep, calm, reassuring Hindi & Hinglish male voice",
+  },
+  {
     id: "en-IN-NeerjaNeural",
     name: "Neerja (Indian Classic)",
     gender: "Female",
     locale: "en-IN",
     accent: "Indian English",
     persona: "Fluent, warm, clear Indian English female voice",
+  },
+  {
+    id: "en-IN-PrabhatNeural",
+    name: "Prabhat (Indian Male)",
+    gender: "Male",
+    locale: "en-IN",
+    accent: "Indian English",
+    persona: "Clear, friendly, conversational Indian English male voice",
   },
   {
     id: "en-US-AriaNeural",
@@ -83,6 +99,7 @@ export const CURATED_VOICES: VoicePersona[] = [
 
 /**
  * Strips markdown symbols, URLs, and noisy emojis from text before speaking.
+ * Fully preserves Hindi (Devanagari \u0900-\u097F), Latin, numbers, and natural punctuation.
  */
 export function cleanTextForSpeech(text: string): string {
   if (!text) return "";
@@ -115,13 +132,13 @@ export function cleanTextForSpeech(text: string): string {
   // 7. Strip raw URLs
   t = t.replace(/https?:\/\/\S+/g, "");
 
-  // 8. Strip emojis & symbols
+  // 8. Strip emojis & symbols (Unicode emoji ranges)
   t = t.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, " ");
 
   // 9. Clean repeated punctuation
   t = t.replace(/\.{4,}/g, "...");
   t = t.replace(/[-—_]{2,}/g, ", ");
-  t = t.replace(/\s+([,.!?;:])/g, "$1");
+  t = t.replace(/\s+([,.!?;:।|])/g, "$1");
 
   // 10. Normalize spaces
   return t.replace(/\s+/g, " ").trim();
@@ -132,6 +149,7 @@ class NaturalVoiceEngine {
   private audioContext: AudioContext | null = null;
   private isSpeakingState = false;
   private activeVoiceId = "en-IN-NeerjaExpressiveNeural";
+  private activeLanguage = "en-IN"; // "hi-IN" | "en-IN" | "en-US"
   private audioCache = new Map<string, string>(); // text+voice -> blobUrl
   private listeners: Set<(speaking: boolean) => void> = new Set();
   private abortController: AbortController | null = null;
@@ -142,17 +160,40 @@ class NaturalVoiceEngine {
   private lastSpeechEndTime = 0;
 
   constructor() {
-    // Load saved voice preference from localStorage if present
+    // Load saved voice and language preference from localStorage if present
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("aura_selected_voice");
-      if (saved && CURATED_VOICES.some((v) => v.id === saved)) {
-        this.activeVoiceId = saved;
+      const savedLang = localStorage.getItem("aura_stt_language");
+      if (savedLang) {
+        this.activeLanguage = savedLang;
+      }
+      const savedVoice = localStorage.getItem("aura_selected_voice");
+      if (savedVoice && CURATED_VOICES.some((v) => v.id === savedVoice)) {
+        this.activeVoiceId = savedVoice;
+      } else if (this.activeLanguage === "hi-IN") {
+        this.activeVoiceId = "hi-IN-SwaraNeural";
       }
     }
   }
 
   public get activeVoice(): string {
     return this.activeVoiceId;
+  }
+
+  public get language(): string {
+    return this.activeLanguage;
+  }
+
+  public setLanguage(lang: string) {
+    this.activeLanguage = lang;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aura_stt_language", lang);
+    }
+    // Auto-select corresponding voice if appropriate
+    if (lang === "hi-IN" && !this.activeVoiceId.startsWith("hi-IN")) {
+      this.setVoice("hi-IN-SwaraNeural");
+    } else if (lang === "en-IN" && this.activeVoiceId.startsWith("hi-IN")) {
+      this.setVoice("en-IN-NeerjaExpressiveNeural");
+    }
   }
 
   public setVoice(voiceId: string) {
@@ -170,12 +211,14 @@ class NaturalVoiceEngine {
 
   /**
    * Checks if incoming text is an echo of what Aura is currently or recently speaking.
+   * Uses Unicode letter matching (\p{L}) to support Hindi (Devanagari), English, etc.
    */
   public isEcho(incomingText: string): boolean {
     if (!incomingText || !this.lastSpokenCleanText) return false;
 
-    const cleanInc = incomingText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-    const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+    // Unicode-aware normalization preserving Devanagari and Latin letters
+    const cleanInc = incomingText.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+    const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
 
     if (!cleanInc || !cleanLast) return false;
 
@@ -184,11 +227,11 @@ class NaturalVoiceEngine {
       return true;
     }
 
-    // Word overlap check: if more than 50% of the words are in Aura's text
-    const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 2);
+    // Word overlap check: if more than 40% of the words are in Aura's text
+    const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 1);
     if (incWords.length >= 2) {
       const matches = incWords.filter((w) => cleanLast.includes(w));
-      if (matches.length / incWords.length >= 0.5) {
+      if (matches.length / incWords.length >= 0.4) {
         return true;
       }
     }
@@ -445,14 +488,20 @@ class NaturalVoiceEngine {
 
       if (voices.length > 0) {
         const langPrefix = (targetPersona?.locale || "en-IN").split("-")[0].toLowerCase();
+        const isHindi = targetPersona?.locale?.startsWith("hi") || langPrefix === "hi";
         const matchingVoice =
-          voices.find((v) => v.name.toLowerCase().includes("neerja") || v.name.toLowerCase().includes("swara")) ||
+          (isHindi
+            ? voices.find((v) => v.name.toLowerCase().includes("swara") || v.name.toLowerCase().includes("madhur") || v.lang.toLowerCase().startsWith("hi")) ||
+              voices.find((v) => v.lang.toLowerCase().includes("hi"))
+            : null) ||
+          voices.find((v) => v.name.toLowerCase().includes("neerja") || v.name.toLowerCase().includes("swara") || v.name.toLowerCase().includes("madhur") || v.name.toLowerCase().includes("prabhat")) ||
           voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix) && (v.name.toLowerCase().includes("natural") || v.name.toLowerCase().includes("female"))) ||
           voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix)) ||
           voices.find((v) => v.lang.startsWith("en") && v.name.toLowerCase().includes("female")) ||
           voices[0];
 
         if (matchingVoice) utterance.voice = matchingVoice;
+        if (targetPersona?.locale) utterance.lang = targetPersona.locale;
       }
 
       utterance.onend = () => {
