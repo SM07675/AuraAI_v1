@@ -167,11 +167,6 @@ export function VoiceScreen() {
       };
 
       recognition.onresult = (event: any) => {
-        // Hard-block when Aura is speaking to eliminate acoustic echo loop
-        if (voiceService.isSpeaking() || isSpeakingRef.current) {
-          return;
-        }
-
         let interim = "";
         let final = "";
 
@@ -184,16 +179,26 @@ export function VoiceScreen() {
         }
 
         if (interim) {
-          if (voiceService.isEcho(interim)) return;
-          setInterimTranscript(interim);
+          if (voiceService.isSpeaking()) {
+            voiceService.stop();
+            setSpeaking(false);
+          }
+          if (!voiceService.isEcho(interim)) {
+            setInterimTranscript(interim);
+          }
         }
 
         if (final) {
           const finalClean = final.trim();
-          if (!finalClean || voiceService.isEcho(finalClean) || finalClean.length < 2) return;
-          setTranscript(finalClean);
-          setInterimTranscript("");
-          sendToAi(finalClean);
+          if (finalClean && !voiceService.isEcho(finalClean)) {
+            if (voiceService.isSpeaking()) {
+              voiceService.stop();
+              setSpeaking(false);
+            }
+            setTranscript(finalClean);
+            setInterimTranscript("");
+            sendToAi(finalClean);
+          }
         }
       };
 
@@ -209,22 +214,15 @@ export function VoiceScreen() {
       recognition.onend = () => {
         if (isComponentMounted && isListeningRef.current) {
           try {
-            if (!voiceService.isSpeaking()) {
-              recognition.start();
-            } else {
-              const checkInterval = setInterval(() => {
-                if (!voiceService.isSpeaking() && isComponentMounted && isListeningRef.current) {
-                  clearInterval(checkInterval);
-                  try { recognition.start(); } catch (e) {}
-                }
-              }, 400);
-            }
+            recognition.start();
           } catch (e) {}
         }
       };
 
-      if (listening && !voiceService.isSpeaking()) {
-        recognition.start();
+      if (listening) {
+        try {
+          recognition.start();
+        } catch (e) {}
       }
     } catch (e: any) {
       console.warn("SpeechRecognition init exception:", e);
