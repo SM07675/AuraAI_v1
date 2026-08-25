@@ -168,37 +168,19 @@ class NaturalVoiceEngine {
   }
 
   /**
-   * Returns true if text was spoken recently or strongly matches Aura's last speech.
-   * Prevents SpeechRecognition from picking up Aura's own speaker output.
+   * Checks if incoming text is an exact echo of what Aura just spoke.
    */
   public isEcho(incomingText: string): boolean {
-    if (!incomingText) return false;
-    const now = Date.now();
+    if (!incomingText || !this.lastSpokenCleanText) return false;
 
-    // 1. If currently speaking or ended less than 1000ms ago
-    if (this.isSpeakingState || (now - this.lastSpeechEndTime < 1000)) {
+    const cleanInc = incomingText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+    const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+
+    if (!cleanInc || !cleanLast) return false;
+
+    // Only filter if the user's recognized text is an exact or near-complete copy of Aura's text
+    if (cleanLast === cleanInc || (cleanLast.length > 15 && cleanLast.startsWith(cleanInc) && cleanInc.length > 12)) {
       return true;
-    }
-
-    // 2. Text similarity check with last spoken output
-    if (this.lastSpokenCleanText) {
-      const cleanInc = incomingText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-      const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-
-      if (cleanInc.length > 8 && cleanLast.length > 8) {
-        if (cleanLast.includes(cleanInc) || cleanInc.includes(cleanLast)) {
-          return true;
-        }
-
-        // Substring / word overlap check
-        const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 3);
-        if (incWords.length >= 3) {
-          const matches = incWords.filter((w) => cleanLast.includes(w));
-          if (matches.length / incWords.length >= 0.5) {
-            return true;
-          }
-        }
-      }
     }
 
     return false;
@@ -222,7 +204,9 @@ class NaturalVoiceEngine {
    */
   public stop() {
     if (this.abortController) {
-      this.abortController.abort();
+      try {
+        this.abortController.abort();
+      } catch (e) {}
       this.abortController = null;
     }
 
@@ -360,12 +344,12 @@ class NaturalVoiceEngine {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((e) => {
+          this.setSpeaking(false);
+          this.currentAudio = null;
           if (e.name !== "AbortError") {
             console.warn("Audio play prevented by browser autoplay policy, attempting WebSpeech fallback:", e);
             if (fallbackText) {
               this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
-            } else {
-              this.setSpeaking(false);
             }
           }
         });

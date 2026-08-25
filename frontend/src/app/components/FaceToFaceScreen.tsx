@@ -321,11 +321,6 @@ export function FaceToFaceScreen() {
       recognition.lang = "en-IN"; // Supports Indian English, Hindi words, and global English
 
       recognition.onresult = (event: any) => {
-        // Hard-block when Aura is speaking or within cooldown to prevent echo
-        if (voiceService.isSpeaking() || isAuraSpeakingRef.current) {
-          return;
-        }
-
         let interim = "";
         let final = "";
 
@@ -338,15 +333,24 @@ export function FaceToFaceScreen() {
         }
 
         if (interim) {
-          if (voiceService.isEcho(interim)) return;
-          setText(interim);
+          // As soon as user speaks, interrupt any active AI voice immediately
+          if (voiceService.isSpeaking()) {
+            voiceService.stop();
+          }
+          if (!voiceService.isEcho(interim)) {
+            setText(interim);
+          }
         }
 
         if (final) {
           const clean = final.trim();
-          if (!clean || voiceService.isEcho(clean) || clean.length < 2) return;
-          setText(clean);
-          sendMsg(clean);
+          if (clean && !voiceService.isEcho(clean)) {
+            if (voiceService.isSpeaking()) {
+              voiceService.stop();
+            }
+            setText(clean);
+            sendMsg(clean);
+          }
         }
       };
 
@@ -359,24 +363,15 @@ export function FaceToFaceScreen() {
       recognition.onend = () => {
         if (isMounted && micActiveRef.current) {
           try {
-            // Only restart if Aura is not currently speaking
-            if (!voiceService.isSpeaking()) {
-              recognition.start();
-            } else {
-              // Wait until Aura finishes
-              const checkInterval = setInterval(() => {
-                if (!voiceService.isSpeaking() && isMounted && micActiveRef.current) {
-                  clearInterval(checkInterval);
-                  try { recognition.start(); } catch (e) {}
-                }
-              }, 400);
-            }
+            recognition.start();
           } catch (e) {}
         }
       };
 
-      if (micActive && !voiceService.isSpeaking()) {
-        recognition.start();
+      if (micActive) {
+        try {
+          recognition.start();
+        } catch (e) {}
       }
     } catch (e) {
       console.warn("SpeechRecognition init error:", e);
