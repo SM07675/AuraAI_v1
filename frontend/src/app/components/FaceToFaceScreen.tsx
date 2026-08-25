@@ -333,18 +333,17 @@ export function FaceToFaceScreen() {
         }
 
         if (interim) {
-          // As soon as user speaks, interrupt any active AI voice immediately
+          if (voiceService.isEcho(interim)) return;
           if (voiceService.isSpeaking()) {
             voiceService.stop();
           }
-          if (!voiceService.isEcho(interim)) {
-            setText(interim);
-          }
+          setText(interim);
         }
 
         if (final) {
           const clean = final.trim();
-          if (clean && !voiceService.isEcho(clean)) {
+          if (clean) {
+            if (voiceService.isEcho(clean)) return;
             if (voiceService.isSpeaking()) {
               voiceService.stop();
             }

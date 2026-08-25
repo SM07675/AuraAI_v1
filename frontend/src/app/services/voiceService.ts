@@ -135,6 +135,7 @@ class NaturalVoiceEngine {
   private audioCache = new Map<string, string>(); // text+voice -> blobUrl
   private listeners: Set<(speaking: boolean) => void> = new Set();
   private abortController: AbortController | null = null;
+  private currentGenerationId = 0; // Strict singleton playback generation counter
 
   // Echo cancellation & self-listening safeguards
   private lastSpokenCleanText = "";
@@ -168,7 +169,7 @@ class NaturalVoiceEngine {
   }
 
   /**
-   * Checks if incoming text is an exact echo of what Aura just spoke.
+   * Checks if incoming text is an echo of what Aura is currently or recently speaking.
    */
   public isEcho(incomingText: string): boolean {
     if (!incomingText || !this.lastSpokenCleanText) return false;
@@ -178,9 +179,18 @@ class NaturalVoiceEngine {
 
     if (!cleanInc || !cleanLast) return false;
 
-    // Only filter if the user's recognized text is an exact or near-complete copy of Aura's text
-    if (cleanLast === cleanInc || (cleanLast.length > 15 && cleanLast.startsWith(cleanInc) && cleanInc.length > 12)) {
+    // Direct match or prefix/substring match
+    if (cleanLast.includes(cleanInc) || cleanInc.includes(cleanLast)) {
       return true;
+    }
+
+    // Word overlap check: if more than 50% of the words are in Aura's text
+    const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 2);
+    if (incWords.length >= 2) {
+      const matches = incWords.filter((w) => cleanLast.includes(w));
+      if (matches.length / incWords.length >= 0.5) {
+        return true;
+      }
     }
 
     return false;
@@ -203,6 +213,8 @@ class NaturalVoiceEngine {
    * Stop any current audio or speech playback immediately.
    */
   public stop() {
+    this.currentGenerationId++;
+
     if (this.abortController) {
       try {
         this.abortController.abort();
@@ -230,6 +242,7 @@ class NaturalVoiceEngine {
 
   /**
    * Synthesize and speak text using ultra-natural neural TTS with fallback.
+   * Guaranteed singleton: any previous voice is immediately terminated.
    */
   public async speak(
     text: string,
@@ -246,8 +259,11 @@ class NaturalVoiceEngine {
     const clean = cleanTextForSpeech(text);
     if (!clean) return;
 
-    this.lastSpokenCleanText = clean;
+    // Terminate any previous speech and create a new playback transaction
     this.stop();
+    const generationId = ++this.currentGenerationId;
+
+    this.lastSpokenCleanText = clean;
     this.setSpeaking(true);
     options?.onStart?.();
 
@@ -257,7 +273,9 @@ class NaturalVoiceEngine {
     // 1. Check browser memory cache
     const cachedBlobUrl = this.audioCache.get(cacheKey);
     if (cachedBlobUrl) {
-      this.playAudioBlob(cachedBlobUrl, options, clean, selectedVoice);
+      if (generationId === this.currentGenerationId) {
+        this.playAudioBlob(cachedBlobUrl, options, clean, selectedVoice, generationId);
+      }
       return;
     }
 
@@ -277,20 +295,26 @@ class NaturalVoiceEngine {
         signal: this.abortController.signal,
       });
 
+      if (generationId !== this.currentGenerationId) {
+        return; // Obsolete request
+      }
+
       if (!res.ok) {
         throw new Error(`TTS server responded with ${res.status}`);
       }
 
       const blob = await res.blob();
+      if (generationId !== this.currentGenerationId) return;
+
       const blobUrl = URL.createObjectURL(blob);
       this.audioCache.set(cacheKey, blobUrl);
 
-      this.playAudioBlob(blobUrl, options, clean, selectedVoice);
+      this.playAudioBlob(blobUrl, options, clean, selectedVoice, generationId);
     } catch (err: any) {
-      if (err.name === "AbortError") return;
+      if (err.name === "AbortError" || generationId !== this.currentGenerationId) return;
 
       console.warn("Backend Neural TTS failed, falling back to Web Speech API:", err);
-      this.fallbackWebSpeech(clean, selectedVoice, options);
+      this.fallbackWebSpeech(clean, selectedVoice, options, generationId);
     }
   }
 
@@ -304,9 +328,19 @@ class NaturalVoiceEngine {
       onError?: (err: any) => void;
     },
     fallbackText?: string,
-    requestedVoiceId?: string
+    requestedVoiceId?: string,
+    generationId?: number
   ) {
+    if (generationId !== undefined && generationId !== this.currentGenerationId) {
+      return;
+    }
+
     try {
+      // Ensure web speech is stopped
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+
       const audio = new Audio();
       audio.src = blobUrl;
       this.currentAudio = audio;
@@ -325,15 +359,18 @@ class NaturalVoiceEngine {
       } catch (e) {}
 
       audio.onended = () => {
-        this.setSpeaking(false);
-        this.currentAudio = null;
-        options?.onEnd?.();
+        if (generationId === undefined || generationId === this.currentGenerationId) {
+          this.setSpeaking(false);
+          this.currentAudio = null;
+          options?.onEnd?.();
+        }
       };
 
       audio.onerror = (e) => {
+        if (generationId !== undefined && generationId !== this.currentGenerationId) return;
         console.warn("Audio playback error:", e);
         if (fallbackText) {
-          this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+          this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
         } else {
           this.setSpeaking(false);
           this.currentAudio = null;
@@ -344,20 +381,22 @@ class NaturalVoiceEngine {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((e) => {
+          if (generationId !== undefined && generationId !== this.currentGenerationId) return;
           this.setSpeaking(false);
           this.currentAudio = null;
           if (e.name !== "AbortError") {
             console.warn("Audio play prevented by browser autoplay policy, attempting WebSpeech fallback:", e);
             if (fallbackText) {
-              this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+              this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
             }
           }
         });
       }
     } catch (err) {
+      if (generationId !== undefined && generationId !== this.currentGenerationId) return;
       console.warn("playAudioBlob exception:", err);
       if (fallbackText) {
-        this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options);
+        this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
       } else {
         this.setSpeaking(false);
         options?.onError?.(err);
@@ -371,8 +410,13 @@ class NaturalVoiceEngine {
   private fallbackWebSpeech(
     cleanText: string,
     requestedVoiceId: string,
-    options?: { onEnd?: () => void; onError?: (err: any) => void }
+    options?: { onEnd?: () => void; onError?: (err: any) => void },
+    generationId?: number
   ) {
+    if (generationId !== undefined && generationId !== this.currentGenerationId) {
+      return;
+    }
+
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       this.setSpeaking(false);
       options?.onError?.(new Error("Speech synthesis not supported"));
@@ -380,6 +424,16 @@ class NaturalVoiceEngine {
     }
 
     try {
+      // Pause any HTML audio
+      if (this.currentAudio) {
+        try {
+          this.currentAudio.pause();
+          this.currentAudio.currentTime = 0;
+          this.currentAudio.src = "";
+        } catch (e) {}
+        this.currentAudio = null;
+      }
+
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -402,14 +456,18 @@ class NaturalVoiceEngine {
       }
 
       utterance.onend = () => {
-        this.setSpeaking(false);
-        options?.onEnd?.();
+        if (generationId === undefined || generationId === this.currentGenerationId) {
+          this.setSpeaking(false);
+          options?.onEnd?.();
+        }
       };
 
       utterance.onerror = (e) => {
-        console.warn("WebSpeech utterance error:", e);
-        this.setSpeaking(false);
-        options?.onError?.(e);
+        if (generationId === undefined || generationId === this.currentGenerationId) {
+          console.warn("WebSpeech utterance error:", e);
+          this.setSpeaking(false);
+          options?.onError?.(e);
+        }
       };
 
       window.speechSynthesis.speak(utterance);

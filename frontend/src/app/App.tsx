@@ -6,12 +6,19 @@ import { MusicPlayer } from "./components/music-player";
 import { QuickActionsFAB } from "./components/quick-actions-fab";
 import { AuthScreen } from "./components/AuthScreen";
 import { OnboardingInterestsScreen } from "./components/OnboardingInterestsScreen";
-import { HomeScreen, ChatScreen, EmotionScreen, AnalyticsScreen, PlaceholderScreen } from "./components/screens";
+import {
+  HomeScreen,
+  ChatScreen,
+  EmotionScreen,
+  PlaceholderScreen,
+} from "./components/screens";
+import { AnalyticsScreen } from "./components/AnalyticsScreen";
+import { DebugScreen } from "./components/DebugScreen";
 import { FaceToFaceScreen } from "./components/FaceToFaceScreen";
 import { MemoryScreen } from "./components/MemoryScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
-import { DebugScreen } from "./components/DebugScreen";
 import { VoiceScreen } from "./components/VoiceScreen";
+import { voiceService } from "./services/voiceService";
 
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 
@@ -111,8 +118,14 @@ function MainApp() {
   };
 
   const handleNavigateScreen = (screenName: string) => {
+    voiceService.stop();
     setActive(screenName);
   };
+
+  useEffect(() => {
+    // Whenever switching tabs or screens, immediately stop any playing voice
+    voiceService.stop();
+  }, [active]);
 
   const renderScreen = () => {
     if (!user) {
