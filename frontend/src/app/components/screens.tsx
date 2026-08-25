@@ -6,6 +6,7 @@ import { AuraRobot, AuraMascot3D, AuraBlobMascot } from "./aura-robot";
 import { MusicPlayer } from "./music-player";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
+import { speechService } from "../services/speechRecognitionService";
 import {
   ClayChatIcon,
   ClayVoiceWaveBarsIcon,
@@ -793,71 +794,35 @@ export function ChatScreen() {
   };
 
   const [listening, setListening] = useState(false);
-  const listeningRef = useRef(listening);
-  listeningRef.current = listening;
 
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    let recognition: any = null;
-    let isMounted = true;
-
-    try {
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-IN"; // Supports Indian English, Hindi & global English
-
-      recognition.onresult = (event: any) => {
-        if (voiceService.isSpeaking()) return;
-
-        let interim = "";
-        let final = "";
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-
-        if (interim) {
-          if (voiceService.isEcho(interim)) return;
-          setText(interim);
-        }
-        if (final) {
-          const clean = final.trim();
-          if (voiceService.isEcho(clean) || clean.length < 2) return;
-          setText(clean);
-        }
-      };
-
-      recognition.onend = () => {
-        if (isMounted && listeningRef.current) {
-          try {
-            if (!voiceService.isSpeaking()) {
-              recognition.start();
-            }
-          } catch (e) {}
-        }
-      };
-
-      if (listening && !voiceService.isSpeaking()) {
-        recognition.start();
-      }
-    } catch (e) {
-      console.warn("Chat SpeechRecognition error:", e);
-    }
+    const unsubscribe = speechService.subscribe({
+      onInterim: (interim) => {
+        setText(interim);
+      },
+      onFinal: (final) => {
+        setText(final);
+      },
+      onListeningChange: (isList) => {
+        setListening(isList);
+      },
+    });
 
     return () => {
-      isMounted = false;
-      if (recognition) {
-        try { recognition.stop(); } catch (e) {}
+      unsubscribe();
+      if (speechService.isListening) {
+        speechService.stop();
       }
     };
-  }, [listening]);
+  }, []);
+
+  const toggleVoiceInput = () => {
+    if (listening) {
+      speechService.stop();
+    } else {
+      speechService.start();
+    }
+  };
 
   return (
     <div className="w-full max-w-[1040px] mx-auto flex flex-col justify-between select-none h-[calc(100vh-84px)] overflow-hidden pb-1">
@@ -1038,7 +1003,7 @@ export function ChatScreen() {
           <motion.button
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.92 }}
-            onClick={() => setListening(!listening)}
+            onClick={toggleVoiceInput}
             className={`clay-btn-mic w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 ${
               listening ? "listening" : ""
             }`}

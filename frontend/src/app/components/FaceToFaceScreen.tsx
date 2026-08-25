@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, MicOff, VideoOff, Send, Camera, Sparkles, RefreshCw, Activity, Heart, Brain, Smile } from "lucide-react";
+import { Mic, MicOff, VideoOff, Send, Camera, Sparkles, RefreshCw, Activity, Heart, Brain, Smile, Globe, Check } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead, ClaySmileyBeadIcon } from "./clay-icons";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
+import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -58,7 +59,9 @@ export function FaceToFaceScreen() {
   ]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
-  const [micActive, setMicActive] = useState(true);
+  const [micActive, setMicActive] = useState(speechService.isListening);
+  const [currentLang, setCurrentLang] = useState<SupportedLanguage>(speechService.currentLanguage);
+  const [showLangMenu, setShowLangMenu] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatWs = useRef<WebSocket | null>(null);
 
@@ -306,83 +309,41 @@ export function FaceToFaceScreen() {
     });
   }, []);
 
-  // ── Speech Recognition (STT) ────────────────────────────────────────────────
+  // ── Integrate Dedicated Resilient Speech Recognition Service ───────────────
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    const unsubscribe = speechService.subscribe({
+      onInterim: (interim) => {
+        setText(interim);
+      },
+      onFinal: (final) => {
+        setText(final);
+        sendMsg(final);
+      },
+      onListeningChange: (isList) => {
+        setMicActive(isList);
+      },
+    });
 
-    let recognition: any = null;
-    let isMounted = true;
-
-    try {
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-IN"; // Supports Indian English, Hindi words, and global English
-
-      recognition.onresult = (event: any) => {
-        let interim = "";
-        let final = "";
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-
-        if (interim) {
-          if (voiceService.isEcho(interim)) return;
-          if (voiceService.isSpeaking()) {
-            voiceService.stop();
-          }
-          setText(interim);
-        }
-
-        if (final) {
-          const clean = final.trim();
-          if (clean) {
-            if (voiceService.isEcho(clean)) return;
-            if (voiceService.isSpeaking()) {
-              voiceService.stop();
-            }
-            setText(clean);
-            sendMsg(clean);
-          }
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        if (e.error !== "no-speech") {
-          console.warn("FaceToFace SpeechRecognition error:", e.error);
-        }
-      };
-
-      recognition.onend = () => {
-        if (isMounted && micActiveRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {}
-        }
-      };
-
-      if (micActive) {
-        try {
-          recognition.start();
-        } catch (e) {}
-      }
-    } catch (e) {
-      console.warn("SpeechRecognition init error:", e);
-    }
+    speechService.start();
 
     return () => {
-      isMounted = false;
-      if (recognition) {
-        try { recognition.stop(); } catch (e) {}
-      }
+      unsubscribe();
+      speechService.stop();
     };
-  }, [micActive]);
+  }, []);
+
+  const toggleMic = () => {
+    if (isAuraSpeaking) {
+      voiceService.stop();
+    }
+    speechService.toggle();
+  };
+
+  const handleSelectLanguage = (langCode: SupportedLanguage) => {
+    setCurrentLang(langCode);
+    speechService.setLanguage(langCode);
+    setShowLangMenu(false);
+  };
 
   // Send Chat Message Helper
   const sendMsg = (customText?: string) => {
@@ -434,6 +395,55 @@ export function FaceToFaceScreen() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Language Selector Pill */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLangMenu(!showLangMenu)}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 dark:bg-white/10 border border-white/90 dark:border-white/10 shadow-sm hover:shadow text-[#2E2544] dark:text-[#FFFFFF] text-[11px] font-bold cursor-pointer transition-all"
+              title="Change Speech Recognition Language"
+            >
+              <span>{SUPPORTED_LANGUAGES.find((l) => l.code === currentLang)?.flag || "🇮🇳"}</span>
+              <span className="text-[#7B59DC] font-extrabold">
+                {SUPPORTED_LANGUAGES.find((l) => l.code === currentLang)?.nativeName || "हिन्दी"}
+              </span>
+              <Globe size={11} className="text-[#7A748A]" />
+            </button>
+
+            <AnimatePresence>
+              {showLangMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  className="absolute right-0 top-9 z-50 w-48 p-1.5 rounded-2xl bg-white/95 dark:bg-[#1E192D]/95 border border-white/80 dark:border-white/10 backdrop-blur-xl shadow-2xl text-left"
+                >
+                  <div className="flex flex-col gap-1">
+                    {SUPPORTED_LANGUAGES.map((lang) => {
+                      const isCurrent = lang.code === currentLang;
+                      return (
+                        <button
+                          key={lang.code}
+                          onClick={() => handleSelectLanguage(lang.code)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            isCurrent
+                              ? "bg-purple-100 dark:bg-purple-900/50 text-[#7B59DC] dark:text-purple-200"
+                              : "hover:bg-slate-100 dark:hover:bg-white/10 text-[#2E2544] dark:text-[#F3EFFC]"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span>{lang.flag}</span>
+                            <span>{lang.nativeName}</span>
+                          </span>
+                          {isCurrent && <Check size={13} className="text-[#7B59DC]" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           <div className="clay-pill flex items-center gap-2 px-3 py-1 text-[11px] font-bold text-[#2E2544] dark:text-[#D8D2E8]">
             <span
               className="animate-pulse"
@@ -696,10 +706,15 @@ export function FaceToFaceScreen() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setMicActive(!micActive)}
-              className="w-8 h-8 rounded-full clay-button flex items-center justify-center cursor-pointer text-[#7A748A] dark:text-[#D8D2E8]"
+              onClick={toggleMic}
+              className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all ${
+                micActive
+                  ? "bg-purple-100 dark:bg-purple-900/60 text-[#7B59DC] dark:text-purple-200"
+                  : "clay-button text-[#7A748A] dark:text-[#D8D2E8]"
+              }`}
+              title={micActive ? "Mute Microphone" : "Unmute Microphone"}
             >
-              <Mic size={14} />
+              {micActive ? <Mic size={14} /> : <MicOff size={14} />}
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.06 }}

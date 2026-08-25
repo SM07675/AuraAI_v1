@@ -1,41 +1,41 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play, Check } from "lucide-react";
+import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play, Check, Globe } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
+import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
 
 export function VoiceScreen() {
   const { isDark } = useTheme();
-  const [listening, setListening] = useState(true);
+  const [listening, setListening] = useState(speechService.isListening);
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [aiResponse, setAiResponse] = useState("Hello! I'm Aura, your emotion-aware companion. I'm listening with my new natural neural voice—go ahead and talk to me.");
-  const [sttSupported, setSttSupported] = useState(true);
-  const [sttError, setSttError] = useState<string | null>(null);
-
-  // Selected Voice Persona & Voice Menu Drawer
+  
+  // Language & Voice State
+  const [currentLang, setCurrentLang] = useState<SupportedLanguage>(speechService.currentLanguage);
   const [selectedVoice, setSelectedVoice] = useState<string>(voiceService.activeVoice);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+  const [showLangMenu, setShowLangMenu] = useState(false);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
 
-  // Audio & STT references
-  const recognitionRef = useRef<any>(null);
-  const isListeningRef = useRef(listening);
-  isListeningRef.current = listening;
-
-  const isSpeakingRef = useRef(speaking);
-  isSpeakingRef.current = speaking;
+  const isHindi = currentLang === "hi-IN";
+  const defaultInitialGreeting = isHindi
+    ? "नमस्ते! मैं ऑरा हूँ, आपकी AI कल्याण साथी। मैं सुन रही हूँ—कृपया बताइए आज आप कैसा महसूस कर रहे हैं?"
+    : "Hello! I'm Aura, your emotion-aware companion. I'm listening with my natural neural voice—go ahead and talk to me.";
+    
+  const [aiResponse, setAiResponse] = useState(defaultInitialGreeting);
+  const [sttError, setSttError] = useState<string | null>(null);
 
   const ws = useRef<WebSocket | null>(null);
 
   // Speak with neural TTS
-  const speakText = (textToSpeak: string) => {
+  const speakText = (textToSpeak: string, voiceId?: string) => {
     setSpeaking(true);
     voiceService.speak(textToSpeak, {
-      voice: selectedVoice,
+      voice: voiceId || selectedVoice,
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
       onError: () => setSpeaking(false),
@@ -46,11 +46,10 @@ export function VoiceScreen() {
   useEffect(() => {
     return voiceService.subscribe((isSpk) => {
       setSpeaking(isSpk);
-      isSpeakingRef.current = isSpk;
     });
   }, []);
 
-  // ── Establish WebSocket connection ───────────────────────────────────────────
+  // ── Establish Resilient WebSocket connection ─────────────────────────────────
   useEffect(() => {
     let socket: WebSocket;
     let isUnmounted = false;
@@ -87,7 +86,9 @@ export function VoiceScreen() {
             });
           } else if (data.type === "error") {
             setThinking(false);
-            const fallbackMsg = "I'm right here with you and listening. What's on your mind today?";
+            const fallbackMsg = isHindi
+              ? "मैं आपके साथ हूँ और सुन रही हूँ। आज आपके मन में क्या चल रहा है?"
+              : "I'm right here with you and listening. What's on your mind today?";
             setAiResponse(fallbackMsg);
             speakText(fallbackMsg);
           }
@@ -112,7 +113,7 @@ export function VoiceScreen() {
       socket?.close();
       voiceService.stop();
     };
-  }, []);
+  }, [isHindi]);
 
   // Send message to AI backend
   const sendToAi = (userSpeech: string) => {
@@ -123,165 +124,135 @@ export function VoiceScreen() {
     setAiResponse("");
 
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: "message", content: userSpeech, mode: "voice" }));
+      ws.current.send(JSON.stringify({ 
+        type: "message", 
+        content: userSpeech, 
+        mode: "voice",
+        language: currentLang 
+      }));
     } else {
       // Offline fallback
       setTimeout(() => {
         setThinking(false);
         const lower = userSpeech.toLowerCase();
-        let reply = "I hear you. Could you share a bit more about how that makes you feel?";
-        if (lower.includes("stress") || lower.includes("pressure") || lower.includes("exam") || lower.includes("work")) {
-          reply = "That sounds like a lot of weight to carry. Let's take a slow breath together. What's the biggest source of pressure right now?";
-        } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
-          reply = "Hello there! I'm completely tuned in. How are you feeling today?";
+        let reply = isHindi
+          ? "मैं समझ रही हूँ। क्या आप इसके बारे में थोड़ा और बता सकते हैं कि आप कैसा महसूस कर रहे हैं?"
+          : "I hear you. Could you share a bit more about how that makes you feel?";
+          
+        if (lower.includes("stress") || lower.includes("तनाव") || lower.includes("pressure") || lower.includes("exam") || lower.includes("काम")) {
+          reply = isHindi
+            ? "यह काफी भारी लग सकता है। चलिए मिलकर एक गहरी सांस लेते हैं। इस समय सबसे ज्यादा तनाव किस बात से है?"
+            : "That sounds like a lot of weight to carry. Let's take a slow breath together. What's the biggest source of pressure right now?";
+        } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("नमस्ते") || lower.includes("प्रणाम") || lower.includes("hey")) {
+          reply = isHindi
+            ? "नमस्ते! मैं पूरी तरह से सुन रही हूँ। आज आपका दिन कैसा जा रहा है?"
+            : "Hello there! I'm completely tuned in. How are you feeling today?";
         }
         setAiResponse(reply);
         speakText(reply);
-      }, 1000);
+      }, 800);
     }
   };
 
-  // ── Speech Recognition (STT) ────────────────────────────────────────────────
+  // ── Integrate Dedicated Resilient Speech Recognition Service ───────────────
   useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const unsubscribe = speechService.subscribe({
+      onInterim: (txt) => {
+        setInterimTranscript(txt);
+      },
+      onFinal: (txt) => {
+        setTranscript(txt);
+        setInterimTranscript("");
+        sendToAi(txt);
+      },
+      onError: (err) => {
+        setSttError(err);
+      },
+      onListeningChange: (isList) => {
+        setListening(isList);
+      },
+    });
 
-    if (!SpeechRecognition) {
-      setSttSupported(false);
-      setSttError("Speech recognition is not supported in this browser. Try Chrome or Edge.");
-      return;
-    }
-
-    let recognition: any = null;
-    let isComponentMounted = true;
-
-    try {
-      recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-IN";
-
-      recognition.onstart = () => {
-        setSttError(null);
-      };
-
-      recognition.onresult = (event: any) => {
-        let interim = "";
-        let final = "";
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-
-        if (interim) {
-          if (voiceService.isEcho(interim)) return;
-          if (voiceService.isSpeaking()) {
-            voiceService.stop();
-            setSpeaking(false);
-          }
-          setInterimTranscript(interim);
-        }
-
-        if (final) {
-          const finalClean = final.trim();
-          if (finalClean) {
-            if (voiceService.isEcho(finalClean)) return;
-            if (voiceService.isSpeaking()) {
-              voiceService.stop();
-              setSpeaking(false);
-            }
-            setTranscript(finalClean);
-            setInterimTranscript("");
-            sendToAi(finalClean);
-          }
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        if (event.error === "no-speech") return;
-        if (event.error === "not-allowed") {
-          setSttError("Microphone access denied. Please allow microphone permissions.");
-        } else {
-          console.warn("SpeechRecognition error:", event.error);
-        }
-      };
-
-      recognition.onend = () => {
-        if (isComponentMounted && isListeningRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {}
-        }
-      };
-
-      if (listening) {
-        try {
-          recognition.start();
-        } catch (e) {}
-      }
-    } catch (e: any) {
-      console.warn("SpeechRecognition init exception:", e);
-      setSttError(e.message || "Failed to initialize Speech Recognition.");
-    }
+    // Start continuous listening by default
+    speechService.start();
 
     return () => {
-      isComponentMounted = false;
-      if (recognition) {
-        try {
-          recognition.stop();
-        } catch (e) {}
-      }
+      unsubscribe();
+      speechService.stop();
+      voiceService.stop();
     };
-  }, [listening]);
+  }, []);
 
   const toggleListening = () => {
     if (speaking) {
       voiceService.stop();
       setSpeaking(false);
     }
-    setListening(!listening);
+    speechService.toggle();
   };
 
   const handleResetSession = () => {
     voiceService.stop();
+    speechService.stop();
     setSpeaking(false);
     setThinking(false);
     setTranscript("");
     setInterimTranscript("");
-    const greeting = "Session refreshed. I'm listening—what would you like to talk about?";
+    const greeting = isHindi
+      ? "सत्र रीफ्रेश हो गया है। मैं सुन रही हूँ—आज आप किस विषय पर बात करना चाहते हैं?"
+      : "Session refreshed. I'm listening—what would you like to talk about?";
     setAiResponse(greeting);
     speakText(greeting);
+    setTimeout(() => {
+      speechService.start();
+    }, 500);
+  };
+
+  const handleSelectLanguage = (langCode: SupportedLanguage) => {
+    setCurrentLang(langCode);
+    speechService.setLanguage(langCode);
+    setShowLangMenu(false);
+    
+    // Switch voice default for the language
+    const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === langCode);
+    if (langObj) {
+      setSelectedVoice(langObj.defaultVoice);
+      voiceService.setVoice(langObj.defaultVoice);
+      
+      const newGreeting = langCode === "hi-IN"
+        ? "नमस्ते! मैंने हिंदी भाषा चुन ली है। मैं सुन रही हूँ, आप बोल सकते हैं।"
+        : "Language updated. I'm listening—go ahead and speak.";
+      setAiResponse(newGreeting);
+      speakText(newGreeting, langObj.defaultVoice);
+    }
   };
 
   const handleSelectVoice = (voiceId: string) => {
     setSelectedVoice(voiceId);
     voiceService.setVoice(voiceId);
+    setShowVoiceMenu(false);
   };
 
   const handlePreviewVoice = (v: VoicePersona, e: React.MouseEvent) => {
     e.stopPropagation();
     setPreviewingVoice(v.id);
-    voiceService.speak(`Hello! I'm ${v.name.split(" ")[0]}. This is how my voice sounds.`, {
+    const sample = v.locale.startsWith("hi")
+      ? `नमस्ते! मैं ${v.name.split(" ")[0]} हूँ। मेरी आवाज़ ऐसी सुनाई देती है।`
+      : `Hello! I'm ${v.name.split(" ")[0]}. This is how my voice sounds.`;
+    voiceService.speak(sample, {
       voice: v.id,
       onEnd: () => setPreviewingVoice(null),
       onError: () => setPreviewingVoice(null),
     });
   };
 
-  // Speak greeting on mount
+  // Speak initial greeting once on mount
   useEffect(() => {
-    speakText("Hello! I'm Aura, your emotion-aware companion. I'm listening with my natural neural voice—go ahead and talk to me.");
-    return () => {
-      voiceService.stop();
-    };
+    speakText(defaultInitialGreeting);
   }, []);
 
   const activePersonaObj = CURATED_VOICES.find((v) => v.id === selectedVoice) || CURATED_VOICES[0];
+  const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLang) || SUPPORTED_LANGUAGES[0];
 
   // Waveform Bar Heights (smooth symmetrical animation pattern)
   const waveHeights = [10, 18, 28, 16, 34, 24, 14, 30, 36, 22, 12, 32, 20, 34, 26, 14, 28, 16];
@@ -297,14 +268,73 @@ export function VoiceScreen() {
               Voice Mode
             </h2>
             <p className="text-[11.5px] sm:text-[12px] text-[#7A748A] dark:text-[#9E98B4] font-semibold mt-0.5 m-0">
-              Continuous listening & neural voice synthesis with Aura.
+              Continuous infinite listening & neural voice synthesis with Aura.
             </p>
           </div>
 
-          {/* Top Voice Selector & Live Badge */}
+          {/* Top Controls: Language & Voice Selectors */}
           <div className="flex items-center gap-2">
+            {/* Language Switcher Pill */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowLangMenu(!showLangMenu);
+                  setShowVoiceMenu(false);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 dark:bg-white/10 border border-white/90 dark:border-white/10 shadow-sm hover:shadow text-[#2E2544] dark:text-[#FFFFFF] text-[11px] font-bold cursor-pointer transition-all"
+                title="Switch Speech Recognition & Voice Language"
+              >
+                <span>{activeLangObj.flag}</span>
+                <span className="text-[#7B59DC] font-extrabold">{activeLangObj.nativeName}</span>
+                <Globe size={11} className="text-[#7A748A]" />
+              </button>
+
+              {/* Language Dropdown Menu */}
+              <AnimatePresence>
+                {showLangMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    className="absolute right-0 top-9 z-50 w-52 p-2 rounded-2xl bg-white/95 dark:bg-[#1E192D]/95 border border-white/80 dark:border-white/10 backdrop-blur-xl shadow-2xl text-left"
+                  >
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#9E98AA] px-2 py-1 mb-1">
+                      Choose Language
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {SUPPORTED_LANGUAGES.map((lang) => {
+                        const isCurrent = lang.code === currentLang;
+                        return (
+                          <button
+                            key={lang.code}
+                            onClick={() => handleSelectLanguage(lang.code)}
+                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                              isCurrent
+                                ? "bg-purple-100 dark:bg-purple-900/50 text-[#7B59DC] dark:text-purple-200"
+                                : "hover:bg-slate-100 dark:hover:bg-white/10 text-[#2E2544] dark:text-[#F3EFFC]"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span>{lang.flag}</span>
+                              <span>{lang.nativeName}</span>
+                              <span className="text-[10px] text-[#9E98AA] font-normal">({lang.name})</span>
+                            </span>
+                            {isCurrent && <Check size={13} className="text-[#7B59DC]" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Voice Persona Selector */}
             <button
-              onClick={() => setShowVoiceMenu(!showVoiceMenu)}
+              onClick={() => {
+                setShowVoiceMenu(!showVoiceMenu);
+                setShowLangMenu(false);
+              }}
               className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 dark:bg-white/10 border border-white/90 dark:border-white/10 shadow-sm hover:shadow text-[#2E2544] dark:text-[#FFFFFF] text-[11px] font-bold cursor-pointer transition-all"
             >
               <Sparkles size={13} className="text-[#7B59DC]" />
@@ -312,6 +342,7 @@ export function VoiceScreen() {
               <Settings2 size={12} className="text-[#7A748A]" />
             </button>
 
+            {/* Live Indicator Pill */}
             <span
               className="clay-pill flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-bold"
               style={{
@@ -364,7 +395,7 @@ export function VoiceScreen() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[260px] overflow-y-auto pr-1">
                 {CURATED_VOICES.map((v) => {
                   const isSelected = v.id === selectedVoice;
                   return (
@@ -489,13 +520,13 @@ export function VoiceScreen() {
               : thinking
               ? "Aura is Thinking..."
               : listening
-              ? "Mic Active — Listening to you..."
+              ? `Mic Active (${activeLangObj.nativeName}) — Listening continuously...`
               : "Microphone Paused"}
           </span>
         </motion.div>
 
         {/* STT Critical Error Notification (e.g. Mic Permission Denied) */}
-        {sttError && sttError.includes("Microphone access denied") && (
+        {sttError && (
           <div className="clay-voice-subcard w-full max-w-[580px] mb-2.5 p-2.5 flex items-center gap-2.5 text-left text-[11.5px] font-semibold text-[#92400E] bg-[#FEF3C7]/60 border border-[#FDE68A]">
             <AlertCircle className="w-4 h-4 shrink-0 text-[#D97706]" />
             <div>{sttError}</div>
@@ -507,11 +538,11 @@ export function VoiceScreen() {
           {/* Section: You Said (Live STT) */}
           <div>
             <div className="flex items-center justify-between text-[10px] font-extrabold uppercase tracking-wider text-[#9E98AA] dark:text-[#8E88A4] mb-1">
-              <span>YOU SAID (LIVE STT)</span>
+              <span>{isHindi ? "आपकी आवाज़ (लाइव सुनना)" : "YOU SAID (LIVE STT)"}</span>
               {interimTranscript && (
                 <span className="text-[#9E7EE6] font-bold lowercase flex items-center gap-1">
                   <span className="w-1 h-1 rounded-full bg-[#9E7EE6] animate-ping" />
-                  transcribing...
+                  {isHindi ? "सुन रहे हैं..." : "transcribing..."}
                 </span>
               )}
             </div>
@@ -520,7 +551,11 @@ export function VoiceScreen() {
               {transcript || interimTranscript || (
                 <span className="italic text-[#9E98AA] dark:text-[#6E6882] font-normal">
                   {listening
-                    ? "Speak naturally into your microphone... your words will stream live here."
+                    ? isHindi
+                      ? "माइक में स्वाभाविक रूप से बोलें... आपके शब्द यहाँ लाइव ट्रांसक्राइब होंगे।"
+                      : "Speak naturally into your microphone... your words will stream live here."
+                    : isHindi
+                    ? "माइक्रोफ़ोन रुका हुआ है। बोलने के लिए 'सुनना शुरू करें' पर क्लिक करें।"
                     : "Microphone paused. Click 'Start Listening' to begin speaking."}
                 </span>
               )}
@@ -535,7 +570,7 @@ export function VoiceScreen() {
             <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#9E7EE6] dark:text-[#B794F6] mb-1 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Sparkles size={12} className="text-[#9E7EE6] dark:text-[#B794F6]" />
-                <span>AURA RESPONSE</span>
+                <span>{isHindi ? "ऑरा का उत्तर" : "AURA RESPONSE"}</span>
               </div>
               <span className="text-[9.5px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full">24kHz Neural HD</span>
             </div>
@@ -560,7 +595,11 @@ export function VoiceScreen() {
             title={listening ? "Pause Listening" : "Start Listening"}
           >
             {listening ? <Mic size={16} /> : <MicOff size={16} />}
-            <span>{listening ? "Pause Listening" : "Start Listening"}</span>
+            <span>
+              {listening 
+                ? isHindi ? "सुनना रोकें" : "Pause Listening" 
+                : isHindi ? "सुनना शुरू करें" : "Start Listening"}
+            </span>
           </motion.button>
 
           {/* Stop Speaking (TTS) Button */}
@@ -579,7 +618,7 @@ export function VoiceScreen() {
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-[12px] font-bold text-[#777287] hover:text-[#2E2544] bg-white/80 hover:bg-white border border-white/90 shadow-sm cursor-pointer transition-all"
             >
               <Volume2 size={15} />
-              <span>Stop Speaking</span>
+              <span>{isHindi ? "बोलना रोकें" : "Stop Speaking"}</span>
             </motion.button>
           )}
 
@@ -593,7 +632,7 @@ export function VoiceScreen() {
             title="Reset speech buffer & restart session"
           >
             <RefreshCw size={14} />
-            <span>Reset Session</span>
+            <span>{isHindi ? "सत्र रीसेट करें" : "Reset Session"}</span>
           </motion.button>
         </div>
       </div>
