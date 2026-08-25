@@ -267,6 +267,16 @@ export function FaceToFaceScreen() {
   const micActiveRef = useRef(micActive);
   micActiveRef.current = micActive;
 
+  const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
+  const isAuraSpeakingRef = useRef(false);
+
+  useEffect(() => {
+    return voiceService.subscribe((speaking) => {
+      setIsAuraSpeaking(speaking);
+      isAuraSpeakingRef.current = speaking;
+    });
+  }, []);
+
   // ── Speech Recognition (STT) ────────────────────────────────────────────────
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -279,9 +289,14 @@ export function FaceToFaceScreen() {
       recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
+      recognition.lang = "en-IN"; // Supports Indian English, Hindi words, and global English
 
       recognition.onresult = (event: any) => {
+        // Hard-block when Aura is speaking or within cooldown to prevent echo
+        if (voiceService.isSpeaking() || isAuraSpeakingRef.current) {
+          return;
+        }
+
         let interim = "";
         let final = "";
 
@@ -294,13 +309,14 @@ export function FaceToFaceScreen() {
         }
 
         if (interim) {
+          if (voiceService.isEcho(interim)) return;
           setText(interim);
-          if (voiceService.isSpeaking()) voiceService.stop();
         }
+
         if (final) {
           const clean = final.trim();
+          if (!clean || voiceService.isEcho(clean) || clean.length < 2) return;
           setText(clean);
-          if (voiceService.isSpeaking()) voiceService.stop();
           sendMsg(clean);
         }
       };
@@ -314,12 +330,23 @@ export function FaceToFaceScreen() {
       recognition.onend = () => {
         if (isMounted && micActiveRef.current) {
           try {
-            recognition.start();
+            // Only restart if Aura is not currently speaking
+            if (!voiceService.isSpeaking()) {
+              recognition.start();
+            } else {
+              // Wait until Aura finishes
+              const checkInterval = setInterval(() => {
+                if (!voiceService.isSpeaking() && isMounted && micActiveRef.current) {
+                  clearInterval(checkInterval);
+                  try { recognition.start(); } catch (e) {}
+                }
+              }, 400);
+            }
           } catch (e) {}
         }
       };
 
-      if (micActive) {
+      if (micActive && !voiceService.isSpeaking()) {
         recognition.start();
       }
     } catch (e) {

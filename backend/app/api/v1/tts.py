@@ -124,13 +124,40 @@ def get_emotion_prosody(emotion: Optional[str] = None) -> tuple[str, str]:
 
 CURATED_VOICES = [
     {
+        "id": "en-IN-NeerjaExpressiveNeural",
+        "name": "Neerja (Indian Expressive)",
+        "gender": "Female",
+        "locale": "en-IN",
+        "accent": "Indian English",
+        "persona": "Ultra-natural, expressive Indian English female voice with emotional inflections",
+        "is_default": True,
+    },
+    {
+        "id": "hi-IN-SwaraNeural",
+        "name": "Swara (Hindi & Hinglish)",
+        "gender": "Female",
+        "locale": "hi-IN",
+        "accent": "Indian Hindi",
+        "persona": "Warm, authentic Hindi & conversational Hinglish female voice",
+        "is_default": False,
+    },
+    {
+        "id": "en-IN-NeerjaNeural",
+        "name": "Neerja (Indian Classic)",
+        "gender": "Female",
+        "locale": "en-IN",
+        "accent": "Indian English",
+        "persona": "Fluent, warm, clear Indian English female voice",
+        "is_default": False,
+    },
+    {
         "id": "en-US-AriaNeural",
-        "name": "Aura (Warm & Empathetic)",
+        "name": "Aria (Global Empathetic)",
         "gender": "Female",
         "locale": "en-US",
         "accent": "American",
         "persona": "Warm, engaging, highly empathetic companion voice",
-        "is_default": True,
+        "is_default": False,
     },
     {
         "id": "en-US-JennyNeural",
@@ -139,42 +166,6 @@ CURATED_VOICES = [
         "locale": "en-US",
         "accent": "American",
         "persona": "Calm, gentle, mindful therapeutic tone",
-        "is_default": False,
-    },
-    {
-        "id": "en-US-AvaMultilingualNeural",
-        "name": "Ava (Modern & Expressive)",
-        "gender": "Female",
-        "locale": "en-US",
-        "accent": "American",
-        "persona": "Natural, dynamic, lifelike modern voice",
-        "is_default": False,
-    },
-    {
-        "id": "en-US-EmmaNeural",
-        "name": "Emma (Patient Guide)",
-        "gender": "Female",
-        "locale": "en-US",
-        "accent": "American",
-        "persona": "Supportive, clear, encouraging guide",
-        "is_default": False,
-    },
-    {
-        "id": "en-US-GuyNeural",
-        "name": "Guy (Confident & Reassuring)",
-        "gender": "Male",
-        "locale": "en-US",
-        "accent": "American",
-        "persona": "Deep, natural, reassuring male companion",
-        "is_default": False,
-    },
-    {
-        "id": "en-US-AndrewMultilingualNeural",
-        "name": "Andrew (Warm & Friendly)",
-        "gender": "Male",
-        "locale": "en-US",
-        "accent": "American",
-        "persona": "Conversational, articulate, friendly male voice",
         "is_default": False,
     },
     {
@@ -187,21 +178,12 @@ CURATED_VOICES = [
         "is_default": False,
     },
     {
-        "id": "en-AU-NatashaNeural",
-        "name": "Natasha (Australian Warmth)",
+        "id": "mr-IN-AarohiNeural",
+        "name": "Aarohi (Marathi)",
         "gender": "Female",
-        "locale": "en-AU",
-        "accent": "Australian",
-        "persona": "Relaxed, natural Australian English",
-        "is_default": False,
-    },
-    {
-        "id": "en-IN-NeerjaNeural",
-        "name": "Neerja (Indian English)",
-        "gender": "Female",
-        "locale": "en-IN",
-        "accent": "Indian",
-        "persona": "Fluent, warm Indian English voice",
+        "locale": "mr-IN",
+        "accent": "Indian Marathi",
+        "persona": "Authentic, fluent Marathi female voice",
         "is_default": False,
     },
 ]
@@ -209,7 +191,7 @@ CURATED_VOICES = [
 
 class SynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000, description="Text to synthesize")
-    voice: Optional[str] = Field("en-US-AriaNeural", description="Neural voice identifier")
+    voice: Optional[str] = Field("en-IN-NeerjaExpressiveNeural", description="Neural voice identifier")
     rate: Optional[str] = Field(None, description="Speech rate adjustment, e.g. '+0%', '-5%'")
     pitch: Optional[str] = Field(None, description="Speech pitch adjustment, e.g. '+0Hz', '-2Hz'")
     emotion: Optional[str] = Field(None, description="Emotional context for prosody tuning")
@@ -222,7 +204,7 @@ async def list_curated_voices() -> Dict[str, Any]:
     """Get the curated list of natural human neural voices."""
     return {
         "voices": CURATED_VOICES,
-        "default_voice": "en-US-AriaNeural",
+        "default_voice": "en-IN-NeerjaExpressiveNeural",
         "count": len(CURATED_VOICES),
     }
 
@@ -232,7 +214,7 @@ async def synthesize_speech_post(request: SynthesizeRequest) -> Response:
     """Synthesize text into high-fidelity neural MP3 audio (POST)."""
     return await _synthesize_audio_stream(
         text=request.text,
-        voice=request.voice or "en-US-AriaNeural",
+        voice=request.voice or "en-IN-NeerjaExpressiveNeural",
         rate=request.rate,
         pitch=request.pitch,
         emotion=request.emotion,
@@ -242,7 +224,7 @@ async def synthesize_speech_post(request: SynthesizeRequest) -> Response:
 @router.get("/synthesize")
 async def synthesize_speech_get(
     text: str = Query(..., min_length=1, max_length=5000),
-    voice: str = Query("en-US-AriaNeural"),
+    voice: str = Query("en-IN-NeerjaExpressiveNeural"),
     rate: Optional[str] = Query(None),
     pitch: Optional[str] = Query(None),
     emotion: Optional[str] = Query(None),
