@@ -34,6 +34,7 @@ from app.api.v1.emotion_ws import router as emotion_ws_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.music import router as music_router
+from app.api.v1.tts import router as tts_router
 
 
 settings = get_settings()
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix=api_prefix)
     app.include_router(analytics_router, prefix=api_prefix)
     app.include_router(music_router, prefix=api_prefix)
+    app.include_router(tts_router, prefix=api_prefix)
 
     return app
 

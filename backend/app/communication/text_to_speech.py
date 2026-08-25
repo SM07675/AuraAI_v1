@@ -95,8 +95,13 @@ class EdgeTTSProvider(TTSProvider):
     ) -> AsyncIterator[bytes]:
         """Stream MP3 chunks from edge-tts."""
         import edge_tts
+        from app.api.v1.tts import clean_text_for_speech
 
-        communicate = edge_tts.Communicate(text, voice)
+        cleaned = clean_text_for_speech(text)
+        if not cleaned:
+            return
+
+        communicate = edge_tts.Communicate(cleaned, voice)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio" and chunk.get("data"):
                 yield chunk["data"]

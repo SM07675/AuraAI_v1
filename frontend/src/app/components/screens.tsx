@@ -5,6 +5,7 @@ import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, LineChart, 
 import { AuraRobot, AuraMascot3D, AuraBlobMascot } from "./aura-robot";
 import { MusicPlayer } from "./music-player";
 import { useTheme } from "../context/ThemeContext";
+import { voiceService } from "../services/voiceService";
 import {
   ClayChatIcon,
   ClayVoiceWaveBarsIcon,
@@ -22,6 +23,16 @@ import {
   ClayAuraAvatar,
   ClayDoubleCheckIcon,
 } from "./clay-icons";
+
+const QUICK_ACTIONS = [
+  { label: "Talk", icon: Mic },
+  { label: "Analyze Emotion", icon: Activity },
+  { label: "History", icon: HistoryIcon },
+  { label: "Reports", icon: FileText },
+  { label: "Breathing", icon: Wind },
+  { label: "Meditation", icon: Heart },
+];
+
 
 /* ─────────────────────────── HOME ─────────────────────────── */
 export function HomeScreen({
@@ -755,16 +766,8 @@ export function ChatScreen() {
             setTyping(false);
             setMsgs((prev) => {
               const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.from === "aura" && lastMsg.text && typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(lastMsg.text);
-                  utterance.rate = 0.95;
-                  const voices = window.speechSynthesis.getVoices();
-                  const enVoice = voices.find((v) => v.lang.startsWith("en") && (v.name.includes("Female") || v.name.includes("Zira") || v.name.includes("Google") || v.name.includes("Natural"))) || voices.find((v) => v.lang.startsWith("en"));
-                  if (enVoice) utterance.voice = enVoice;
-                  window.speechSynthesis.speak(utterance);
-                } catch (e) {}
+              if (lastMsg && lastMsg.from === "aura" && lastMsg.text) {
+                voiceService.speak(lastMsg.text);
               }
               return prev;
             });
@@ -792,6 +795,7 @@ export function ChatScreen() {
       isUnmounted = true;
       clearTimeout(reconnectTimeout);
       socket?.close();
+      voiceService.stop();
     };
   }, []);
 
@@ -870,9 +874,13 @@ export function ChatScreen() {
           }
         }
 
-        if (interim) setText(interim);
+        if (interim) {
+          setText(interim);
+          if (voiceService.isSpeaking()) voiceService.stop();
+        }
         if (final) {
           setText(final.trim());
+          if (voiceService.isSpeaking()) voiceService.stop();
         }
       };
 

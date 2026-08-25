@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
-import { Mic, MicOff, VideoOff, Send } from "lucide-react";
+import { Mic, MicOff, VideoOff, Send, Camera, Sparkles } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead } from "./clay-icons";
 import { useTheme } from "../context/ThemeContext";
+import { voiceService } from "../services/voiceService";
+
+
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -176,15 +179,19 @@ export function FaceToFaceScreen() {
         try {
           const data = JSON.parse(evt.data);
           if (data.type === "message" || data.type === "agent_response") {
+            const reply = data.content || data.text;
             setMsgs((prev) => [
               ...prev,
               {
                 id: "aura-" + Date.now(),
                 from: "aura",
-                text: data.content || data.text,
+                text: reply,
               },
             ]);
             setTyping(false);
+            if (reply) {
+              voiceService.speak(reply, { emotion: faceEmotionRef.current.primary_emotion || "calm" });
+            }
           }
         } catch (e) {
           // non-json or stream token
@@ -196,6 +203,7 @@ export function FaceToFaceScreen() {
 
     return () => {
       chatWs.current?.close();
+      voiceService.stop();
     };
   }, []);
 
@@ -203,10 +211,91 @@ export function FaceToFaceScreen() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, typing]);
 
-  // ── Continuous Speech Recognition (Hands-Free Mode) ──────────────────────────
+  // ── Speech Synthesis (TTS) via Neural Voice Engine ───────────────────────────
+  const faceEmotionRef = useRef(faceEmotion);
+  faceEmotionRef.current = faceEmotion;
+
+  const speakText = (txt: string, customEmotion?: string) => {
+    voiceService.speak(txt, {
+      emotion: customEmotion || faceEmotionRef.current.primary_emotion || "calm",
+    });
+  };
+
+  // Speak initial greeting on mount
+  useEffect(() => {
+    speakText("Welcome to Face-to-Face mode. I'm observing your facial cues while we talk. How are you feeling right now?");
+    return () => {
+      voiceService.stop();
+    };
+  }, []);
+
   const micActiveRef = useRef(micActive);
   micActiveRef.current = micActive;
 
+  // ── Speech Recognition (STT) ────────────────────────────────────────────────
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let recognition: any = null;
+    let isMounted = true;
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        let final = "";
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+
+        if (interim) {
+          setText(interim);
+          if (voiceService.isSpeaking()) voiceService.stop();
+        }
+        if (final) {
+          const clean = final.trim();
+          setText(clean);
+          if (voiceService.isSpeaking()) voiceService.stop();
+          sendMsg(clean);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn("FaceToFace SpeechRecognition error:", e.error);
+      };
+
+      recognition.onend = () => {
+        if (isMounted && micActiveRef.current) {
+          try {
+            recognition.start();
+          } catch (e) {}
+        }
+      };
+
+      if (micActive) {
+        recognition.start();
+      }
+    } catch (e) {
+      console.warn("SpeechRecognition init error:", e);
+    }
+
+    return () => {
+      isMounted = false;
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    };
+  }, [micActive]);
   // Send Chat Message Helper
   const sendMsg = (customText?: string) => {
     const t = (customText !== undefined ? customText : text).trim();
