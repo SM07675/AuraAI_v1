@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Cpu, Server, Activity, Terminal, Code2, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { GlassCard } from "./glass-card";
+import { getWebSocketUrl } from "../services/wsHelper";
 
 export function DebugScreen() {
   const [statusData, setStatusData] = useState<any>(null);
@@ -18,8 +19,7 @@ export function DebugScreen() {
   useEffect(() => {
     loadStatus();
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/debug/ws`;
+    const wsUrl = getWebSocketUrl("/api/v1/debug/ws");
 
     try {
       const ws = new WebSocket(wsUrl);

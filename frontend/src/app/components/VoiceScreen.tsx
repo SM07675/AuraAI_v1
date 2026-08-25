@@ -5,6 +5,7 @@ import { AuraMascot3D } from "./aura-robot";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
 import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
+import { getWebSocketUrl } from "../services/wsHelper";
 
 export function VoiceScreen() {
   const { isDark } = useTheme();
@@ -57,8 +58,7 @@ export function VoiceScreen() {
 
     const connect = () => {
       if (isUnmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/chat`;
+      const wsUrl = getWebSocketUrl("/api/v1/ws/chat");
 
       socket = new WebSocket(wsUrl);
       ws.current = socket;

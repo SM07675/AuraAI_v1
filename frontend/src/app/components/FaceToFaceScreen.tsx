@@ -6,6 +6,7 @@ import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead, ClaySmileyBeadIcon
 import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
 import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
+import { getWebSocketUrl } from "../services/wsHelper";
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -112,8 +113,7 @@ export function FaceToFaceScreen() {
 
     const connectEmotion = () => {
       if (isUnmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/emotion/ws`;
+      const wsUrl = getWebSocketUrl("/api/v1/emotion/ws");
 
       socket = new WebSocket(wsUrl);
       emotionWs.current = socket;
@@ -197,8 +197,7 @@ export function FaceToFaceScreen() {
 
     const connectChat = () => {
       if (isUnmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/chat`;
+      const wsUrl = getWebSocketUrl("/api/v1/ws/chat");
 
       socket = new WebSocket(wsUrl);
       chatWs.current = socket;

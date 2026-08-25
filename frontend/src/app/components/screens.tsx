@@ -7,6 +7,7 @@ import { MusicPlayer } from "./music-player";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
 import { speechService } from "../services/speechRecognitionService";
+import { getWebSocketUrl } from "../services/wsHelper";
 import {
   ClayChatIcon,
   ClayVoiceWaveBarsIcon,
@@ -681,8 +682,7 @@ export function ChatScreen() {
 
     const connect = () => {
       if (isUnmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/chat`;
+      const wsUrl = getWebSocketUrl("/api/v1/ws/chat");
 
       socket = new WebSocket(wsUrl);
       ws.current = socket;
