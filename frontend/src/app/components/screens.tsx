@@ -59,7 +59,7 @@ export function HomeScreen({
   const userName = user.name || "athavpalekar";
 
   return (
-    <div className="relative w-full select-none h-full max-h-[calc(100vh-80px)] flex flex-col justify-between overflow-hidden" style={{ maxWidth: 1240 }}>
+    <div className="relative w-full select-none h-full min-h-0 flex flex-col justify-between overflow-y-auto custom-scrollbar pb-24 lg:pb-3" style={{ maxWidth: 1240 }}>
       {/* ═══ MAIN 2-COLUMN LAYOUT (Responsive: Stacks on mobile/tablet, 2 columns on desktop) ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.32fr)_minmax(330px,370px)] gap-3 relative z-[1] flex-1 min-h-0 items-stretch">
 
@@ -1042,7 +1042,8 @@ const EMOTIONS = [
 
 export function EmotionScreen() {
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <h2 className="text-[26px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] m-0 tracking-tight">Emotion Insight</h2>
       <p className="text-[14px] font-medium text-[#7A7A96] dark:text-[#9E98B4] mt-1.5 mb-6">Live emotional signals detected by Aura.</p>
 
@@ -1096,6 +1097,7 @@ export function EmotionScreen() {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

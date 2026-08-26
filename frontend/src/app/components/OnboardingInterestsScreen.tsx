@@ -165,7 +165,8 @@ export function OnboardingInterestsScreen({ userName = "User", isUpdateMode = fa
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4 select-none">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none py-6 px-3 sm:px-6 pb-32">
+      <div className="max-w-4xl mx-auto">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -283,6 +284,7 @@ export function OnboardingInterestsScreen({ userName = "User", isUpdateMode = fa
           <span>{isUpdateMode ? "Save Changes & Return to Dashboard" : "Complete Setup & Enter Dashboard"}</span>
           <ArrowRight size={16} />
         </motion.button>
+      </div>
       </div>
     </div>
   );

@@ -107,7 +107,8 @@ export function MemoryScreen() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto select-none px-2 sm:px-4">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
+      <div className="max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
@@ -205,8 +206,8 @@ export function MemoryScreen() {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="clay-card p-6 w-full max-w-[440px] rounded-[32px]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+          <div className="clay-card p-6 w-full max-w-[440px] rounded-[32px] max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-extrabold text-base text-[#2D2D42] dark:text-[#FFFFFF]">{editingId ? "Edit Memory" : "Add Memory"}</h3>
               <button onClick={closeModal} className="p-1 text-[#9E9EB2] hover:text-[#2D2D42] dark:hover:text-white border-none cursor-pointer">
@@ -284,6 +285,7 @@ export function MemoryScreen() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

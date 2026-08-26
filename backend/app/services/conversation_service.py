@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.conversation_engine import ConversationEngine
 from app.core.exceptions import SessionNotFoundError
 from app.core.logging_config import get_logger
+from app.emotion.base import EmotionResult
 from app.emotion.service import EmotionService
 from app.models.message import Message, MessageRole, MessageType
 from app.models.session import Session, SessionStatus
@@ -76,6 +77,10 @@ class ConversationService:
             logger.info("New session created", session_id=session.id, user_id=user_id)
             return session
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline, using fallback in-memory session", error=str(exc))
             return Session(id=session_id or 1, user_id=user_id, status=SessionStatus.ACTIVE.value)
 
@@ -90,6 +95,10 @@ class ConversationService:
             )
             return list(result.scalars().all())
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline in list_sessions", error=str(exc))
             return []
 
@@ -103,6 +112,10 @@ class ConversationService:
             )
             return list(result.scalars().all())
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline in get_session_messages", error=str(exc))
             return []
 
@@ -123,6 +136,10 @@ class ConversationService:
             await self._db.refresh(session)
             return session
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline in end_session", error=str(exc))
             return Session(id=session_id, user_id=user_id, status=SessionStatus.ENDED.value)
 
@@ -144,6 +161,10 @@ class ConversationService:
                 await self._db.refresh(user)
             return user
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline, using fallback in-memory user", error=str(exc))
             return User(
                 id=user_id,
@@ -165,6 +186,10 @@ class ConversationService:
             messages = list(reversed(result.scalars().all()))
             return [{"role": m.role, "content": m.content} for m in messages]
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline in _get_conversation_history", error=str(exc))
             return []
 
@@ -194,6 +219,10 @@ class ConversationService:
             await self._db.refresh(msg)
             return msg
         except Exception as exc:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
             logger.warning("Database offline in _save_message", error=str(exc))
             return Message(
                 session_id=session_id,
@@ -240,22 +269,50 @@ class ConversationService:
         yield {"type": "session_start", "session_id": session.id}
 
         # 2. Emotion analysis
+        is_init = content == "__INIT__"
+        image_data = None
+        audio_data = None
+        if emotion_payload:
+            image_data = (
+                emotion_payload.get("image_data")
+                or emotion_payload.get("image")
+                or emotion_payload.get("face_image")
+                or emotion_payload.get("frame")
+            )
+            audio_data = emotion_payload.get("audio_data") or emotion_payload.get("audio")
+
+            # If client passed direct face emotion
+            client_face_emo = emotion_payload.get("face_emotion") or emotion_payload.get("primary_emotion")
+            if client_face_emo and not image_data:
+                conf = float(emotion_payload.get("confidence") or 80.0)
+                conf = conf if conf > 1.0 else conf * 100.0
+                self._emotion._fusion.update_reading(
+                    "face",
+                    EmotionResult(
+                        emotion=str(client_face_emo).lower(),
+                        confidence=conf,
+                        scores={str(client_face_emo).lower(): conf / 100.0},
+                        modality="face",
+                    ),
+                )
+
         fused = await self._emotion.analyze_and_fuse(
-            text=content,
-            audio_data=emotion_payload.get("audio_data") if emotion_payload else None,
-            image_data=emotion_payload.get("image_data") if emotion_payload else None,
+            text=content if not is_init else "",
+            audio_data=audio_data,
+            image_data=image_data,
         )
         emotion_dict = {
             "fused_emotion": fused.primary_emotion,
-            "confidence": fused.confidence * 100 if fused.confidence <= 1.0 else fused.confidence,
+            "confidence": round(fused.confidence * 100 if fused.confidence <= 1.0 else fused.confidence, 1),
             "text_emotion": fused.text_emotion,
             "voice_emotion": fused.voice_emotion,
-            "face_emotion": fused.face_emotion
+            "face_emotion": fused.face_emotion,
+            "sentiment": fused.sentiment,
+            "conflict": fused.conflict,
         }
         yield {"type": "emotion", "data": emotion_dict}
 
         # 3. Handle Auto-Greet
-        is_init = content == "__INIT__"
         if is_init:
             content = "[SYSTEM DIRECTIVE: This is a brand new session. Greet the user warmly, introduce yourself as Aura (an AI wellness companion), and ask for their name. Keep it brief. Do not act like the user said this.]"
         else:

@@ -203,10 +203,10 @@ function MainApp() {
         />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 p-2 sm:p-3 lg:p-3.5 pb-20 lg:pb-3.5 h-screen max-h-screen overflow-y-auto lg:overflow-hidden justify-between">
+      <div className="flex-1 flex flex-col min-w-0 p-2 sm:p-3 lg:p-3.5 pb-20 lg:pb-3.5 h-screen max-h-screen overflow-hidden justify-between">
         {user && isOnboarded && <TopBar />}
 
-        <main className="flex-1 w-full min-h-0 overflow-hidden flex flex-col justify-between">
+        <main className="flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col justify-between custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
               key={user ? (isOnboarded ? active : "onboarding") : "auth"}
@@ -214,7 +214,7 @@ function MainApp() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="h-full w-full flex flex-col justify-between min-h-0"
+              className="h-full w-full flex flex-col min-h-0"
               style={{ willChange: "transform, opacity" }}
             >
               {renderScreen()}

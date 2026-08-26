@@ -79,7 +79,8 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 select-none px-2 sm:px-4">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
+      <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between mb-2">
         <div>
           <h2 className="text-[28px] font-extrabold tracking-tight m-0 text-[#2D2D42] dark:text-[#FFFFFF]">User Profile</h2>
@@ -207,6 +208,7 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

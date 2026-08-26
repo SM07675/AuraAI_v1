@@ -35,8 +35,9 @@ export function DebugScreen() {
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto select-none">
-      <div className="flex items-center justify-between mb-8">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-8">
         <div>
           <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.5px", margin: 0, color: "#2D2D42" }}>Debug System Inspector</h2>
           <p style={{ color: "#7A7A96", fontSize: 14, marginTop: 4, fontWeight: 500 }}>
@@ -111,6 +112,7 @@ Question Engine: Active (1 probing question per turn)`}
             </pre>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

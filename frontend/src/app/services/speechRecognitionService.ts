@@ -1,14 +1,17 @@
 /**
  * Continuous Resilient Speech Recognition (STT) Controller for Aura AI.
  * 
- * Solves the Web Speech API timeout & 3-turn drop-off issues:
+ * Features:
+ * - Direct Web Audio AEC stream anchoring to keep hardware echo cancellation active
  * - Autonomous self-healing restart loop that never dies after turns/pauses
  * - Multilingual support: Hindi (hi-IN), Indian English / Hinglish (en-IN), US English (en-US)
- * - Acoustic echo suppression with Unicode Devanagari awareness
+ * - Multi-signal evaluation via duplexManager (VAD + Acoustic Echo Correlation + Phonetic Overlap)
  * - Safe lifecycle management with debounced restarts & error backoff
  */
 
 import { voiceService } from "./voiceService";
+import { duplexManager } from "./duplexManager";
+import { audioEngine } from "./audioEngine";
 
 export interface SpeechCallbacks {
   onInterim?: (transcript: string) => void;
@@ -60,6 +63,7 @@ class SpeechRecognitionEngine {
   private restartTimeout: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
   private isBrowserSupported = true;
+  private speechStartTimestamp = 0;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -69,7 +73,6 @@ class SpeechRecognitionEngine {
         this.isBrowserSupported = false;
       }
 
-      // Load persisted language
       const savedLang = localStorage.getItem("aura_stt_language") as SupportedLanguage;
       if (savedLang && SUPPORTED_LANGUAGES.some((l) => l.code === savedLang)) {
         this.language = savedLang;
@@ -96,10 +99,8 @@ class SpeechRecognitionEngine {
       localStorage.setItem("aura_stt_language", lang);
     }
 
-    // Sync with Voice Service for voice persona pairing
     voiceService.setLanguage(lang);
 
-    // If currently running, cleanly restart with new language
     if (this.isListeningDesired) {
       this.recreateAndStart();
     }
@@ -126,11 +127,14 @@ class SpeechRecognitionEngine {
     this.listeners.forEach((l) => l.onListeningChange?.(listening));
   }
 
-  public start() {
+  public async start() {
     if (!this.isBrowserSupported) {
       this.notifyError("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
       return;
     }
+
+    // Anchor Web Audio AEC stream so hardware echo cancellation is permanently active
+    await audioEngine.initMicrophonePipeline();
 
     this.isListeningDesired = true;
     this.consecutiveErrors = 0;
@@ -147,6 +151,8 @@ class SpeechRecognitionEngine {
         this.recognition.onstart = null;
         this.recognition.onresult = null;
         this.recognition.onerror = null;
+        this.recognition.onspeechstart = null;
+        this.recognition.onspeechend = null;
         this.recognition.onend = null;
         this.recognition.abort();
       } catch (e) {}
@@ -180,7 +186,6 @@ class SpeechRecognitionEngine {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
-    // Teardown previous instance cleanly
     if (this.recognition) {
       try {
         this.recognition.onstart = null;
@@ -204,13 +209,21 @@ class SpeechRecognitionEngine {
         this.consecutiveErrors = 0;
       };
 
+      rec.onspeechstart = () => {
+        this.speechStartTimestamp = Date.now();
+      };
+
       rec.onresult = (event: any) => {
         const interimParts: string[] = [];
         const finalParts: string[] = [];
+        let bestConf = 0.85;
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
           const text = item[0]?.transcript?.trim();
+          if (item[0]?.confidence) {
+            bestConf = item[0].confidence;
+          }
           if (!text) continue;
           if (item.isFinal) {
             finalParts.push(text);
@@ -223,35 +236,52 @@ class SpeechRecognitionEngine {
         // explicitly prevents Hindi words from being accidentally concatenated.
         const interim = interimParts.join(" ");
         const final = finalParts.join(" ");
+        const durationMs = this.speechStartTimestamp > 0 ? Date.now() - this.speechStartTimestamp : 200;
+        const telem = audioEngine.getTelemetry();
 
-        // Acoustic Echo & Mutual Exclusion Safeguard
-        if (voiceService.isSpeaking()) {
-          // If speech synthesis is playing, check if microphone heard Aura's own voice
-          const candidate = (final || interim).trim();
-          if (candidate && voiceService.isEcho(candidate)) {
-            // Suppress echo
-            return;
-          }
-          // If the user intentionally said something distinct with substance, stop Aura
-          if (final.trim().length > 3 || (interim.trim().split(/\s+/).length >= 2 && !voiceService.isEcho(interim))) {
-            voiceService.stop();
-          } else {
-            // Still potential speaker bleeding, ignore interim
-            return;
-          }
-        }
-
+        // 1. Process Interim Transcripts (for fast live typing & sub-200ms barge-in detection)
         if (interim) {
           const cleanInterim = interim.trim();
-          if (cleanInterim && !voiceService.isEcho(cleanInterim)) {
-            this.notifyInterim(cleanInterim);
+          if (cleanInterim) {
+            if (voiceService.isEcho(cleanInterim) || duplexManager.isTextEcho(cleanInterim)) {
+              return;
+            }
+
+            const evalResult = duplexManager.evaluateSpeechEvent({
+              transcript: cleanInterim,
+              isFinal: false,
+              confidence: bestConf,
+              speechDurationMs: durationMs,
+              vadEnergy: Math.min(1.0, telem.micRms / 0.05),
+            });
+
+            if (evalResult.decision === "PASS_THROUGH" || evalResult.decision === "USER_INTERRUPT") {
+              this.notifyInterim(cleanInterim);
+            }
           }
         }
 
+        // 2. Process Final Transcripts (committed user turn)
         if (final) {
           const cleanFinal = final.trim();
-          if (cleanFinal && !voiceService.isEcho(cleanFinal)) {
-            this.notifyFinal(cleanFinal);
+          if (cleanFinal) {
+            if (voiceService.isEcho(cleanFinal) || duplexManager.isTextEcho(cleanFinal)) {
+              console.log("[SPEECH SERVICE] Ignored speaker echo transcript:", cleanFinal);
+              return;
+            }
+
+            const evalResult = duplexManager.evaluateSpeechEvent({
+              transcript: cleanFinal,
+              isFinal: true,
+              confidence: bestConf,
+              speechDurationMs: durationMs,
+              vadEnergy: Math.min(1.0, telem.micRms / 0.05),
+            });
+
+            if (evalResult.decision === "PASS_THROUGH" || evalResult.decision === "USER_INTERRUPT") {
+              this.notifyFinal(cleanFinal);
+              this.speechStartTimestamp = 0;
+            }
           }
         }
       };
@@ -259,13 +289,8 @@ class SpeechRecognitionEngine {
       rec.onerror = (event: any) => {
         const err = event.error;
 
-        // Normal silence timeout between turns
-        if (err === "no-speech") {
-          return; // onend will handle smooth restart
-        }
-
-        if (err === "aborted") {
-          return; // Intentional or browser reset, onend will restart if listening
+        if (err === "no-speech" || err === "aborted") {
+          return;
         }
 
         if (err === "not-allowed" || err === "service-not-allowed") {
@@ -277,27 +302,20 @@ class SpeechRecognitionEngine {
 
         if (err === "network") {
           this.consecutiveErrors++;
-          // Only warn on first few occurrences to prevent console spam
           if (this.consecutiveErrors <= 2) {
-            console.warn("SpeechRecognition network glitch, scheduling backoff retry...");
+            console.warn("[SPEECH SERVICE] SpeechRecognition network glitch, scheduling backoff retry...");
           }
           return;
         }
 
-        console.warn("SpeechRecognition error:", err);
+        console.warn("[SPEECH SERVICE] SpeechRecognition error:", err);
       };
 
       rec.onend = () => {
         this.isRecognizing = false;
 
-        // If user wants to keep listening, schedule a resilient restart with backoff
         if (this.isListeningDesired) {
-          let delay = 150;
-          if (this.consecutiveErrors > 0) {
-            // Exponential backoff: 500ms, 1000ms, 2000ms, max 5000ms
-            delay = Math.min(500 * Math.pow(1.5, Math.min(this.consecutiveErrors, 6)), 5000);
-          }
-
+          const delay = this.consecutiveErrors > 0 ? Math.min(300 * this.consecutiveErrors, 1500) : 120;
           this.clearRestartTimer();
           this.restartTimeout = setTimeout(() => {
             if (this.isListeningDesired) {
@@ -311,7 +329,7 @@ class SpeechRecognitionEngine {
       rec.start();
     } catch (err: any) {
       if (this.consecutiveErrors <= 2) {
-        console.warn("SpeechRecognition initialization failed, retrying:", err);
+        console.warn("[SPEECH SERVICE] SpeechRecognition initialization failed, retrying:", err);
       }
       if (this.isListeningDesired) {
         this.clearRestartTimer();
@@ -319,7 +337,7 @@ class SpeechRecognitionEngine {
           if (this.isListeningDesired) {
             this.recreateAndStart();
           }
-        }, 1000);
+        }, 500);
       }
     }
   }

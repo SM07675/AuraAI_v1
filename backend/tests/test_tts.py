@@ -5,7 +5,12 @@ Tests for Neural TTS Endpoint and Text Normalization.
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
-from app.api.v1.tts import clean_text_for_speech, get_emotion_prosody, get_voice_prosody
+from app.api.v1.tts import (
+    clean_text_for_speech,
+    get_emotion_prosody,
+    is_hindi_text,
+    resolve_edgetts_voice,
+)
 
 
 def test_clean_text_for_speech():
@@ -38,6 +43,23 @@ def test_clean_text_for_speech():
     assert clean_hindi == "हिंदी। मैं ठीक हूँ।"
 
 
+def test_hindi_text_detection_and_voice_resolver():
+    # Test Devanagari detection
+    assert is_hindi_text("नमस्ते, आप कैसे हैं?") is True
+    assert is_hindi_text("Hello, how are you?") is False
+    assert is_hindi_text("") is False
+
+    # Test voice resolution for Hindi text
+    assert resolve_edgetts_voice("Xb7hH8MSUJpSbSDYk0k2", "नमस्ते") == "hi-IN-SwaraNeural"
+    assert resolve_edgetts_voice("en-IN-NeerjaExpressiveNeural", "नमस्ते") == "hi-IN-SwaraNeural"
+    assert resolve_edgetts_voice("hi-IN-MadhurNeural", "नमस्ते") == "hi-IN-MadhurNeural"
+    assert resolve_edgetts_voice("en-IN-PrabhatNeural", "नमस्ते") == "hi-IN-MadhurNeural"
+
+    # Test voice resolution for English text
+    assert resolve_edgetts_voice("Xb7hH8MSUJpSbSDYk0k2", "Hello") == "en-US-AvaMultilingualNeural"
+    assert resolve_edgetts_voice("hi-IN-SwaraNeural", "Hello") == "hi-IN-SwaraNeural"
+
+
 def test_emotion_prosody():
     r, p = get_emotion_prosody("sad")
     assert r == "-4%"
@@ -51,12 +73,10 @@ def test_emotion_prosody():
     assert r_none == "+0%"
     assert p_none == "+0Hz"
 
-    r_hindi, p_hindi = get_voice_prosody("hi-IN-SwaraNeural")
-    assert r_hindi == "-4%"
-    assert p_hindi == "+0Hz"
-
-    r_hindi_calm, _ = get_voice_prosody("hi-IN-SwaraNeural", "calm")
-    assert r_hindi_calm == "-5%"
+    # Hindi text prosody check
+    r_hi, p_hi = get_emotion_prosody("sad", text="नमस्ते")
+    assert r_hi == "+0%"
+    assert p_hi == "+0Hz"
 
 
 @pytest.mark.asyncio
@@ -75,10 +95,11 @@ async def test_tts_voices_list():
 
 
 @pytest.mark.asyncio
-async def test_tts_synthesize_endpoint():
+async def test_tts_synthesize_endpoint_hindi_and_english():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
+        # 1. Hindi with explicit Hindi voice
+        res1 = await client.post(
             "/api/v1/tts/synthesize",
             json={
                 "text": "नमस्ते! यह ऑरा आवाज़ का परीक्षण है।",
@@ -86,7 +107,34 @@ async def test_tts_synthesize_endpoint():
                 "emotion": "calm",
             },
         )
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "audio/mpeg"
-        assert len(response.content) > 100
+        assert res1.status_code == 200
+        assert res1.headers["content-type"] == "audio/mpeg"
+        assert len(res1.content) > 100
+        assert res1.headers.get("x-tts-voice") == "hi-IN-SwaraNeural"
+
+        # 2. Hindi with ElevenLabs default voice ID (auto-mapped to hi-IN-SwaraNeural)
+        res2 = await client.post(
+            "/api/v1/tts/synthesize",
+            json={
+                "text": "नमस्ते! मैं आपकी मदद करने के लिए यहाँ हूँ।",
+                "voice": "Xb7hH8MSUJpSbSDYk0k2",
+            },
+        )
+        assert res2.status_code == 200
+        assert res2.headers["content-type"] == "audio/mpeg"
+        assert len(res2.content) > 100
+        assert res2.headers.get("x-tts-voice") == "hi-IN-SwaraNeural"
+
+        # 3. Hindi with English voice name (auto-mapped to hi-IN-SwaraNeural)
+        res3 = await client.post(
+            "/api/v1/tts/synthesize",
+            json={
+                "text": "आप आज कैसा महसूस कर रहे हैं?",
+                "voice": "en-IN-NeerjaExpressiveNeural",
+            },
+        )
+        assert res3.status_code == 200
+        assert res3.headers["content-type"] == "audio/mpeg"
+        assert len(res3.content) > 100
+        assert res3.headers.get("x-tts-voice") == "hi-IN-SwaraNeural"
 

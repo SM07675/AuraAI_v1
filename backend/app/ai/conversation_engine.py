@@ -233,6 +233,11 @@ class ConversationEngine:
         if self._analytics:
             self._analytics.end_stage("question_building")
 
+        turn_directive_dict = turn_directive.__dict__.copy() if hasattr(turn_directive, "__dict__") else dict(turn_directive or {})
+        if targeted_question:
+            turn_directive_dict["mustAskFollowUp"] = True
+            turn_directive_dict["nextQuestionSeed"] = targeted_question
+
         # ── Stage 5: Prompt Builder ───────────────────────────────
         if self._analytics:
             self._analytics.start_stage("prompt_building")
@@ -245,8 +250,10 @@ class ConversationEngine:
             long_term_memories=context_obj.long_term_memories,
             conversation_history=recent_history,
             crisis_context=crisis_context_str,
-            turn_directive=turn_directive.__dict__,
+            turn_directive=turn_directive_dict,
             retrieved_solution=retrieved_solution,
+            targeted_question=targeted_question,
+            mode=mode,
         )
 
         if self._analytics:
@@ -263,15 +270,15 @@ class ConversationEngine:
             enable_thinking=enable_thinking,
         )
 
-        logger.info("\n" + "="*50 + "\nPROMPT BUILDER DEBUG\n" + "="*50)
-        logger.info("SYSTEM PROMPT:\n%s", system_prompt)
-        logger.info("USER PROFILE: %s", context_obj.user_name)
-        logger.info("MEMORY: %s", context_obj.long_term_memories)
-        logger.info("EMOTION: %s", emotion_context.to_prompt_dict() if emotion_context else None)
-        logger.info("CONVERSATION HISTORY: %s", recent_history)
-        logger.info("CURRENT USER MESSAGE: %s", user_message)
-        logger.info("FINAL MESSAGES ARRAY: %s", messages)
-        logger.info("="*50)
+        try:
+            logger.debug(
+                "Prompt prepared for turn",
+                user=context_obj.user_name,
+                message_preview=user_message[:60],
+                emotion=emotion_context.primary_emotion if emotion_context else "none",
+            )
+        except Exception:
+            pass
 
         if debug_out is not None:
             debug_out["system_prompt"] = system_prompt
@@ -282,19 +289,36 @@ class ConversationEngine:
             debug_out["final_messages"] = messages
             debug_out["is_crisis"] = is_crisis
 
-        # ── Stage 7 & 8: Fire Background Profile & Memory Tasks ────────────────
-        async def _safe_run(coro, task_name: str):
+        # ── Stage 7 & 8: Fire Background Profile & Memory Tasks (Isolated DB Sessions) ──
+        from app.db.engine import async_session_factory
+
+        async def _safe_run_interest(u, msg):
             try:
-                await coro
+                async with async_session_factory() as bg_db:
+                    await self._interest_builder.build(u, bg_db, msg)
             except Exception as e:
-                logger.debug(f"Background task {task_name} skipped or completed", error=str(e))
+                logger.debug("Background interest task skipped", error=str(e))
+
+        async def _safe_run_goal(u_id, msg, s_id):
+            try:
+                async with async_session_factory() as bg_db:
+                    await self._goal_engine.detect_and_update(bg_db, u_id, msg, s_id)
+            except Exception as e:
+                logger.debug("Background goal task skipped", error=str(e))
+
+        async def _safe_run_memory(u, sess, msg, ctx):
+            try:
+                async with async_session_factory() as bg_db:
+                    await self._memory_builder.build(u, sess, bg_db, msg, ctx)
+            except Exception as e:
+                logger.debug("Background memory task skipped", error=str(e))
 
         asyncio.create_task(
-            _safe_run(self._interest_builder.build(user, db, user_message), f"interest-{session.id}-{turn}"),
+            _safe_run_interest(user, user_message),
             name=f"interest-{session.id}-{turn}",
         )
         asyncio.create_task(
-            _safe_run(self._goal_engine.detect_and_update(db, user.id, user_message, session.id), f"goals-{session.id}-{turn}"),
+            _safe_run_goal(user.id, user_message, session.id),
             name=f"goals-{session.id}-{turn}",
         )
 
@@ -302,7 +326,7 @@ class ConversationEngine:
             f"{m['role']}: {m['content']}" for m in recent_history[-4:]
         )
         asyncio.create_task(
-            _safe_run(self._memory_builder.build(user, session, db, user_message, context_for_memory), f"memory-{session.id}-{turn}"),
+            _safe_run_memory(user, session, user_message, context_for_memory),
             name=f"memory-{session.id}-{turn}",
         )
 

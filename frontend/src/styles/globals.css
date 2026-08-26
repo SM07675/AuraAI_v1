@@ -69,8 +69,8 @@ body {
 
 /* Sleek subtle scrollbars for internal overflow containers */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -80,7 +80,56 @@ body {
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 120, 200, 0.55);
+  background: rgba(150, 120, 200, 0.6);
+}
+
+.custom-scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(169, 139, 232, 0.45) transparent;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(169, 139, 232, 0.35);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(123, 89, 220, 0.65);
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: rgba(183, 148, 246, 0.35) transparent;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(183, 148, 246, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(183, 148, 246, 0.6);
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 

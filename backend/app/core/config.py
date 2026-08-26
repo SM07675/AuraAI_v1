@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     # NVIDIA NIM (Main Brain)
     nvidia_nim_api_key: str = "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"
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_nim_model: str = "meta/llama-3.1-8b-instruct"
+    nvidia_nim_model: str = "nvidia/nemotron-3-nano-30b-a3b"
 
     # Google Gemini
     gemini_api_key: str = ""
@@ -129,9 +129,14 @@ class Settings(BaseSettings):
         return [p.strip() for p in self.ai_provider_priority.split(",") if p.strip()]
 
     # ── TTS ──────────────────────────────────────────────────────
-    tts_provider: str = "edge_tts"
-    tts_voice: str = "en-US-AriaNeural"
+    tts_provider: str = "elevenlabs"      # elevenlabs | edge_tts | nvidia_tts
+    tts_voice: str = "en-US-AvaMultilingualNeural"  # Ultra-realistic multilingual voice (English + Hindi)
     tts_sentence_buffer_chars: int = 80   # Flush TTS after this many buffered chars
+
+    # ElevenLabs TTS
+    elevenlabs_api_key: str | None = None
+    elevenlabs_voice_id: str = "Xb7hH8MSUJpSbSDYk0k2"  # Alice (Clear, Engaging, Free Premade Voice)
+    elevenlabs_model_id: str = "eleven_multilingual_v2" # High-quality multilingual model
 
     # NVIDIA TTS (Magpie or regular)
     nvidia_tts_uri: str = "grpc.nvcf.nvidia.com:443"
@@ -139,8 +144,8 @@ class Settings(BaseSettings):
 
     # ── STT ──────────────────────────────────────────────────────
     stt_provider: str = "whisper"
-    stt_model_size: str = "tiny"          # tiny | base | small | medium | large
-    stt_language: str = "en"             # ISO 639-1 language code
+    stt_model_size: str = "small"         # tiny | base | small | medium | large
+    stt_language: str = "auto"           # auto | en | hi
     stt_compute_type: str = "int8"       # int8 (CPU) | float16 (GPU)
 
     # ── Voice Activity Detection ─────────────────────────────────

@@ -49,8 +49,8 @@ export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarPro
       }}
     >
       {/* ── Top: Branding ── */}
-      <div>
-        <div className="flex items-center gap-2.5 px-2 mb-3.5 cursor-pointer" onClick={() => onSelect("Dashboard")}>
+      <div className="flex flex-col min-h-0 flex-1">
+        <div className="flex items-center gap-2.5 px-2 mb-3.5 cursor-pointer shrink-0" onClick={() => onSelect("Dashboard")}>
           {/* 3D Lavender flower logo */}
           <ClayAuraFlowerIcon size={34} />
           <span
@@ -64,7 +64,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarPro
         </div>
 
         {/* ── Navigation Items ── */}
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-1 overflow-y-auto scrollbar-none min-h-0 flex-1 pr-0.5">
           {NAV_ITEMS.map((item) => {
             const isActive =
               active === item.id ||
@@ -77,7 +77,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarPro
                 whileHover={{ x: 2 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onSelect(item.id)}
-                className={`relative flex items-center gap-2.5 px-3 py-2 rounded-2xl text-[12.5px] font-bold cursor-pointer border-none outline-none transition-colors duration-150 ${
+                className={`relative flex items-center gap-2.5 px-3 py-2 rounded-2xl text-[12.5px] font-bold cursor-pointer border-none outline-none transition-colors duration-150 shrink-0 ${
                   isActive ? "text-white" : "text-[#777287] hover:text-[#2E294F] dark:text-[#9E98B4] dark:hover:text-[#F3EFFC]"
                 }`}
                 style={{ background: "transparent" }}
@@ -105,7 +105,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarPro
       </div>
 
       {/* ── Bottom: User Profile ── */}
-      <div className="mt-5 pt-3.5 border-t border-white/60 dark:border-white/10">
+      <div className="mt-3 pt-3 border-t border-white/60 dark:border-white/10 shrink-0">
         <div className="flex items-center gap-2.5 mb-3 px-1">
           <div
             className="w-8.5 h-8.5 rounded-xl flex items-center justify-center shrink-0"
