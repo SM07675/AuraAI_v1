@@ -44,7 +44,7 @@ def clean_text_for_speech(text: str) -> str:
         return ""
 
     # 1. Remove code blocks ```...``` and inline code `...`
-    t = re.sub(r"```[\s\S]*?```", " [code snippet omitted] ", text)
+    t = re.sub(r"```[\s\S]*?```", " ", text)
     t = re.sub(r"`([^`]+)`", r"\1", t)
 
     # 2. Convert markdown links [Text](url) -> Text
@@ -92,7 +92,10 @@ def clean_text_for_speech(text: str) -> str:
     t = re.sub(r"[-—_]{2,}", ", ", t)
 
     # 10. Clean up spaces before punctuation (e.g. "word !" -> "word!")
-    t = re.sub(r"\s+([,.!?;:])", r"\1", t)
+    t = re.sub(r"\s+([,.!?;:।॥])", r"\1", t)
+
+    # Normalize repeated sentence terminators without removing Devanagari danda.
+    t = re.sub(r"([।॥!?])\1+", r"\1", t)
 
     # 11. Normalize multiple spaces and newlines to natural pause spaces
     t = re.sub(r"\s+", " ", t).strip()
@@ -118,6 +121,22 @@ def get_emotion_prosody(emotion: Optional[str] = None) -> tuple[str, str]:
         return "-3%", "+0Hz"
 
     return "+0%", "+0Hz"
+
+
+def get_voice_prosody(voice: str, emotion: Optional[str] = None) -> tuple[str, str]:
+    """Return natural prosody adjusted for the selected voice locale.
+
+    Hindi neural voices are clearer at a slightly more measured default pace.
+    Emotion-specific slower rates are already suitable and are left unchanged.
+    """
+    rate, pitch = get_emotion_prosody(emotion)
+    if voice.startswith("hi-IN-"):
+        if rate == "+0%":
+            rate = "-4%"
+        elif rate.startswith("+"):
+            rate_value = max(0, int(rate.removesuffix("%")) - 2)
+            rate = f"+{rate_value}%"
+    return rate, pitch
 
 
 # ── Curated Voice Catalog ───────────────────────────────────────────────────
@@ -273,7 +292,7 @@ async def _synthesize_audio_stream(
         )
 
     # Determine rate and pitch
-    emo_rate, emo_pitch = get_emotion_prosody(emotion)
+    emo_rate, emo_pitch = get_voice_prosody(voice, emotion)
     final_rate = rate if rate is not None else emo_rate
     final_pitch = pitch if pitch is not None else emo_pitch
 
@@ -293,6 +312,7 @@ async def _synthesize_audio_stream(
                     "Cache-Control": "public, max-age=86400",
                     "X-TTS-Cache": "HIT",
                     "X-TTS-Voice": voice,
+                    "X-TTS-Language": voice[:5],
                 },
             )
 
@@ -332,6 +352,7 @@ async def _synthesize_audio_stream(
                 "Cache-Control": "public, max-age=86400",
                 "X-TTS-Cache": "MISS",
                 "X-TTS-Voice": voice,
+                "X-TTS-Language": voice[:5],
             },
         )
 

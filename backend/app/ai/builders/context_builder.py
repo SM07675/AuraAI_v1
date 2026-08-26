@@ -110,6 +110,7 @@ class ContextBuilder:
         recent_history: list[dict[str, str]] | None = None,
         conversation_summary: str = "",
         previously_asked_questions: list[str] | None = None,
+        preferred_language: str | None = None,
         # ``emotion_data`` is retained as a compatibility boundary for older
         # API callers.  New callers must pass the structured EmotionContext.
         emotion_data: dict[str, Any] | None = None,
@@ -229,7 +230,7 @@ class ContextBuilder:
 
         return ContextObject(
             user_name=user.name.split()[0] if user.name else "there",
-            preferred_language=user.preferred_language or "en",
+            preferred_language=preferred_language or user.preferred_language or "en",
             communication_style=user.communication_style or "balanced",
             interests=user.interests or "",
             goals=user.goals or "",
