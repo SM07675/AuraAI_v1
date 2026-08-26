@@ -151,6 +151,8 @@ class EmotionResult:
 
     # Face-specific
     face_detected: bool | None = None    # None if not face modality
+    face_box: list[int] | None = None
+    box_norm: dict[str, float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -164,6 +166,8 @@ class EmotionResult:
             "secondary_emotion": self.secondary_emotion,
             "secondary_confidence": self.secondary_confidence,
             "face_detected": self.face_detected,
+            "face_box": self.face_box,
+            "box_norm": self.box_norm,
             "is_mock": self.is_mock,
         }
 
@@ -215,15 +219,20 @@ class EmotionContext:
     ):
         self.primaryEmotion = primary_emotion or primaryEmotion
         self.confidence = confidence
-        if isinstance(stress, (int, float)):
-            self.stressLevel = float(stress)
-        elif isinstance(stress, str):
+        if isinstance(stress, str):
+            self._stress_str = stress
             stress_map = {"low": 0.2, "medium": 0.6, "high": 0.9}
             self.stressLevel = stress_map.get(stress, 0.2)
+        elif isinstance(stress, (int, float)):
+            self.stressLevel = float(stress)
+            self._stress_str = "high" if self.stressLevel >= 0.7 else "medium" if self.stressLevel >= 0.4 else "low"
         else:
             self.stressLevel = stressLevel
+            self._stress_str = "high" if self.stressLevel >= 0.7 else "medium" if self.stressLevel >= 0.4 else "low"
+
         self.activeSources = sources or activeSources or []
-        self.conflict = conflict
+        self.conflict = conflict or bool(kwargs.get("emotion_conflict", False))
+        self._conflict_detail = kwargs.get("conflict_detail", "")
         self.timestamp = timestamp
         self._face_emotion = face_emotion
         self._text_emotion = text_emotion
@@ -232,16 +241,28 @@ class EmotionContext:
         self._intent = intent or "casual"
         self._secondary_emotion = secondary_emotion
 
+    def is_crisis(self) -> bool:
+        """True if intent is crisis or severe distress."""
+        return self.intent == "crisis" or getattr(self, "_is_crisis", False)
+
     def to_prompt_dict(self) -> dict[str, Any]:
         """Return exactly the contracted dictionary for prompt injection."""
-        return {
+        d = {
             "primaryEmotion": self.primaryEmotion,
+            "primary_emotion": self.primaryEmotion,
             "confidence": round(self.confidence, 2),
             "stressLevel": round(self.stressLevel, 2),
+            "stress_level": self.stress,
+            "sentiment": self.sentiment,
             "activeSources": self.activeSources,
+            "emotion_sources": self.activeSources,
+            "sources": self.activeSources,
             "conflict": self.conflict,
             "timestamp": self.timestamp,
         }
+        if self.is_negative():
+            d["guidance"] = self.get_guidance()
+        return d
 
     def _get_source_emotion(self, source: str) -> str | None:
         mapping = {
@@ -282,8 +303,8 @@ class EmotionContext:
         return getattr(self, "_voice_emotion", None)
 
     @property
-    def stress(self) -> str | float:
-        return getattr(self, "stressLevel", "low")
+    def stress(self) -> str:
+        return getattr(self, "_stress_str", "high" if self.stressLevel >= 0.7 else "medium" if self.stressLevel >= 0.4 else "low")
 
     @property
     def sentiment(self) -> str:
@@ -302,8 +323,8 @@ class EmotionContext:
         return getattr(self, "conflict", False)
 
     @property
-    def conflict_detail(self) -> str | None:
-        return getattr(self, "_conflict_detail", None)
+    def conflict_detail(self) -> str:
+        return getattr(self, "_conflict_detail", "")
 
     @property
     def conversation_trend(self) -> str:
@@ -331,7 +352,16 @@ class EmotionContext:
         return list(self.activeSources)
 
     def to_dict(self) -> dict[str, Any]:
-        return self.to_prompt_dict()
+        d = self.to_prompt_dict()
+        d["primary_emotion"] = self.primaryEmotion
+        d["fused_emotion"] = self.primaryEmotion
+        d["confidence"] = self.confidence * 100.0 if self.confidence <= 1.0 else self.confidence
+        d["sources"] = self.activeSources
+        d["available_modalities"] = self.activeSources
+        d["sentiment"] = self.sentiment
+        d["stress"] = self.stress
+        d["intent"] = self.intent
+        return d
 
 
 # ── Legacy compatibility ──────────────────────────────────────────────────────

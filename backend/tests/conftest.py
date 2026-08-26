@@ -12,6 +12,8 @@ import asyncio
 import os
 from typing import AsyncGenerator
 
+os.environ["ENVIRONMENT"] = "testing"
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport

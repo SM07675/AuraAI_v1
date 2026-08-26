@@ -13,10 +13,38 @@ from app.emotion.base import EmotionContext
 from app.prompts.loader import render_template
 
 
+import re
+
 try:
     from app.ai.builders.context_builder import ContextObject
 except Exception:  # pragma: no cover
     ContextObject = None
+
+
+_HINDI_KEYWORDS = frozenset({
+    "mujhe", "mera", "meri", "mere", "hai", "hain", "hoon", "tha", "thi", "the",
+    "kya", "kyun", "kaise", "kab", "kahan", "nahi", "nahin", "bohot", "bahut",
+    "namaste", "namaskar", "shukriya", "dhanyawad", "doctor", "sahab", "sahiba",
+    "thak", "thakan", "thaka", "dard", "sirdard", "pareshan", "pareshani", "tanav",
+    "bechaini", "neend", "suno", "ruko", "batao", "bataiye", "kripya", "aap", "tum",
+    "karen", "kare", "karo", "kaise", "hota", "hoti", "hote"
+})
+
+
+def _is_hindi_turn(text: str) -> bool:
+    if not text:
+        return False
+    # 1. Any Devanagari character
+    if re.search(r"[\u0900-\u097F]", text):
+        return True
+    # 2. Hinglish romanized keywords check
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    if not words:
+        return False
+    hindi_matches = sum(1 for w in words if w in _HINDI_KEYWORDS)
+    if hindi_matches >= 2 or (hindi_matches >= 1 and len(words) <= 4):
+        return True
+    return False
 
 
 class PromptBuilder:
@@ -46,6 +74,7 @@ class PromptBuilder:
         crisis_context: str | None = None,
         turn_directive: dict[str, Any] | None = None,
         retrieved_solution: str | None = None,
+        targeted_question: str | None = None,
         mode: str = "chat",
     ) -> tuple[str, list[dict]]:
         """Build the system prompt and message history for an AI request.
@@ -114,7 +143,8 @@ class PromptBuilder:
             except ValueError:
                 confidence = 0.0
 
-        emotion_conflict = bool(emotion.get("emotion_conflict", False))
+        emotion_conflict = bool(emotion.get("emotion_conflict", False) or emotion.get("conflict", False))
+        conflict_detail = emotion.get("conflict_detail") or ""
         conflict_modality = ""
         conflict_emotion = ""
         positive_emotions = {"happy", "calm", "neutral", "joy", "surprised"}
@@ -136,7 +166,11 @@ class PromptBuilder:
                     emotion_conflict = True
                     conflict_modality = modality
                     conflict_emotion = emo
+                    conflict_detail = f"Discrepancy detected between {modality} emotion ({emo}) and text ({text_emo})"
                     break
+
+        if emotion_conflict and not conflict_detail:
+            conflict_detail = "Discrepancy detected across emotional modalities"
 
         # ── System prompt sections ────────────────────────────────
 
@@ -180,6 +214,7 @@ class PromptBuilder:
                 voice_emotion=voice_emo,
                 face_emotion=face_emo,
                 emotion_conflict=emotion_conflict,
+                conflict_detail=conflict_detail,
                 conflict_modality=conflict_modality,
                 conflict_emotion=conflict_emotion,
                 conversation_trend=emotion.get("conversation_trend", ""),
@@ -209,17 +244,33 @@ class PromptBuilder:
         if crisis_context:
             system_parts.append(f"## CRISIS RESPONSE OVERRIDE\n\n{crisis_context}")
             
-        if turn_directive:
+        if turn_directive or targeted_question:
+            td = turn_directive or {}
+            q_seed = targeted_question or td.get("nextQuestionSeed") or ""
             system_parts.append(render_template(
                 "turn_directive.md",
-                phase=turn_directive.get("phase", "explore"),
-                must_reflect=turn_directive.get("mustReflectFirst", True),
-                offer_solution=bool(turn_directive.get("offerSolution", False) and retrieved_solution),
+                phase=td.get("phase", "explore"),
+                must_reflect=td.get("mustReflectFirst", True),
+                offer_solution=bool(td.get("offerSolution", False) and retrieved_solution),
                 solution=retrieved_solution or "",
-                must_ask_follow_up=turn_directive.get("mustAskFollowUp", True),
-                next_question_seed=turn_directive.get("nextQuestionSeed") or "",
+                must_ask_follow_up=True,
+                next_question_seed=q_seed,
             ))
             
+        # ── Dynamic Per-Turn Language Directive ───────────────────
+        if _is_hindi_turn(user_message):
+            system_parts.append(
+                "## MANDATORY LANGUAGE FOR THIS TURN: HINDI\n"
+                "The patient's current message is in HINDI. You MUST generate your response entirely in natural, fluent HINDI IN DEVANAGARI SCRIPT (e.g. 'नमस्ते, मैं समझ सकती हूँ...'). "
+                "Use feminine grammatical agreement (स्त्रीलिंग: 'सकती हूँ', 'करूँगी'). Do NOT reply in English."
+            )
+        else:
+            system_parts.append(
+                "## MANDATORY LANGUAGE FOR THIS TURN: ENGLISH\n"
+                "The patient's current message is in ENGLISH. You MUST generate your response entirely in natural, fluent ENGLISH. "
+                "Do NOT reply in Hindi."
+            )
+
         if mode == "live":
             system_parts.append(
                 "## LIVE MODE CONSTRAINTS\n"

@@ -48,7 +48,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[72vh] px-4 py-8 select-none">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center min-h-[72vh] px-4 py-8 pb-20 select-none">
       <motion.div
         initial={{ opacity: 0, y: 30, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}

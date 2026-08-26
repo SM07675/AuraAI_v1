@@ -6,6 +6,9 @@ import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
 import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
 import { getWebSocketUrl } from "../services/wsHelper";
+import { streamingTtsService } from "../services/streamingTtsService";
+import { duplexManager, ConversationState } from "../services/duplexManager";
+import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
 
 export function VoiceScreen() {
   const { isDark } = useTheme();
@@ -14,6 +17,12 @@ export function VoiceScreen() {
   const [thinking, setThinking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [showDuplexHud, setShowDuplexHud] = useState(false);
+  const [duplexState, setDuplexState] = useState<ConversationState>(duplexManager.getState());
+
+  useEffect(() => {
+    return duplexManager.subscribeState((st) => setDuplexState(st));
+  }, []);
   
   // Language & Voice State
   const [currentLang, setCurrentLang] = useState<SupportedLanguage>(speechService.currentLanguage);
@@ -75,19 +84,31 @@ export function VoiceScreen() {
           if (data.type === "start") {
             setThinking(false);
             setAiResponse("");
+            streamingTtsService.startStream({
+              voice: selectedVoice,
+              onStart: () => setSpeaking(true),
+              onEnd: () => setSpeaking(false),
+              onError: () => setSpeaking(false),
+            });
           } else if (data.type === "chunk") {
             setThinking(false);
             setAiResponse((prev) => prev + data.content);
+            streamingTtsService.pushChunk(data.content);
           } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
             setThinking(false);
+            streamingTtsService.finalizeStream();
             const fullReply = data.response || data.content || data.text;
-            setAiResponse((prev) => {
-              const res = fullReply || prev;
-              if (res) speakText(res);
-              return res;
-            });
+            if (fullReply) {
+              setAiResponse(fullReply);
+            }
+          } else if (data.type === "interrupted") {
+            setThinking(false);
+            streamingTtsService.cancel();
+            voiceService.stop();
+            setSpeaking(false);
           } else if (data.type === "error") {
             setThinking(false);
+            streamingTtsService.cancel();
             const fallbackMsg = isHindi
               ? "मैं आपके साथ हूँ और सुन रही हूँ। आज आपके मन में क्या चल रहा है?"
               : "I'm right here with you and listening. What's on your mind today?";
@@ -113,6 +134,7 @@ export function VoiceScreen() {
       isUnmounted = true;
       clearTimeout(reconnectTimeout);
       socket?.close();
+      streamingTtsService.cancel();
       voiceService.stop();
     };
   }, [isHindi]);
@@ -120,7 +142,19 @@ export function VoiceScreen() {
   // Send message to AI backend
   const sendToAi = (userSpeech: string) => {
     if (!userSpeech || userSpeech.trim().length === 0) return;
-    if (voiceService.isEcho(userSpeech)) return;
+    if (voiceService.isEcho(userSpeech) || duplexManager.isTextEcho(userSpeech)) return;
+
+    if (speaking) {
+      voiceService.stop();
+      setSpeaking(false);
+    }
+    streamingTtsService.cancel();
+
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      try {
+        ws.current.send(JSON.stringify({ type: "interrupt" }));
+      } catch (e) {}
+    }
 
     setThinking(true);
     setAiResponse("");
@@ -160,12 +194,21 @@ export function VoiceScreen() {
   useEffect(() => {
     const unsubscribe = speechService.subscribe({
       onInterim: (txt) => {
-        setInterimTranscript(txt);
+        const clean = txt.trim();
+        if (!clean || voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
+          return;
+        }
+        setInterimTranscript(clean);
       },
       onFinal: (txt) => {
-        setTranscript(txt);
+        const clean = txt.trim();
+        if (!clean) return;
+        if (voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
+          return;
+        }
+        setTranscript(clean);
         setInterimTranscript("");
-        sendToAi(txt);
+        sendToAi(clean);
       },
       onError: (err) => {
         setSttError(err);
@@ -260,7 +303,7 @@ export function VoiceScreen() {
   const waveHeights = [10, 18, 28, 16, 34, 24, 14, 30, 36, 22, 12, 32, 20, 34, 26, 14, 28, 16];
 
   return (
-    <div className="w-full max-w-[760px] mx-auto select-none h-[calc(100vh-84px)] flex flex-col justify-center overflow-hidden px-2 sm:px-4">
+    <div className="w-full max-w-[760px] mx-auto select-none h-full min-h-0 flex flex-col justify-start lg:justify-center overflow-y-auto custom-scrollbar px-2 sm:px-4 py-2 pb-24 lg:pb-3">
       {/* Main Compact Voice Mode Panel (Bento Container) */}
       <div className="clay-voice-panel p-3.5 sm:p-4 lg:p-5 flex flex-col items-center text-center max-h-full justify-between">
         {/* Header Strip */}
@@ -276,6 +319,34 @@ export function VoiceScreen() {
 
           {/* Top Controls: Language & Voice Selectors */}
           <div className="flex items-center gap-2">
+            {/* Duplex State & HUD Toggle Pill */}
+            <button
+              onClick={() => setShowDuplexHud(!showDuplexHud)}
+              className={`px-2.5 py-1 rounded-full text-[10.5px] font-black tracking-wider uppercase border flex items-center gap-1.5 transition-all cursor-pointer ${
+                duplexState === "AURA_SPEAKING"
+                  ? "bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/40"
+                  : duplexState === "USER_SPEAKING"
+                  ? "bg-sky-500/20 text-sky-600 dark:text-sky-300 border-sky-500/40 animate-pulse"
+                  : duplexState === "POSSIBLE_INTERRUPT"
+                  ? "bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40 animate-pulse"
+                  : "bg-black/5 dark:bg-white/10 text-[#7A748A] dark:text-[#9E98B4] border-transparent"
+              }`}
+              title="Toggle Full-Duplex Audio Telemetry HUD"
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  duplexState === "AURA_SPEAKING"
+                    ? "bg-purple-500"
+                    : duplexState === "USER_SPEAKING"
+                    ? "bg-sky-500"
+                    : duplexState === "POSSIBLE_INTERRUPT"
+                    ? "bg-amber-500"
+                    : "bg-emerald-500"
+                }`}
+              />
+              <span>{duplexState}</span>
+            </button>
+
             {/* Language Switcher Pill */}
             <div className="relative">
               <button
@@ -638,6 +709,10 @@ export function VoiceScreen() {
           </motion.button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showDuplexHud && <VoiceDiagnosticsHud onClose={() => setShowDuplexHud(false)} />}
+      </AnimatePresence>
     </div>
   );
 }

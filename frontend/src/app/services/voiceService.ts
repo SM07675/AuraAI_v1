@@ -1,15 +1,20 @@
 /**
- * Natural Neural Voice Service & Web Audio Engine.
+ * Natural Neural Voice Service & Web Audio Pipeline for Aura AI.
  * 
- * Provides studio-quality, lifelike human voice synthesis for Aura AI.
- * - Streams high-fidelity 24kHz neural audio from /api/v1/tts/synthesize
- * - Real-time Web Audio API AnalyserNode for reactive mouth/waveform visualizers
- * - Curated human voice personas with default Indian Expressive Female Neural voice (Neerja)
- * - Support for Hindi / Hinglish (Swara) and regional accents
- * - Robust acoustic echo cancellation and mutual exclusion to prevent self-listening
- * - Client-side markdown normalization
- * - Resilient fallback to browser Web Speech API if offline
+ * Target Interaction Quality: ChatGPT Voice & Gemini Live.
+ * 
+ * Features:
+ * - High-fidelity 24kHz neural audio streaming from /api/v1/tts/synthesize
+ * - Real-time Web Audio API routing with hardware AEC & smooth gain ducking
+ * - Curated human voice personas with default ElevenLabs / Indian Expressive Neural voices
+ * - Full Hindi (Devanagari \u0900-\u097F), Indian English (Hinglish), and US English support
+ * - Generation ID tracking to eliminate race conditions and self-listening loops
+ * - Resilient Web Speech API fallback
  */
+
+import { duplexManager } from "./duplexManager";
+import { audioEngine } from "./audioEngine";
+import { streamingTtsService } from "./streamingTtsService";
 
 export interface VoicePersona {
   id: string;
@@ -23,13 +28,37 @@ export interface VoicePersona {
 
 export const CURATED_VOICES: VoicePersona[] = [
   {
-    id: "en-IN-NeerjaExpressiveNeural",
-    name: "Neerja (Indian Expressive)",
+    id: "Xb7hH8MSUJpSbSDYk0k2",
+    name: "Alice (ElevenLabs Free - Best)",
     gender: "Female",
-    locale: "en-IN",
-    accent: "Indian English",
-    persona: "Ultra-natural, expressive Indian English female voice with emotional inflections",
+    locale: "en-US",
+    accent: "Natural Multilingual",
+    persona: "Clear, engaging, warm conversational voice (ElevenLabs Free)",
     is_default: true,
+  },
+  {
+    id: "EXAVITQu4vr4xnSDxMaL",
+    name: "Sarah (ElevenLabs Free - Reassuring)",
+    gender: "Female",
+    locale: "en-US",
+    accent: "Empathetic American",
+    persona: "Mature, reassuring, empathetic counselor voice (ElevenLabs Free)",
+  },
+  {
+    id: "en-US-AvaMultilingualNeural",
+    name: "Ava (Natural Multilingual - Best)",
+    gender: "Female",
+    locale: "en-US",
+    accent: "Multilingual (English + Hindi)",
+    persona: "Ultra-natural, warm, highly expressive human voice supporting both English and Hindi",
+  },
+  {
+    id: "en-US-EmmaMultilingualNeural",
+    name: "Emma (Empathetic Multilingual)",
+    gender: "Female",
+    locale: "en-US",
+    accent: "Multilingual (English + Hindi)",
+    persona: "Gentle, soothing, conversational multilingual voice",
   },
   {
     id: "hi-IN-SwaraNeural",
@@ -46,6 +75,14 @@ export const CURATED_VOICES: VoicePersona[] = [
     locale: "hi-IN",
     accent: "Indian Hindi",
     persona: "Deep, calm, reassuring Hindi & Hinglish male voice",
+  },
+  {
+    id: "en-IN-NeerjaExpressiveNeural",
+    name: "Neerja (Indian Expressive)",
+    gender: "Female",
+    locale: "en-IN",
+    accent: "Indian English",
+    persona: "Ultra-natural, expressive Indian English female voice with emotional inflections",
   },
   {
     id: "en-IN-NeerjaNeural",
@@ -148,9 +185,12 @@ export function cleanTextForSpeech(text: string): string {
   t = t.replace(/https?:\/\/\S+/g, "");
 
   // 8. Strip emojis & symbols (Unicode emoji ranges)
-  t = t.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, " ");
+  t = t.replace(
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2702}-\u{27B0}\u{24C2}-\u{1F251}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu,
+    " "
+  );
 
-  // 9. Clean repeated punctuation
+  // 9. Clean repeated punctuation & normalize Devanagari stops
   t = t.replace(/\.{4,}/g, "...");
   t = t.replace(/[-—_]{2,}/g, ", ");
   t = t.replace(/\s+([,.!?;:।|])/g, "$1");
@@ -159,23 +199,136 @@ export function cleanTextForSpeech(text: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Fast Devanagari-to-Latin phonetic converter for acoustic/text echo matching.
+ * Converts "नमस्ते, मैं समझ सकती हूँ" -> "namaste main samajh sakti hoon"
+ */
+export function devanagariToLatin(text: string): string {
+  if (!text) return "";
+
+  // Common high-frequency keywords
+  const directMap: Record<string, string> = {
+    "नमस्ते": "namaste",
+    "नमस्कार": "namaskar",
+    "धन्यवाद": "dhanyawad",
+    "शुक्रिया": "shukriya",
+    "हाँ": "haan",
+    "हां": "haan",
+    "नहीं": "nahi",
+    "ना": "na",
+    "अच्छा": "achha",
+    "ठीक": "theek",
+    "है": "hai",
+    "हैं": "hain",
+    "हूँ": "hoon",
+    "था": "tha",
+    "थी": "thi",
+    "थे": "the",
+    "क्या": "kya",
+    "क्यों": "kyun",
+    "कैसे": "kaise",
+    "कैसा": "kaisa",
+    "कैसी": "kaisi",
+    "आप": "aap",
+    "तुम": "tum",
+    "मैं": "main",
+    "मुझे": "mujhe",
+    "मेरा": "mera",
+    "मेरी": "meri",
+    "मेरे": "mere",
+    "डॉक्टर": "doctor",
+    "साहब": "sahab",
+    "साहिबा": "sahiba",
+    "सुनो": "suno",
+    "सुनिए": "suniye",
+    "रुको": "ruko",
+    "रुकिए": "rukiye",
+    "बताओ": "batao",
+    "बताइए": "bataiye",
+    "समझ": "samajh",
+    "सकती": "sakti",
+    "सकता": "sakta",
+    "सकते": "sakte",
+    "काउंसलिंग": "counseling",
+    "योजना": "yojana",
+    "तनाव": "tanav",
+    "परेशान": "pareshan",
+    "परेशानी": "pareshani",
+    "महसूस": "mehsoos",
+    "कर": "kar",
+    "रहे": "rahe",
+    "रही": "rahi",
+    "रहा": "raha",
+  };
+
+  let t = text;
+  for (const [hi, lat] of Object.entries(directMap)) {
+    t = t.replaceAll(hi, " " + lat + " ");
+  }
+
+  const consonants: Record<string, string> = {
+    "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "ng",
+    "च": "ch", "छ": "chh", "ज": "j", "झ": "jh", "ञ": "ny",
+    "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+    "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n",
+    "प": "p", "फ": "ph", "ब": "b", "भ": "bh", "म": "m",
+    "य": "y", "र": "r", "ल": "l", "व": "v", "श": "sh",
+    "ष": "sh", "स": "s", "ह": "h", "क्ष": "ksh", "त्र": "tr", "ज्ञ": "gy"
+  };
+
+  const vowels: Record<string, string> = {
+    "अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo",
+    "ऋ": "ri", "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au", "अं": "an", "अः": "ah"
+  };
+
+  const matras: Record<string, string> = {
+    "ा": "aa", "ि": "i", "ी": "ee", "ु": "u", "ू": "oo",
+    "ृ": "ri", "े": "e", "ै": "ai", "ो": "o", "ौ": "au",
+    "ं": "n", "ँ": "n", "ः": "h", "्": ""
+  };
+
+  let out = "";
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (matras[ch] !== undefined) {
+      out += matras[ch];
+    } else if (vowels[ch] !== undefined) {
+      out += vowels[ch];
+    } else if (consonants[ch] !== undefined) {
+      const next = t[i + 1];
+      if (next && (matras[next] !== undefined || next === "्")) {
+        out += consonants[ch];
+      } else {
+        out += consonants[ch] + "a";
+      }
+    } else {
+      out += ch;
+    }
+  }
+
+  return out.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
 class NaturalVoiceEngine {
-  private currentAudio: HTMLAudioElement | null = null;
-  private audioContext: AudioContext | null = null;
-  private isSpeakingState = false;
-  private activeVoiceId = "en-IN-NeerjaExpressiveNeural";
+  private activeVoiceId = "Xb7hH8MSUJpSbSDYk0k2";
   private activeLanguage = "en-IN"; // "hi-IN" | "en-IN" | "en-US"
-  private audioCache = new Map<string, string>(); // text+voice -> blobUrl
+  private audioCache = new Map<string, Blob>();
   private listeners: Set<(speaking: boolean) => void> = new Set();
   private abortController: AbortController | null = null;
-  private currentGenerationId = 0; // Strict singleton playback generation counter
+  private currentGenerationId = 0;
+  private isSpeakingState = false;
 
-  // Echo cancellation & self-listening safeguards
+  // Echo cancellation safeguards
   private lastSpokenCleanText = "";
+  private lastSpokenCleanTranslit = "";
   private lastSpeechEndTime = 0;
+  private lastSpokenWords: Set<string> = new Set();
 
   constructor() {
-    // Load saved voice and language preference from localStorage if present
+    duplexManager.onInterrupt(() => {
+      this.stop();
+    });
+
     if (typeof window !== "undefined") {
       const savedLang = localStorage.getItem("aura_stt_language");
       if (savedLang) {
@@ -218,21 +371,25 @@ class NaturalVoiceEngine {
     }
   }
 
+  public getActiveVoice(): string {
+    return this.activeVoiceId;
+  }
+
+  public getVoiceList(): VoicePersona[] {
+    return CURATED_VOICES;
+  }
+
   public isSpeaking(): boolean {
     return this.isSpeakingState;
   }
 
-  /**
-   * Checks if incoming text is an echo of what Aura is currently or recently speaking.
-   * Uses Unicode letter matching (\p{L}) to support Hindi (Devanagari), English, etc.
-   */
   public isEcho(incomingText: string): boolean {
     if (!incomingText || !this.lastSpokenCleanText) return false;
 
-    // Speaker bleed is only plausible while Aura is speaking or just after it stops.
-    if (!this.isSpeakingState && Date.now() - this.lastSpeechEndTime > 2500) {
-      return false;
-    }
+    // Speaker bleed is only plausible while Aura is speaking or within 2.5s window
+    const isWithinEchoWindow =
+      this.isSpeakingState || (this.lastSpeechEndTime > 0 && Date.now() - this.lastSpeechEndTime < 2500);
+    if (!isWithinEchoWindow) return false;
 
     // Preserve Unicode marks (\p{M}); Hindi matras otherwise disappear during matching.
     const normalize = (value: string) => value
@@ -243,26 +400,37 @@ class NaturalVoiceEngine {
       .trim();
     const cleanInc = normalize(incomingText);
     const cleanLast = normalize(this.lastSpokenCleanText);
+    const cleanTranslit = normalize(this.lastSpokenCleanTranslit || "");
+    const incTranslit = normalize(devanagariToLatin(incomingText));
 
-    if (!cleanInc || !cleanLast) return false;
+    if (!cleanInc) return false;
 
-    // Direct match or prefix/substring match
-    if (cleanLast.includes(cleanInc) || cleanInc.includes(cleanLast)) {
-      return true;
-    }
+    // 1. Direct text / substring matching against raw or transliterated Hindi
+    if (cleanLast && (cleanLast.includes(cleanInc) || cleanInc.includes(cleanLast))) return true;
+    if (cleanTranslit && (cleanTranslit.includes(cleanInc) || cleanInc.includes(cleanTranslit))) return true;
+    if (cleanTranslit && incTranslit && (cleanTranslit.includes(incTranslit) || incTranslit.includes(cleanTranslit))) return true;
 
-    // Exact-token overlap avoids false matches from common Hindi words and substrings.
+    // 2. Token overlap check
     const stopWords = new Set(["है", "हैं", "था", "थी", "मैं", "आप", "और", "की", "के", "को", "से", "a", "an", "the", "is", "are", "i", "you"]);
     const incWords = cleanInc.split(/\s+/).filter((word) => word.length > 1 && !stopWords.has(word));
-    const lastWords = new Set(cleanLast.split(/\s+/).filter((word) => word.length > 1 && !stopWords.has(word)));
-    if (incWords.length >= 2) {
-      const matches = incWords.filter((word) => lastWords.has(word));
-      if (matches.length >= 2 && matches.length / incWords.length >= 0.6) {
+    const incTranslitWords = incTranslit.split(/\s+/).filter((w) => w.length > 1 && !stopWords.has(w));
+    const allIncTokens = [...new Set([...incWords, ...incTranslitWords])];
+
+    if (allIncTokens.length >= 1) {
+      const matchCount = allIncTokens.filter((w) => this.lastSpokenWords.has(w)).length;
+      if (allIncTokens.length === 1 && matchCount === 1) {
+        return true;
+      }
+      if (matchCount >= 2 && matchCount / allIncTokens.length >= 0.5) {
         return true;
       }
     }
 
     return false;
+  }
+
+  public getLastSpeechEndTime(): number {
+    return this.lastSpeechEndTime;
   }
 
   public subscribe(listener: (speaking: boolean) => void): () => void {
@@ -283,6 +451,7 @@ class NaturalVoiceEngine {
    */
   public stop() {
     this.currentGenerationId++;
+    streamingTtsService.cancel();
 
     if (this.abortController) {
       try {
@@ -291,14 +460,7 @@ class NaturalVoiceEngine {
       this.abortController = null;
     }
 
-    if (this.currentAudio) {
-      try {
-        this.currentAudio.pause();
-        this.currentAudio.currentTime = 0;
-        this.currentAudio.src = "";
-      } catch (e) {}
-      this.currentAudio = null;
-    }
+    audioEngine.stopAllPlaybackImmediate(15);
 
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
@@ -307,10 +469,11 @@ class NaturalVoiceEngine {
     }
 
     this.setSpeaking(false);
+    duplexManager.notifyTtsStopped();
   }
 
   /**
-   * Synthesize and speak text using ultra-natural neural TTS with fallback.
+   * Synthesize and speak text using ultra-natural neural TTS.
    * Guaranteed singleton: any previous voice is immediately terminated.
    */
   public async speak(
@@ -328,29 +491,48 @@ class NaturalVoiceEngine {
     const clean = cleanTextForSpeech(text);
     if (!clean) return;
 
-    // Terminate any previous speech and create a new playback transaction
     this.stop();
-    const generationId = ++this.currentGenerationId;
+    const generationId = duplexManager.nextGeneration();
+    this.currentGenerationId = generationId;
 
     this.lastSpokenCleanText = clean;
+    const translit = devanagariToLatin(clean);
+    this.lastSpokenCleanTranslit = translit;
+
+    const rawWords = clean.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter((w) => w.length > 1);
+    const translitWords = translit.split(/\s+/).filter((w) => w.length > 1);
+    this.lastSpokenWords = new Set([...rawWords, ...translitWords]);
+
     this.setSpeaking(true);
+    duplexManager.notifyTtsStart(clean, "tts-" + generationId, generationId);
     options?.onStart?.();
 
     const requestedVoice = options?.voice || this.activeVoiceId;
-    const selectedVoice = isVoiceCompatibleWithLanguage(requestedVoice, this.activeLanguage)
+    let selectedVoice = isVoiceCompatibleWithLanguage(requestedVoice, this.activeLanguage)
       ? requestedVoice
       : getDefaultVoiceForLanguage(this.activeLanguage);
-    // The backend applies locale-aware Hindi defaults; explicit caller settings
-    // remain available for emotion-specific or accessibility adjustments.
-    const effectiveRate = options?.rate;
-    const effectivePitch = options?.pitch;
-    const cacheKey = `${clean}::${selectedVoice}::${options?.emotion || ""}::${effectiveRate || ""}::${effectivePitch || ""}`;
 
-    // 1. Check browser memory cache
-    const cachedBlobUrl = this.audioCache.get(cacheKey);
-    if (cachedBlobUrl) {
+    const isHindiText = /[\u0900-\u097F]/.test(clean);
+    const isMale =
+      selectedVoice.toLowerCase().includes("prabhat") ||
+      selectedVoice.toLowerCase().includes("madhur") ||
+      selectedVoice.toLowerCase().includes("male");
+
+    if (isHindiText) {
+      selectedVoice = isMale ? "hi-IN-MadhurNeural" : "hi-IN-SwaraNeural";
+    } else if (selectedVoice.startsWith("hi-IN-")) {
+      selectedVoice = isMale ? "en-IN-PrabhatNeural" : "en-IN-NeerjaExpressiveNeural";
+    }
+
+    const rate = options?.rate || (isHindiText ? "+0%" : "+5%");
+    const pitch = options?.pitch;
+    const cacheKey = `${clean}::${selectedVoice}::${options?.emotion || ""}::${rate}::${pitch || ""}`;
+
+    // 1. Check in-memory audio cache
+    const cachedBlob = this.audioCache.get(cacheKey);
+    if (cachedBlob) {
       if (generationId === this.currentGenerationId) {
-        this.playAudioBlob(cachedBlobUrl, options, clean, selectedVoice, generationId);
+        await this.playBlobDirect(cachedBlob, options, generationId);
       }
       return;
     }
@@ -365,133 +547,63 @@ class NaturalVoiceEngine {
           text: clean,
           voice: selectedVoice,
           emotion: options?.emotion,
-          rate: effectiveRate,
-          pitch: effectivePitch,
+          rate,
+          pitch,
         }),
         signal: this.abortController.signal,
       });
 
-      if (generationId !== this.currentGenerationId) {
-        return; // Obsolete request
-      }
-
-      if (!res.ok) {
-        throw new Error(`TTS server responded with ${res.status}`);
-      }
+      if (generationId !== this.currentGenerationId) return;
+      if (!res.ok) throw new Error(`TTS server responded with ${res.status}`);
 
       const blob = await res.blob();
       if (generationId !== this.currentGenerationId) return;
 
-      const blobUrl = URL.createObjectURL(blob);
-      this.audioCache.set(cacheKey, blobUrl);
-
-      this.playAudioBlob(blobUrl, options, clean, selectedVoice, generationId);
+      this.audioCache.set(cacheKey, blob);
+      await this.playBlobDirect(blob, options, generationId);
     } catch (err: any) {
       if (err.name === "AbortError" || generationId !== this.currentGenerationId) return;
-
-      console.warn("Backend Neural TTS failed, falling back to Web Speech API:", err);
+      console.warn("[VOICE SERVICE] Backend TTS error, falling back to Web Speech:", err);
       this.fallbackWebSpeech(clean, selectedVoice, options, generationId);
     }
   }
 
-  /**
-   * Internal player for neural MP3 audio blobs.
-   */
-  private playAudioBlob(
-    blobUrl: string,
-    options?: {
-      onEnd?: () => void;
-      onError?: (err: any) => void;
-    },
-    fallbackText?: string,
-    requestedVoiceId?: string,
+  private async playBlobDirect(
+    blob: Blob,
+    options?: { onEnd?: () => void; onError?: (err: any) => void },
     generationId?: number
   ) {
-    if (generationId !== undefined && generationId !== this.currentGenerationId) {
-      return;
-    }
+    if (generationId !== undefined && generationId !== this.currentGenerationId) return;
 
     try {
-      // Ensure web speech is stopped
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        try { window.speechSynthesis.cancel(); } catch (e) {}
-      }
-
-      const audio = new Audio();
-      audio.src = blobUrl;
-      this.currentAudio = audio;
-
-      // Unlock AudioContext if present
-      try {
-        if (!this.audioContext && typeof window !== "undefined") {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioContextClass) {
-            this.audioContext = new AudioContextClass();
-          }
-        }
-        if (this.audioContext && this.audioContext.state === "suspended") {
-          this.audioContext.resume();
-        }
-      } catch (e) {}
-
-      audio.onended = () => {
-        if (generationId === undefined || generationId === this.currentGenerationId) {
-          this.setSpeaking(false);
-          this.currentAudio = null;
-          options?.onEnd?.();
-        }
-      };
-
-      audio.onerror = (e) => {
-        if (generationId !== undefined && generationId !== this.currentGenerationId) return;
-        console.warn("Audio playback error:", e);
-        if (fallbackText) {
-          this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
-        } else {
-          this.setSpeaking(false);
-          this.currentAudio = null;
-          options?.onError?.(e);
-        }
-      };
-
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((e) => {
-          if (generationId !== undefined && generationId !== this.currentGenerationId) return;
-          this.setSpeaking(false);
-          this.currentAudio = null;
-          if (e.name !== "AbortError") {
-            console.warn("Audio play prevented by browser autoplay policy, attempting WebSpeech fallback:", e);
-            if (fallbackText) {
-              this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
+      await audioEngine.playAudioBlob(blob, {
+        generationId,
+        expectedGenerationGetter: () => this.currentGenerationId,
+        onEnded: () => {
+          if (generationId === undefined || generationId === this.currentGenerationId) {
+            this.setSpeaking(false);
+            if (generationId !== undefined) {
+              duplexManager.notifyTtsEnd(generationId);
             }
+            options?.onEnd?.();
           }
-        });
-      }
-    } catch (err) {
-      if (generationId !== undefined && generationId !== this.currentGenerationId) return;
-      console.warn("playAudioBlob exception:", err);
-      if (fallbackText) {
-        this.fallbackWebSpeech(fallbackText, requestedVoiceId || this.activeVoiceId, options, generationId);
-      } else {
+        },
+      });
+    } catch (e) {
+      if (generationId === undefined || generationId === this.currentGenerationId) {
         this.setSpeaking(false);
-        options?.onError?.(err);
+        options?.onError?.(e);
       }
     }
   }
 
-  /**
-   * Web Speech API fallback tuned for natural prosody and voice selection.
-   */
   private fallbackWebSpeech(
     cleanText: string,
     requestedVoiceId: string,
     options?: { onEnd?: () => void; onError?: (err: any) => void },
     generationId?: number
   ) {
-    if (generationId !== undefined && generationId !== this.currentGenerationId) {
-      return;
-    }
+    if (generationId !== undefined && generationId !== this.currentGenerationId) return;
 
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       this.setSpeaking(false);
@@ -500,53 +612,67 @@ class NaturalVoiceEngine {
     }
 
     try {
-      // Pause any HTML audio
-      if (this.currentAudio) {
-        try {
-          this.currentAudio.pause();
-          this.currentAudio.currentTime = 0;
-          this.currentAudio.src = "";
-        } catch (e) {}
-        this.currentAudio = null;
-      }
-
       window.speechSynthesis.cancel();
 
       const voices = window.speechSynthesis.getVoices();
       const targetPersona = CURATED_VOICES.find((v) => v.id === requestedVoiceId);
-      const isHindi = targetPersona?.locale?.startsWith("hi") === true;
+      const isHindi = /[\u0900-\u097F]/.test(cleanText) || targetPersona?.locale?.startsWith("hi") === true;
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.rate = isHindi ? 0.9 : 0.95;
       utterance.pitch = isHindi ? 1.0 : 1.05;
 
+      if (isHindi) {
+        utterance.lang = "hi-IN";
+      } else if (targetPersona?.locale) {
+        utterance.lang = targetPersona.locale;
+      }
+
       if (voices.length > 0) {
-        const langPrefix = (targetPersona?.locale || "en-IN").split("-")[0].toLowerCase();
+        const langPrefix = (isHindi ? "hi" : (targetPersona?.locale || "en-IN")).split("-")[0].toLowerCase();
         const matchingVoice =
           (isHindi
-            ? voices.find((v) => v.name.toLowerCase().includes("swara") || v.name.toLowerCase().includes("madhur") || v.lang.toLowerCase().startsWith("hi")) ||
-              voices.find((v) => v.lang.toLowerCase().includes("hi"))
+            ? voices.find(
+                (v) =>
+                  v.lang.toLowerCase().startsWith("hi") ||
+                  v.name.toLowerCase().includes("swara") ||
+                  v.name.toLowerCase().includes("madhur") ||
+                  v.name.toLowerCase().includes("kalpana") ||
+                  v.name.toLowerCase().includes("hemant") ||
+                  v.name.toLowerCase().includes("hindi") ||
+                  v.name.includes("हिन्दी")
+              ) || voices.find((v) => v.lang.toLowerCase().includes("hi"))
             : null) ||
-          voices.find((v) => v.name.toLowerCase().includes("neerja") || v.name.toLowerCase().includes("swara") || v.name.toLowerCase().includes("madhur") || v.name.toLowerCase().includes("prabhat")) ||
-          voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix) && (v.name.toLowerCase().includes("natural") || v.name.toLowerCase().includes("female"))) ||
+          voices.find(
+            (v) =>
+              v.name.toLowerCase().includes("neerja") ||
+              v.name.toLowerCase().includes("swara") ||
+              v.name.toLowerCase().includes("madhur") ||
+              v.name.toLowerCase().includes("prabhat")
+          ) ||
+          voices.find(
+            (v) =>
+              v.lang.toLowerCase().startsWith(langPrefix) &&
+              (v.name.toLowerCase().includes("natural") || v.name.toLowerCase().includes("female"))
+          ) ||
           voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix)) ||
-          voices.find((v) => v.lang.startsWith("en") && v.name.toLowerCase().includes("female")) ||
           voices[0];
 
         if (matchingVoice) utterance.voice = matchingVoice;
-        if (targetPersona?.locale) utterance.lang = targetPersona.locale;
       }
 
       utterance.onend = () => {
         if (generationId === undefined || generationId === this.currentGenerationId) {
           this.setSpeaking(false);
+          if (generationId !== undefined) {
+            duplexManager.notifyTtsEnd(generationId);
+          }
           options?.onEnd?.();
         }
       };
 
       utterance.onerror = (e) => {
         if (generationId === undefined || generationId === this.currentGenerationId) {
-          console.warn("WebSpeech utterance error:", e);
           this.setSpeaking(false);
           options?.onError?.(e);
         }
@@ -554,7 +680,6 @@ class NaturalVoiceEngine {
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn("Fallback WebSpeech error:", e);
       this.setSpeaking(false);
       options?.onError?.(e);
     }

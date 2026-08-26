@@ -95,22 +95,23 @@ class EdgeTTSProvider(TTSProvider):
     ) -> AsyncIterator[bytes]:
         """Stream MP3 chunks from edge-tts."""
         import edge_tts
-        from app.api.v1.tts import clean_text_for_speech
+        from app.api.v1.tts import clean_text_for_speech, resolve_edgetts_voice
 
         cleaned = clean_text_for_speech(text)
         if not cleaned:
             return
 
-        communicate = edge_tts.Communicate(cleaned, voice)
+        resolved_voice = resolve_edgetts_voice(voice, cleaned)
+        communicate = edge_tts.Communicate(cleaned, resolved_voice)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio" and chunk.get("data"):
                 yield chunk["data"]
 
 
-# ── ElevenLabs Stub ───────────────────────────────────────────────────────────
+# ── ElevenLabs Provider ───────────────────────────────────────────────────────
 
 class ElevenLabsProvider(TTSProvider):
-    """ElevenLabs cloud TTS stub (requires ELEVENLABS_API_KEY)."""
+    """ElevenLabs streaming TTS with automatic EdgeTTS fallback."""
 
     @property
     def name(self) -> str:
@@ -118,14 +119,66 @@ class ElevenLabsProvider(TTSProvider):
 
     @property
     def is_configured(self) -> bool:
-        import os
-        return bool(os.getenv("ELEVENLABS_API_KEY"))
+        settings = get_settings()
+        return bool(settings.elevenlabs_api_key)
 
     async def stream_audio(self, text: str, voice: str) -> AsyncIterator[bytes]:
-        raise NotImplementedError(
-            "ElevenLabs provider is a stub. Implement using the elevenlabs package."
-        )
-        yield b""  # satisfy type checker
+        import httpx
+        from app.api.v1.tts import clean_text_for_speech, resolve_edgetts_voice
+
+        cleaned = clean_text_for_speech(text)
+        if not cleaned:
+            return
+
+        settings = get_settings()
+        api_key = settings.elevenlabs_api_key
+        if not api_key:
+            # Fallback to EdgeTTS with dynamically resolved voice (handles Hindi automatically)
+            edge = EdgeTTSProvider()
+            resolved = resolve_edgetts_voice(voice, cleaned)
+            async for chunk in edge.stream_audio(cleaned, resolved):
+                yield chunk
+            return
+
+        voice_id = voice if voice and len(voice) > 15 else (settings.elevenlabs_voice_id or "Xb7hH8MSUJpSbSDYk0k2")
+        model_id = settings.elevenlabs_model_id or "eleven_multilingual_v2"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?optimize_streaming_latency=3"
+
+        headers = {
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        }
+        payload = {
+            "text": cleaned,
+            "model_id": model_id,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code == 200:
+                        async for chunk in resp.aiter_bytes(chunk_size=4096):
+                            if chunk:
+                                yield chunk
+                        return
+                    else:
+                        logger.warning(
+                            "ElevenLabs streaming failed, falling back to EdgeTTS",
+                            status=resp.status_code,
+                        )
+        except Exception as e:
+            logger.warning("ElevenLabs request error, falling back to EdgeTTS", error=str(e))
+
+        # Fallback to EdgeTTS with dynamically resolved voice
+        edge = EdgeTTSProvider()
+        resolved = resolve_edgetts_voice(voice, cleaned)
+        async for chunk in edge.stream_audio(cleaned, resolved):
+            yield chunk
 
 
 # ── NVIDIA Magpie Provider ────────────────────────────────────────────────────

@@ -2,32 +2,7 @@
 Face Emotion WebSocket API.
 
 Real-time face emotion endpoint that accepts camera frames and returns
-structured emotion JSON. The FaceEmotionAnalyzer processes each frame
-and returns an EmotionContext for client-side display.
-
-Protocol
---------
-Client → Server:
-    { "type": "frame", "image": "<base64 JPEG>", "session_id": "..." }
-    { "type": "ping" }
-
-Server → Client:
-    { "type": "emotion", "primary_emotion": "sad", "confidence": 0.91,
-      "secondary_emotion": "neutral", "face_detected": true,
-      "stress": "medium", "sources": ["face"] }
-    { "type": "no_face", "face_detected": false }
-    { "type": "unavailable", "reason": "model_not_loaded" }
-    { "type": "pong" }
-    { "type": "error", "message": "..." }
-
-Throttling
-----------
-Frames are throttled to max 2 FPS processing. Excess frames are
-acknowledged but not processed (returns last known result).
-
-Auth
-----
-Requires a valid JWT in the query string: ?token=<jwt>
+structured emotion JSON with face bounding boxes, emotion scores, and confidence.
 """
 
 from __future__ import annotations
@@ -44,17 +19,13 @@ from app.core.deps import get_db
 from app.core.logging_config import get_logger
 from app.core.security import decode_token
 from app.emotion.base import EmotionContext
-from app.emotion.face_analyzer import FaceEmotionAnalyzer
+from app.emotion.service import get_face_analyzer, verify_models_loaded
 
 router = APIRouter(prefix="/emotion", tags=["emotion"])
 logger = get_logger(__name__)
 settings = get_settings()
 
-# Shared face analyzer (lazy-loaded once)
-_face_analyzer = FaceEmotionAnalyzer()
-
-# Maximum frame processing rate (frames per second)
-_MAX_FPS = 2
+_MAX_FPS = 5
 _MIN_FRAME_INTERVAL = 1.0 / _MAX_FPS
 
 
@@ -65,8 +36,8 @@ async def face_emotion_websocket(
 ) -> None:
     """Real-time face emotion WebSocket.
 
-    Accepts base64 JPEG frames, returns structured emotion JSON.
-    Throttled to 2 FPS. Requires JWT authentication.
+    Accepts base64 JPEG frames, returns structured emotion JSON with face bounding box.
+    Throttled to max FPS.
     """
     user_id = 1
     if token:
@@ -79,19 +50,19 @@ async def face_emotion_websocket(
     await websocket.accept()
     logger.info("Face emotion WebSocket connected", user_id=user_id)
 
+    face_analyzer = get_face_analyzer()
+
     # Check model availability
-    if not _face_analyzer.is_available:
+    if not face_analyzer.is_available:
         await websocket.send_json({
             "type": "unavailable",
             "reason": "model_not_loaded",
-            "message": (
-                "Face emotion model is not loaded. "
-                "Ensure emotion-ferplus-8.onnx is in backend/models/."
-            ),
+            "message": "Face emotion model is not loaded.",
         })
 
     last_process_time = 0.0
     last_result: dict[str, Any] | None = None
+    client_id = f"user_{user_id}"
 
     try:
         while True:
@@ -113,7 +84,7 @@ async def face_emotion_websocket(
                 })
                 continue
 
-            # Throttle: if within frame interval, return last result
+            # Throttle if received faster than interval
             now = time.monotonic()
             if (now - last_process_time) < _MIN_FRAME_INTERVAL:
                 if last_result:
@@ -122,8 +93,7 @@ async def face_emotion_websocket(
 
             last_process_time = now
 
-            # Process frame
-            if not _face_analyzer.is_available:
+            if not face_analyzer.is_available:
                 result = {
                     "type": "unavailable",
                     "reason": "model_not_loaded",
@@ -131,25 +101,28 @@ async def face_emotion_websocket(
                 }
             else:
                 try:
-                    emotion_result = await _face_analyzer.analyze(image_data)
+                    payload = {"image": image_data, "client_id": client_id}
+                    emotion_result = await face_analyzer.analyze(payload)
 
-                    if not emotion_result.face_detected:
+                    if emotion_result.is_mock or not emotion_result.scores:
                         result = {
                             "type": "no_face",
                             "face_detected": False,
                         }
                     else:
+                        conf_dec = round(emotion_result.confidence / 100.0 if emotion_result.confidence > 1.0 else emotion_result.confidence, 3)
                         result = {
                             "type": "emotion",
                             "face_detected": True,
-                            "primary_emotion": emotion_result.emotion,
-                            "confidence": round(emotion_result.confidence / 100.0, 3),
+                            "primary_emotion": emotion_result.emotion.capitalize(),
+                            "emotion": emotion_result.emotion.capitalize(),
+                            "confidence": conf_dec,
+                            "scores": emotion_result.scores,
                             "secondary_emotion": emotion_result.secondary_emotion,
-                            "secondary_confidence": round(
-                                emotion_result.secondary_confidence / 100.0, 3
-                            ),
                             "stress": emotion_result.stress_level,
                             "sentiment": emotion_result.sentiment,
+                            "face_box": emotion_result.face_box,
+                            "box_norm": emotion_result.box_norm,
                             "sources": ["face"],
                         }
 
@@ -174,12 +147,5 @@ async def face_emotion_websocket(
 
 @router.get("/status")
 async def emotion_status() -> dict[str, Any]:
-    """Return face emotion model status."""
-    return {
-        "face_model_available": _face_analyzer.is_available,
-        "face_model": "emotion-ferplus-8.onnx",
-        "face_detector": "BlazeFace ONNX or OpenCV Haar Cascade",
-        "text_emotion": "LLM-based + keyword fallback",
-        "voice_emotion": "stub (future: wav2vec2)",
-        "max_fps": _MAX_FPS,
-    }
+    """Return status of all emotion models."""
+    return verify_models_loaded()

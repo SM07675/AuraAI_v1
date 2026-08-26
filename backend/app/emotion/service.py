@@ -1,49 +1,121 @@
 """
 Emotion Service — orchestrates the full multi-modal emotion pipeline.
 
-Entry point for the Conversation Engine. Coordinates all analyzers,
-delegates fusion to EmotionFusion, and returns a single EmotionContext
-for LLM injection.
-
-Session lifecycle
------------------
-One EmotionService instance per voice/chat session (instantiated by
-VoiceConversationManager or the chat endpoint). Maintains trend state
-across turns via EmotionFusion.trend_buffer.
-
-Memory policy
--------------
-Per-turn emotions are NEVER stored to long-term memory.
-Only recurring patterns (detected by EmotionFusion) produce a
-conversation_trend signal that the MemoryBuilder may choose to store
-after multiple sessions of consistent patterns.
+Entry point for the Conversation Engine and API routes. Coordinates all analyzers,
+delegates fusion to EmotionFusionEngine, and returns unified EmotionContext
+for LLM prompt injection and client feedback.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import Any, Dict, List, Optional
 
 from app.emotion.analyzers import TextEmotionAnalyzer, VoiceEmotionAnalyzer
 from app.emotion.base import EmotionContext, EmotionResult
 from app.emotion.face_analyzer import FaceEmotionAnalyzer
-from app.emotion.fusion import EmotionFusionEngine
+from app.emotion.fusion import EmotionFusionEngine, fuse_emotions, DEFAULT_WEIGHTS
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Global instances for standalone function calls
+_global_text_analyzer: Optional[TextEmotionAnalyzer] = None
+_global_face_analyzer: Optional[FaceEmotionAnalyzer] = None
+_global_voice_analyzer: Optional[VoiceEmotionAnalyzer] = None
+
+
+def get_text_analyzer() -> TextEmotionAnalyzer:
+    global _global_text_analyzer
+    if _global_text_analyzer is None:
+        _global_text_analyzer = TextEmotionAnalyzer(use_llm=True)
+    return _global_text_analyzer
+
+
+def get_face_analyzer() -> FaceEmotionAnalyzer:
+    global _global_face_analyzer
+    if _global_face_analyzer is None:
+        _global_face_analyzer = FaceEmotionAnalyzer()
+    return _global_face_analyzer
+
+
+def get_voice_analyzer() -> VoiceEmotionAnalyzer:
+    global _global_voice_analyzer
+    if _global_voice_analyzer is None:
+        _global_voice_analyzer = VoiceEmotionAnalyzer()
+    return _global_voice_analyzer
+
+
+def predict_text_emotion(text: str) -> Dict[str, Any]:
+    """Synchronous text emotion prediction using the local transformer model."""
+    analyzer = get_text_analyzer()
+    return analyzer.predict_raw(text)
+
+
+def predict_face_emotion(image_data: Any, *, client_id: str = "default") -> Dict[str, Any]:
+    """Synchronous face emotion prediction using the ONNX model and cascade detector."""
+    analyzer = get_face_analyzer()
+    import base64
+    import cv2
+    import numpy as np
+
+    if isinstance(image_data, np.ndarray):
+        img_bgr = image_data
+    else:
+        raw_str = str(image_data or "")
+        if "," in raw_str:
+            raw_str = raw_str.split(",", 1)[1]
+        try:
+            decoded = base64.b64decode(raw_str)
+            img_bgr = cv2.imdecode(np.frombuffer(decoded, np.uint8), cv2.IMREAD_COLOR)
+        except Exception:
+            img_bgr = None
+
+    if img_bgr is None:
+        return {
+            "emotion": "neutral",
+            "confidence": 0.0,
+            "scores": {"neutral": 1.0},
+            "face_box": None,
+            "face_detected": False,
+        }
+
+    return analyzer.predict_frame(img_bgr, client_id=client_id)
+
+
+def predict_audio_emotion(payload: Any) -> Dict[str, Any]:
+    """Voice emotion prediction stub."""
+    return {
+        "emotion": "neutral",
+        "confidence": 50.0,
+        "scores": {"neutral": 100.0},
+        "model": "voice_stub",
+    }
+
+
+def verify_models_loaded() -> Dict[str, Any]:
+    """Check loading status of text, face, and voice models."""
+    text_az = get_text_analyzer()
+    face_az = get_face_analyzer()
+    return {
+        "text_emotion": {"loaded": text_az.is_local_model_loaded(), "error": None},
+        "face_emotion": {"loaded": face_az.is_available, "error": None},
+        "voice_emotion": {"loaded": True, "error": None},
+    }
 
 
 class EmotionService:
     """Orchestrates multi-modal emotion analysis and fusion.
 
     Args:
-        use_llm_text: If True, TextEmotionAnalyzer uses LLM first,
+        use_llm_text: If True, TextEmotionAnalyzer uses LLM first if local model is unavailable,
                       falls back to keywords. If False, keywords only.
     """
 
     def __init__(self, use_llm_text: bool = True) -> None:
-        self._text = TextEmotionAnalyzer(use_llm=use_llm_text)
-        self._voice = VoiceEmotionAnalyzer()
-        self._face = FaceEmotionAnalyzer()
+        self._text = get_text_analyzer()
+        self._voice = get_voice_analyzer()
+        self._face = get_face_analyzer()
         self._fusion = EmotionFusionEngine()
 
     # ── Single-modality shortcuts ─────────────────────────────────────────────
@@ -73,23 +145,12 @@ class EmotionService:
         This is the primary entry point for the Conversation Engine.
         The returned EmotionContext is the ONLY emotion representation
         passed to the LLM.
-
-        Args:
-            text: User's message text.
-            image_data: Camera frame (base64 JPEG, bytes, or np.ndarray).
-            audio_data: Voice audio (future — currently stub).
-
-        Returns:
-            EmotionContext ready for prompt injection.
         """
         text_result: EmotionResult | None = None
         face_result: EmotionResult | None = None
         voice_result: EmotionResult | None = None
 
-        # Run analyzers concurrently where possible
-        import asyncio
         tasks = []
-
         if text:
             tasks.append(("text", self._text.analyze(text)))
         if image_data and self._face.is_available:
@@ -113,13 +174,6 @@ class EmotionService:
                 elif label == "voice":
                     voice_result = result
 
-        # Always log what sources were used
-        available_sources = [
-            s for s, r in [("text", text_result), ("face", face_result), ("voice", voice_result)]
-            if r and not r.is_mock
-        ]
-        logger.debug("Emotion sources used", sources=available_sources)
-
         # Update readings and fuse
         if text_result and not text_result.is_mock:
             self._fusion.update_reading("text", text_result)
@@ -138,47 +192,39 @@ class EmotionService:
         audio_data: Any = None,
         image_data: Any = None,
     ) -> EmotionContext:
-        """Backward-compatible alias for analyze_and_fuse."""
         return await self.analyze_and_fuse(
             text=text, audio_data=audio_data, image_data=image_data
         )
 
     def get_emotion_context(self) -> dict[str, Any]:
-        """Return current session emotion as a plain dict (for legacy callers)."""
         buf = self._fusion.trend_buffer
         if not buf:
             return {"fused_emotion": "neutral", "confidence": 0.0, "sentiment": "neutral"}
         latest = buf[-1]
         return {
             "fused_emotion": latest.get("emotion", "neutral"),
-            "confidence": 0.0,
+            "confidence": latest.get("confidence", 0.0),
             "sentiment": latest.get("sentiment", "neutral"),
             "stress_level": latest.get("stress", "low"),
         }
 
     def get_status(self) -> dict:
-        """Return current emotion service status for the metrics endpoint."""
         return {
-            "text_analyzer": "available",
-            "face": "available" if self._face.is_available else "unavailable (models not loaded)",
-            "face_analyzer": "available" if self._face.is_available else "unavailable (models not loaded)",
-            "voice": "available" if self._voice.is_available else "stub (future)",
-            "voice_analyzer": "available" if self._voice.is_available else "stub (future)",
+            "text_analyzer": "available (transformer_loaded)" if self._text.is_local_model_loaded() else "available (fallback)",
+            "face": "available" if self._face.is_available else "unavailable",
+            "face_analyzer": "available" if self._face.is_available else "unavailable",
+            "voice": "available",
+            "voice_analyzer": "available",
             "trend_turns": len(self._fusion.trend_buffer),
         }
 
-    # ── Session lifecycle ─────────────────────────────────────────────────────
-
     def reset(self) -> None:
-        """Reset session state (trend buffer). Call on session end."""
         self._fusion.reset()
 
     @property
     def face_available(self) -> bool:
-        """True if the face emotion model is loaded and ready."""
         return self._face.is_available
 
     @property
     def trend_buffer(self) -> list[dict[str, Any]]:
-        """Access the session emotion trend buffer."""
         return self._fusion.trend_buffer

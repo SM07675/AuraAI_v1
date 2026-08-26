@@ -98,62 +98,69 @@ async def websocket_chat(websocket: WebSocket) -> None:
     cancel_event = asyncio.Event()
 
     try:
-        async with async_session_factory() as db:
-            while True:
+        while True:
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                await _send_json(websocket, {"type": "ping"})
+                continue
+            except WebSocketDisconnect:
+                break
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                await _send_json(websocket, {"type": "error", "error": "Invalid JSON", "code": "INVALID_JSON"})
+                continue
+
+            msg_type = msg.get("type", "")
+
+            if msg_type == "ping":
+                await _send_json(websocket, {"type": "pong"})
+                continue
+
+            if msg_type == "interrupt":
+                # Barge-in: signal the streaming task to stop
+                cancel_event.set()
+                await _send_json(websocket, {"type": "interrupted"})
+                continue
+
+            if msg_type == "message":
+                content = str(msg.get("content", "")).strip()
+                if not content:
+                    await _send_json(websocket, {"type": "error", "error": "Empty message", "code": "EMPTY_MESSAGE"})
+                    continue
+
+                session_id = msg.get("session_id") or current_session_id
+                mode = msg.get("mode")
+                enable_thinking = msg.get("enable_thinking")
+                language = msg.get("language")
+                emotion_payload = (
+                    msg.get("emotion_data")
+                    or msg.get("emotion_payload")
+                    or ({"face_emotion": msg.get("face_emotion"), "confidence": msg.get("confidence")} if msg.get("face_emotion") else None)
+                    or ({"image": msg.get("image") or msg.get("face_image")} if (msg.get("image") or msg.get("face_image")) else None)
+                )
+
+                # Reset cancel event for this new generation
+                cancel_event.clear()
+
                 try:
-                    raw = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-                except asyncio.TimeoutError:
-                    # Send heartbeat
-                    await _send_json(websocket, {"type": "ping"})
-                    continue
-                except WebSocketDisconnect:
-                    break
-
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
-                    await _send_json(websocket, {"type": "error", "error": "Invalid JSON", "code": "INVALID_JSON"})
-                    continue
-
-                msg_type = msg.get("type", "")
-
-                if msg_type == "ping":
-                    await _send_json(websocket, {"type": "pong"})
-                    continue
-
-                if msg_type == "interrupt":
-                    # Barge-in: signal the streaming task to stop
-                    cancel_event.set()
-                    await _send_json(websocket, {"type": "interrupted"})
-                    continue
-
-                if msg_type == "message":
-                    content = str(msg.get("content", "")).strip()
-                    if not content:
-                        await _send_json(websocket, {"type": "error", "error": "Empty message", "code": "EMPTY_MESSAGE"})
-                        continue
-
-                    session_id = msg.get("session_id") or current_session_id
-                    mode = msg.get("mode")
-                    enable_thinking = msg.get("enable_thinking")
-                    language = msg.get("language")
-
-                    # Reset cancel event for this new generation
-                    cancel_event.clear()
-
-                    try:
-                        # Stream the response
+                    # Fresh DB session per message turn to prevent session corruption
+                    async with async_session_factory() as db:
                         service = ConversationService(db)
                         async for event in service.process_text_message(
                             user_id=user_id,
                             content=content,
                             session_id=session_id,
+                            emotion_payload=emotion_payload,
                             mode=mode,
                             enable_thinking=enable_thinking,
                             language=language,
                         ):
                             # Check for barge-in cancellation
-                            if cancel_event.is_set() and event.get("type") in ("chunk", "start"):
+                            if cancel_event.is_set():
                                 await _send_json(websocket, {"type": "interrupted"})
                                 break
 
@@ -162,17 +169,34 @@ async def websocket_chat(websocket: WebSocket) -> None:
                             # Track session ID
                             if event.get("type") == "session_start":
                                 current_session_id = event.get("session_id")
-                    except Exception as m_err:
-                        logger.error("Message processing error", user_id=user_id, error=str(m_err))
+                except Exception as m_err:
+                    logger.error("Message processing error", user_id=user_id, error=str(m_err))
+                    try:
+                        from app.ai.gateway import AIGateway
+                        from app.ai.base import AIRequest
+                        gateway = AIGateway()
+                        fallback_req = AIRequest(
+                            system_prompt=(
+                                "You are Dr. Aura, an empathetic and intelligent AI wellness companion. "
+                                "Directly, clearly, and helpfully answer the user's message or question, and conclude with exactly ONE engaging follow-up question."
+                            ),
+                            prompt=content,
+                            stream=False,
+                            temperature=0.7,
+                        )
+                        ai_res = await gateway.generate(fallback_req)
+                        reply = ai_res.content.strip()
+                    except Exception:
                         is_hindi = isinstance(language, str) and language.lower().startswith("hi")
-                        fallback_txt = (
+                        reply = (
                             "मैं आपकी बात सुन रही हूँ और आपके साथ हूँ। धीरे से एक गहरी साँस लीजिए। अभी आपके मन में क्या चल रहा है?"
                             if is_hindi
-                            else "I hear you, and I'm right here with you. Take a slow, deep breath. What's on your mind today?"
+                            else f"I'm listening and thinking about what you said regarding '{content[:40]}'. Could you tell me more about how you'd like to explore this?"
                         )
-                        await _send_json(websocket, {"type": "start"})
-                        await _send_json(websocket, {"type": "chunk", "content": fallback_txt})
-                        await _send_json(websocket, {"type": "done", "response": fallback_txt})
+
+                    await _send_json(websocket, {"type": "start"})
+                    await _send_json(websocket, {"type": "chunk", "content": reply})
+                    await _send_json(websocket, {"type": "done", "response": reply})
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected", user_id=user_id)

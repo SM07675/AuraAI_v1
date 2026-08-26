@@ -41,17 +41,16 @@ class QuestionBuilder:
         self._last_question_turn: int = 0
         self._asked_questions: list[str] = []
         self._system_prompt = (
-            "You are an AI Mental Health Clinical Counselor Question Engine.\n"
-            "Your goal is to guide a continuous, deep therapy & counseling session.\n"
-            "Analyze the user's latest message, emotional state, and recent conversation history.\n"
-            "Generate exactly ONE targeted, empathetic, probing follow-up question that helps the user unpack their feelings, explore root causes, or reflect deeply.\n\n"
-            "IMPORTANT RULES:\n"
-            "- ALWAYS generate a meaningful therapeutic question for EVERY turn (needs_question must be true).\n"
-            "- Do NOT ask generic surface-level questions (e.g. 'What is on your mind?').\n"
-            "- Ask specific, probing questions based directly on what the user just expressed.\n"
-            "- Do NOT re-ask questions from the 'Previously Asked' list below.\n\n"
+            "You are Aura's Contextual Question Engine.\n"
+            "Your goal is to formulate ONE highly relevant, insightful follow-up question based on the user's latest message.\n\n"
+            "RULES:\n"
+            "1. If the user asked a technical, academic, coding, or factual question, generate a question asking how they plan to apply it, what specific challenge they are tackling, or if they would like an example.\n"
+            "2. If the user shared a personal thought, goal, or stress, ask a warm, probing question to explore their perspective deeper.\n"
+            "3. NEVER ask generic clichés like 'What is on your mind?' or 'How are you feeling today?'.\n"
+            "4. NEVER re-ask questions from the 'Previously Asked' list.\n"
+            "5. Keep the question brief, sharp, and natural.\n\n"
             "Return ONLY raw JSON matching this schema:\n"
-            '{"needs_question": true, "question": "Your targeted therapeutic follow-up question"}'
+            '{"needs_question": true, "question": "Your targeted follow-up question"}'
         )
 
     async def build(
@@ -115,33 +114,58 @@ class QuestionBuilder:
             # Strip markdown if present
             if content.startswith("```json"):
                 content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
+            question = None
+            try:
+                data = json.loads(content.strip())
+                if isinstance(data, dict):
+                    question = data.get("question")
+            except Exception:
+                # If LLM returned raw text question with a question mark
+                if "?" in content:
+                    lines = [line.strip() for line in content.splitlines() if "?" in line]
+                    if lines:
+                        question = lines[-1].strip('"` \t\n')
 
-            data = json.loads(content.strip())
+            if not question:
+                question = self._generate_contextual_fallback(user_message)
 
-            if data.get("needs_question") and data.get("question"):
-                question = data["question"]
+            if question:
+                question = question.strip('"` \t\n')
+                if not question.endswith("?"):
+                    question += "?"
 
-                # Final dedup check: don't re-ask similar questions
+                # Dedup check: don't re-ask similar questions
                 question_lower = question.lower()
                 for prev in asked:
                     if prev.lower() in question_lower or question_lower in prev.lower():
                         logger.debug("Duplicate question suppressed", question=question)
-                        return None
+                        question = "What aspect of this would you like to explore or focus on next?"
+                        break
 
                 self._asked_questions.append(question)
                 self._last_question_turn = turn_count
                 logger.info("QuestionBuilder generated follow-up", question=question)
                 return question
 
-            return None
+            return self._generate_contextual_fallback(user_message)
 
         except Exception as e:
-            logger.warning("QuestionBuilder failed", error=str(e))
-            return None
+            logger.warning("QuestionBuilder failed, using contextual fallback", error=str(e))
+            fallback = self._generate_contextual_fallback(user_message)
+            self._asked_questions.append(fallback)
+            self._last_question_turn = turn_count
+            return fallback
+
+    def _generate_contextual_fallback(self, user_message: str) -> str:
+        """Generate a reliable fallback follow-up question based on user keywords."""
+        msg = user_message.lower().strip()
+        if any(w in msg for w in ["what", "how", "why", "when", "where", "explain", "meaning", "definition", "difference", "frequency", "concept"]):
+            return "How are you planning to apply or use this concept in your current work or project?"
+        if any(w in msg for w in ["feel", "stressed", "tired", "anxious", "overwhelmed", "sad", "worry", "upset", "down"]):
+            return "What do you feel has been contributing the most to that feeling lately?"
+        if any(w in msg for w in ["goal", "project", "exam", "interview", "job", "career", "study", "code", "work", "task"]):
+            return "What is the next key milestone or challenge you're focusing on with that?"
+        return "What are your thoughts on this, and what would you like to explore next?"
 
     @property
     def asked_questions(self) -> list[str]:

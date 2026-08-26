@@ -167,7 +167,8 @@ export function AnalyticsScreen() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto pb-12 select-none px-2 sm:px-4">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
+      <div className="max-w-6xl mx-auto">
       {/* Header & Timeframe Selector */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -513,6 +514,7 @@ export function AnalyticsScreen() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );
