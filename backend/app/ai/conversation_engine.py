@@ -110,6 +110,7 @@ class ConversationEngine:
         debug_out: dict[str, Any] | None = None,
         mode: str | None = None,
         enable_thinking: bool | None = None,
+        preferred_language: str | None = None,
     ) -> AsyncIterator[StreamChunk] | str:
         """Main pipeline entrypoint.
 
@@ -157,6 +158,7 @@ class ConversationEngine:
             recent_history=recent_history,
             conversation_summary=self._summarizer.current_summary,
             previously_asked_questions=self._question_builder.asked_questions,
+            preferred_language=preferred_language,
         )
 
         # Run concurrently
@@ -225,6 +227,7 @@ class ConversationEngine:
             conversation_history=history_str,
             turn_count=turn,
             previously_asked=context_obj.previously_asked_questions,
+            preferred_language=context_obj.preferred_language,
         )
 
         if self._analytics:

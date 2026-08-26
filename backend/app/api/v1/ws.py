@@ -8,7 +8,7 @@ Supports:
 - Structured JSON message protocol
 
 Message protocol (client → server):
-  {"type": "message",   "content": "...", "session_id": null}
+  {"type": "message",   "content": "...", "session_id": null, "language": "hi-IN"}
   {"type": "interrupt"} — cancel current AI generation (barge-in)
   {"type": "ping"}      — keepalive ping
 
@@ -136,6 +136,7 @@ async def websocket_chat(websocket: WebSocket) -> None:
                     session_id = msg.get("session_id") or current_session_id
                     mode = msg.get("mode")
                     enable_thinking = msg.get("enable_thinking")
+                    language = msg.get("language")
 
                     # Reset cancel event for this new generation
                     cancel_event.clear()
@@ -149,6 +150,7 @@ async def websocket_chat(websocket: WebSocket) -> None:
                             session_id=session_id,
                             mode=mode,
                             enable_thinking=enable_thinking,
+                            language=language,
                         ):
                             # Check for barge-in cancellation
                             if cancel_event.is_set() and event.get("type") in ("chunk", "start"):
@@ -162,7 +164,12 @@ async def websocket_chat(websocket: WebSocket) -> None:
                                 current_session_id = event.get("session_id")
                     except Exception as m_err:
                         logger.error("Message processing error", user_id=user_id, error=str(m_err))
-                        fallback_txt = "I hear you, and I'm right here with you. Take a slow, deep breath. What's on your mind today?"
+                        is_hindi = isinstance(language, str) and language.lower().startswith("hi")
+                        fallback_txt = (
+                            "मैं आपकी बात सुन रही हूँ और आपके साथ हूँ। धीरे से एक गहरी साँस लीजिए। अभी आपके मन में क्या चल रहा है?"
+                            if is_hindi
+                            else "I hear you, and I'm right here with you. Take a slow, deep breath. What's on your mind today?"
+                        )
                         await _send_json(websocket, {"type": "start"})
                         await _send_json(websocket, {"type": "chunk", "content": fallback_txt})
                         await _send_json(websocket, {"type": "done", "response": fallback_txt})

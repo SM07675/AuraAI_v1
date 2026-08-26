@@ -41,3 +41,17 @@ async def test_context_builder_builds_correctly():
     assert context.interests == "coding, music"
     assert context.conversation_summary == "User said hello"
     assert len(context.recent_history) == 1
+
+
+@pytest.mark.asyncio
+async def test_context_builder_allows_per_turn_language_override():
+    mock_db = AsyncMock()
+    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+
+    context = await ContextBuilder(mock_db).build(
+        user=User(id=1, name="Asha", preferred_language="en"),
+        session=Session(id=101),
+        preferred_language="hi-IN",
+    )
+
+    assert context.preferred_language == "hi-IN"
