@@ -28,6 +28,21 @@ _RESPONSE_FALLBACK = (
     "Please try again in a moment."
 )
 
+_SUPPORTED_RESPONSE_LANGUAGES = {
+    "hi": "hi-IN",
+    "hi-in": "hi-IN",
+    "en": "en",
+    "en-in": "en-IN",
+    "en-us": "en-US",
+}
+
+
+def normalize_response_language(language: str | None) -> str | None:
+    """Normalize a client locale to a safe prompt-language override."""
+    if not language:
+        return None
+    return _SUPPORTED_RESPONSE_LANGUAGES.get(language.strip().lower())
+
 
 class ConversationService:
     """Orchestrates the full conversation pipeline."""
@@ -195,6 +210,7 @@ class ConversationService:
         emotion_payload: dict | None = None,
         mode: str | None = None,
         enable_thinking: bool | None = None,
+        language: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Process a text message and yield streaming SSE events.
 
@@ -212,6 +228,7 @@ class ConversationService:
             return
 
         user_name = user.name.split()[0] if user.name else "there"
+        response_language = normalize_response_language(language)
 
         # 1. Get/create session
         try:
@@ -271,6 +288,7 @@ class ConversationService:
                 debug_out=debug_out,
                 mode=mode,
                 enable_thinking=enable_thinking,
+                preferred_language=response_language,
             )
             
             # Yield debug data if available

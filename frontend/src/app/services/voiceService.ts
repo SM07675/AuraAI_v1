@@ -97,6 +97,21 @@ export const CURATED_VOICES: VoicePersona[] = [
   },
 ];
 
+export const DEFAULT_VOICE_BY_LANGUAGE: Record<string, string> = {
+  "hi-IN": "hi-IN-SwaraNeural",
+  "en-IN": "en-IN-NeerjaExpressiveNeural",
+  "en-US": "en-US-AriaNeural",
+};
+
+export function isVoiceCompatibleWithLanguage(voiceId: string, language: string): boolean {
+  const voice = CURATED_VOICES.find((candidate) => candidate.id === voiceId);
+  return voice?.locale === language;
+}
+
+export function getDefaultVoiceForLanguage(language: string): string {
+  return DEFAULT_VOICE_BY_LANGUAGE[language] || DEFAULT_VOICE_BY_LANGUAGE["en-IN"];
+}
+
 /**
  * Strips markdown symbols, URLs, and noisy emojis from text before speaking.
  * Fully preserves Hindi (Devanagari \u0900-\u097F), Latin, numbers, and natural punctuation.
@@ -167,10 +182,10 @@ class NaturalVoiceEngine {
         this.activeLanguage = savedLang;
       }
       const savedVoice = localStorage.getItem("aura_selected_voice");
-      if (savedVoice && CURATED_VOICES.some((v) => v.id === savedVoice)) {
+      if (savedVoice && isVoiceCompatibleWithLanguage(savedVoice, this.activeLanguage)) {
         this.activeVoiceId = savedVoice;
-      } else if (this.activeLanguage === "hi-IN") {
-        this.activeVoiceId = "hi-IN-SwaraNeural";
+      } else {
+        this.activeVoiceId = getDefaultVoiceForLanguage(this.activeLanguage);
       }
     }
   }
@@ -188,16 +203,14 @@ class NaturalVoiceEngine {
     if (typeof window !== "undefined") {
       localStorage.setItem("aura_stt_language", lang);
     }
-    // Auto-select corresponding voice if appropriate
-    if (lang === "hi-IN" && !this.activeVoiceId.startsWith("hi-IN")) {
-      this.setVoice("hi-IN-SwaraNeural");
-    } else if (lang === "en-IN" && this.activeVoiceId.startsWith("hi-IN")) {
-      this.setVoice("en-IN-NeerjaExpressiveNeural");
+    // Never carry an English voice into Hindi mode (or vice versa).
+    if (!isVoiceCompatibleWithLanguage(this.activeVoiceId, lang)) {
+      this.setVoice(getDefaultVoiceForLanguage(lang));
     }
   }
 
   public setVoice(voiceId: string) {
-    if (CURATED_VOICES.some((v) => v.id === voiceId)) {
+    if (isVoiceCompatibleWithLanguage(voiceId, this.activeLanguage)) {
       this.activeVoiceId = voiceId;
       if (typeof window !== "undefined") {
         localStorage.setItem("aura_selected_voice", voiceId);
@@ -216,9 +229,20 @@ class NaturalVoiceEngine {
   public isEcho(incomingText: string): boolean {
     if (!incomingText || !this.lastSpokenCleanText) return false;
 
-    // Unicode-aware normalization preserving Devanagari and Latin letters
-    const cleanInc = incomingText.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
-    const cleanLast = this.lastSpokenCleanText.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+    // Speaker bleed is only plausible while Aura is speaking or just after it stops.
+    if (!this.isSpeakingState && Date.now() - this.lastSpeechEndTime > 2500) {
+      return false;
+    }
+
+    // Preserve Unicode marks (\p{M}); Hindi matras otherwise disappear during matching.
+    const normalize = (value: string) => value
+      .normalize("NFC")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const cleanInc = normalize(incomingText);
+    const cleanLast = normalize(this.lastSpokenCleanText);
 
     if (!cleanInc || !cleanLast) return false;
 
@@ -227,11 +251,13 @@ class NaturalVoiceEngine {
       return true;
     }
 
-    // Word overlap check: if more than 40% of the words are in Aura's text
-    const incWords = cleanInc.split(/\s+/).filter((w) => w.length > 1);
+    // Exact-token overlap avoids false matches from common Hindi words and substrings.
+    const stopWords = new Set(["है", "हैं", "था", "थी", "मैं", "आप", "और", "की", "के", "को", "से", "a", "an", "the", "is", "are", "i", "you"]);
+    const incWords = cleanInc.split(/\s+/).filter((word) => word.length > 1 && !stopWords.has(word));
+    const lastWords = new Set(cleanLast.split(/\s+/).filter((word) => word.length > 1 && !stopWords.has(word)));
     if (incWords.length >= 2) {
-      const matches = incWords.filter((w) => cleanLast.includes(w));
-      if (matches.length / incWords.length >= 0.4) {
+      const matches = incWords.filter((word) => lastWords.has(word));
+      if (matches.length >= 2 && matches.length / incWords.length >= 0.6) {
         return true;
       }
     }
@@ -310,8 +336,15 @@ class NaturalVoiceEngine {
     this.setSpeaking(true);
     options?.onStart?.();
 
-    const selectedVoice = options?.voice || this.activeVoiceId;
-    const cacheKey = `${clean}::${selectedVoice}::${options?.emotion || ""}`;
+    const requestedVoice = options?.voice || this.activeVoiceId;
+    const selectedVoice = isVoiceCompatibleWithLanguage(requestedVoice, this.activeLanguage)
+      ? requestedVoice
+      : getDefaultVoiceForLanguage(this.activeLanguage);
+    // The backend applies locale-aware Hindi defaults; explicit caller settings
+    // remain available for emotion-specific or accessibility adjustments.
+    const effectiveRate = options?.rate;
+    const effectivePitch = options?.pitch;
+    const cacheKey = `${clean}::${selectedVoice}::${options?.emotion || ""}::${effectiveRate || ""}::${effectivePitch || ""}`;
 
     // 1. Check browser memory cache
     const cachedBlobUrl = this.audioCache.get(cacheKey);
@@ -332,8 +365,8 @@ class NaturalVoiceEngine {
           text: clean,
           voice: selectedVoice,
           emotion: options?.emotion,
-          rate: options?.rate,
-          pitch: options?.pitch,
+          rate: effectiveRate,
+          pitch: effectivePitch,
         }),
         signal: this.abortController.signal,
       });
@@ -479,16 +512,16 @@ class NaturalVoiceEngine {
 
       window.speechSynthesis.cancel();
 
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
-
       const voices = window.speechSynthesis.getVoices();
       const targetPersona = CURATED_VOICES.find((v) => v.id === requestedVoiceId);
+      const isHindi = targetPersona?.locale?.startsWith("hi") === true;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = isHindi ? 0.9 : 0.95;
+      utterance.pitch = isHindi ? 1.0 : 1.05;
 
       if (voices.length > 0) {
         const langPrefix = (targetPersona?.locale || "en-IN").split("-")[0].toLowerCase();
-        const isHindi = targetPersona?.locale?.startsWith("hi") || langPrefix === "hi";
         const matchingVoice =
           (isHindi
             ? voices.find((v) => v.name.toLowerCase().includes("swara") || v.name.toLowerCase().includes("madhur") || v.lang.toLowerCase().startsWith("hi")) ||

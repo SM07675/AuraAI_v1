@@ -205,17 +205,24 @@ class SpeechRecognitionEngine {
       };
 
       rec.onresult = (event: any) => {
-        let interim = "";
-        let final = "";
+        const interimParts: string[] = [];
+        const finalParts: string[] = [];
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
+          const text = item[0]?.transcript?.trim();
+          if (!text) continue;
           if (item.isFinal) {
-            final += item[0].transcript;
+            finalParts.push(text);
           } else {
-            interim += item[0].transcript;
+            interimParts.push(text);
           }
         }
+
+        // Browsers can return multiple finalized segments in one event. Joining them
+        // explicitly prevents Hindi words from being accidentally concatenated.
+        const interim = interimParts.join(" ");
+        const final = finalParts.join(" ");
 
         // Acoustic Echo & Mutual Exclusion Safeguard
         if (voiceService.isSpeaking()) {

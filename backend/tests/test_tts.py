@@ -5,7 +5,7 @@ Tests for Neural TTS Endpoint and Text Normalization.
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
-from app.api.v1.tts import clean_text_for_speech, get_emotion_prosody
+from app.api.v1.tts import clean_text_for_speech, get_emotion_prosody, get_voice_prosody
 
 
 def test_clean_text_for_speech():
@@ -32,6 +32,11 @@ def test_clean_text_for_speech():
     assert "✨" not in clean_emoji
     assert "I am happy! Let's meditate and relax." in clean_emoji
 
+    # 4. Preserve Hindi matras and normalize Devanagari sentence punctuation
+    raw_hindi = "  हिंदी ।। मैं ठीक हूँ  ।  ```print('not spoken')```"
+    clean_hindi = clean_text_for_speech(raw_hindi)
+    assert clean_hindi == "हिंदी। मैं ठीक हूँ।"
+
 
 def test_emotion_prosody():
     r, p = get_emotion_prosody("sad")
@@ -45,6 +50,13 @@ def test_emotion_prosody():
     r_none, p_none = get_emotion_prosody(None)
     assert r_none == "+0%"
     assert p_none == "+0Hz"
+
+    r_hindi, p_hindi = get_voice_prosody("hi-IN-SwaraNeural")
+    assert r_hindi == "-4%"
+    assert p_hindi == "+0Hz"
+
+    r_hindi_calm, _ = get_voice_prosody("hi-IN-SwaraNeural", "calm")
+    assert r_hindi_calm == "-5%"
 
 
 @pytest.mark.asyncio

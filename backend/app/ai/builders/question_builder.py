@@ -61,6 +61,7 @@ class QuestionBuilder:
         conversation_history: str,
         turn_count: int = 0,
         previously_asked: list[str] | None = None,
+        preferred_language: str | None = None,
     ) -> str | None:
         """Determine if a follow-up question should be asked.
 
@@ -94,6 +95,7 @@ class QuestionBuilder:
             f"- Skills: {user.skills or 'None'}\n"
             f"- Projects: {user.projects or 'None'}\n"
             f"- Learning Style: {user.learning_style or 'Not set'}\n"
+            f"- Response Language: {preferred_language or user.preferred_language or 'en'}\n"
             f"{asked_section}\n"
             f"Recent Conversation:\n{conversation_history}\n\n"
             f"Latest Message: {user_message}"
