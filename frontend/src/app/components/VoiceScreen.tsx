@@ -36,7 +36,9 @@ export function VoiceScreen() {
   const speakText = (textToSpeak: string, voiceId?: string) => {
     setSpeaking(true);
     voiceService.speak(textToSpeak, {
-      voice: voiceId || selectedVoice,
+      // Read from the service so WebSocket callbacks never retain an old voice
+      // after switching between Swara and Madhur in the same language.
+      voice: voiceId || voiceService.activeVoice,
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
       onError: () => setSpeaking(false),
@@ -396,7 +398,7 @@ export function VoiceScreen() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[260px] overflow-y-auto pr-1">
-                {CURATED_VOICES.map((v) => {
+                {CURATED_VOICES.filter((v) => v.locale === currentLang).map((v) => {
                   const isSelected = v.id === selectedVoice;
                   return (
                     <div
