@@ -39,6 +39,7 @@ class StreamingTtsEngine {
   private sentenceQueue: QueuedSentence[] = [];
   private isPlayerLoopRunning = false;
   private options: StreamingTtsOptions = {};
+  private firstPhraseTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     duplexManager.onInterrupt(() => {
@@ -71,6 +72,7 @@ class StreamingTtsEngine {
 
     this.buffer += chunk;
     this.extractAndQueueSentences(false);
+    this.scheduleFirstPhraseFlush();
   }
 
   /**
@@ -80,6 +82,7 @@ class StreamingTtsEngine {
     if (!this.isStreamActive) return;
 
     this.extractAndQueueSentences(true);
+    this.clearFirstPhraseTimer();
     this.isStreamActive = false;
   }
 
@@ -92,6 +95,7 @@ class StreamingTtsEngine {
     this.buffer = "";
     this.sentenceIndex = 0;
     this.sentenceQueue = [];
+    this.clearFirstPhraseTimer();
 
     if (this.abortController) {
       try {
@@ -101,6 +105,7 @@ class StreamingTtsEngine {
     }
 
     audioEngine.stopAllPlaybackImmediate(15);
+    duplexManager.notifyTtsStopped();
   }
 
   public get generationId(): number {
@@ -151,12 +156,41 @@ class StreamingTtsEngine {
     this.buffer = remaining;
   }
 
+  /** Queue a short first phrase even if the model has not emitted punctuation. */
+  private scheduleFirstPhraseFlush() {
+    if (this.sentenceIndex > 0 || this.firstPhraseTimer || this.buffer.trim().length < 18) {
+      return;
+    }
+    const generationId = this.currentGenerationId;
+    this.firstPhraseTimer = setTimeout(() => {
+      this.firstPhraseTimer = null;
+      if (!this.isStreamActive || generationId !== this.currentGenerationId || this.sentenceIndex > 0) {
+        return;
+      }
+      const candidate = this.buffer.trim();
+      if (candidate.length < 18) return;
+      const preferredEnd = Math.min(candidate.length, 72);
+      const splitAt = candidate.lastIndexOf(" ", preferredEnd);
+      const phraseEnd = splitAt >= 18 ? splitAt : preferredEnd;
+      this.queueSentence(candidate.slice(0, phraseEnd));
+      this.buffer = candidate.slice(phraseEnd).trimStart();
+    }, 180);
+  }
+
+  private clearFirstPhraseTimer() {
+    if (this.firstPhraseTimer) {
+      clearTimeout(this.firstPhraseTimer);
+      this.firstPhraseTimer = null;
+    }
+  }
+
   private queueSentence(rawSentence: string) {
     const clean = cleanTextForSpeech(rawSentence);
     if (!clean || clean.length < 2) return;
 
     const genId = this.currentGenerationId;
     const idx = this.sentenceIndex++;
+    if (idx === 0) this.clearFirstPhraseTimer();
 
     // Dispatch parallel fetch for this sentence immediately
     const blobPromise = this.fetchSentenceAudio(clean, genId);
