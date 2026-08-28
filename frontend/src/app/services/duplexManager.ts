@@ -88,7 +88,7 @@ const DEFAULT_CONFIG: DuplexConfig = {
   ])
 };
 
-class FullDuplexManager {
+export class FullDuplexManager {
   private state: ConversationState = "IDLE";
   private generationId = 0;
   private config: DuplexConfig = { ...DEFAULT_CONFIG };
@@ -232,6 +232,52 @@ class FullDuplexManager {
 
   public getPlaybackState(): PlaybackMetadata {
     return { ...this.playbackState };
+  }
+
+  /**
+   * React to the browser's speech-onset event before a transcript exists.
+   * This mirrors Live API VAD behaviour: duck immediately, then use acoustic
+   * telemetry to stop playback early when speech is clearly not speaker echo.
+   */
+  public notifySpeechStart(): void {
+    const telem = audioEngine.getTelemetry();
+    const isAuraActive =
+      this.playbackState.isSpeaking ||
+      this.state === "AURA_SPEAKING" ||
+      this.state === "POSSIBLE_INTERRUPT" ||
+      telem.isTtsActive === 1;
+
+    if (!isAuraActive) {
+      this.transitionTo("USER_SPEAKING", "Browser VAD detected speech onset");
+      return;
+    }
+
+    this.clearPendingInterrupt();
+    this.transitionTo("POSSIBLE_INTERRUPT", "Speech onset; ducking while attribution is confirmed");
+    this.pendingInterruptTimer = setTimeout(() => {
+      if (this.state !== "POSSIBLE_INTERRUPT") return;
+      const latest = audioEngine.getTelemetry();
+      const aboveNoiseFloor = latest.micRms > Math.max(0.008, latest.noiseFloor * 1.6);
+      if (
+        aboveNoiseFloor &&
+        latest.userSpeechProb >= 0.58 &&
+        latest.acousticEchoProb < this.config.echoThreshold
+      ) {
+        this.triggerBargeIn("acoustic speech onset");
+      }
+    }, Math.min(140, this.config.confirmationWindowMs));
+  }
+
+  public notifySpeechEnd(): void {
+    if (this.state === "POSSIBLE_INTERRUPT") {
+      this.clearPendingInterrupt();
+      this.transitionTo(
+        this.playbackState.isSpeaking ? "AURA_SPEAKING" : "LISTENING",
+        "Speech onset ended without a confirmed interruption"
+      );
+    } else if (this.state === "USER_SPEAKING" && !this.playbackState.isSpeaking) {
+      this.transitionTo("LISTENING", "User speech ended");
+    }
   }
 
   // ── Multi-Signal Speaker Attribution & Interruption Classifier ───────────────
