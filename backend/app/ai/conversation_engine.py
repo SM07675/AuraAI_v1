@@ -24,32 +24,31 @@ passes through the complete pipeline.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIRequest, AIResponse, StreamChunk
-from app.ai.gateway import AIGateway
-from app.ai.builders.context_builder import ContextBuilder, ContextObject
+from app.ai.builders.context_builder import ContextBuilder
 from app.ai.builders.interest_builder import InterestBuilder
 from app.ai.builders.memory_builder import MemoryBuilder
-from app.prompts.builder import PromptBuilder
 from app.ai.builders.question_builder import QuestionBuilder
 from app.ai.builders.response_builder import ResponseBuilder
-
+from app.ai.gateway import AIGateway
+from app.ai.turn_directive import TurnDirectiveClassifier
+from app.core.logging_config import get_logger
 from app.emotion.base import EmotionContext
 from app.emotion.service import EmotionService
+from app.models.session import Session
+from app.models.user import User
+from app.prompts.builder import PromptBuilder
+from app.safety.crisis_detector import CrisisDetector
+from app.safety.escalation import CrisisEscalation
 from app.services.analytics_service import AnalyticsService
 from app.services.conversation_summarizer import ConversationSummarizer
 from app.services.goal_engine import GoalEngine
-from app.safety.crisis_detector import CrisisDetector
-from app.safety.escalation import CrisisEscalation
-from app.ai.turn_directive import TurnDirectiveClassifier
 from app.services.solution_library import SolutionLibrary
-
-from app.core.logging_config import get_logger
-from app.models.session import Session
-from app.models.user import User
 
 logger = get_logger(__name__)
 
@@ -111,6 +110,8 @@ class ConversationEngine:
         mode: str | None = None,
         enable_thinking: bool | None = None,
         preferred_language: str | None = None,
+        turn_count: int | None = None,
+        previously_asked_questions: list[str] | None = None,
     ) -> AsyncIterator[StreamChunk] | str:
         """Main pipeline entrypoint.
 
@@ -128,8 +129,17 @@ class ConversationEngine:
             streaming: If True, returns async generator; if False, returns string.
             interrupt_event: Optional event for voice barge-in support.
         """
-        self._turn_count += 1
+        if turn_count is None:
+            self._turn_count += 1
+        else:
+            self._turn_count = max(self._turn_count, turn_count)
         turn = self._turn_count
+
+        restored_questions = list(previously_asked_questions or [])
+        for message in recent_history:
+            if message.get("role") != "assistant":
+                continue
+            restored_questions.extend(self._extract_questions(message.get("content", "")))
 
         # Update DB injection for ContextBuilder
         self._context_builder._db = db
@@ -139,7 +149,7 @@ class ConversationEngine:
 
         # ── Fast Path (Parallel Execution) ────────────────────────
         crisis_task = asyncio.to_thread(self._crisis_detector.check_for_crisis, user_message)
-        
+
         # Emotion analysis
         if emotion_context is None:
             emotion_task = self._emotion_service.analyze_and_fuse(text=user_message)
@@ -149,26 +159,29 @@ class ConversationEngine:
 
         # Turn directive classification
         directive_task = self._turn_directive.classify(user_message, session.phase, turn)
-        
+
         # Profile/Memory retrieval (ContextBuilder without waiting for emotion)
         context_task = self._context_builder.build(
             user=user,
             session=session,
             emotion_context=None,
             recent_history=recent_history,
-            conversation_summary=self._summarizer.current_summary,
-            previously_asked_questions=self._question_builder.asked_questions,
+            conversation_summary=session.summary or self._summarizer.current_summary,
+            previously_asked_questions=(
+                restored_questions + self._question_builder.asked_questions
+            )[-20:],
             preferred_language=preferred_language,
+            user_message=user_message,
         )
 
         # Run concurrently
         (is_crisis, crisis_trigger), emotion_context, turn_directive, context_obj = await asyncio.gather(
             crisis_task, emotion_task, directive_task, context_task
         )
-        
+
         # Inject the late-resolved emotion context into the context object
         context_obj.emotion_context = emotion_context
-        
+
         if self._analytics:
             self._analytics.end_stage("fast_path")
 
@@ -183,35 +196,14 @@ class ConversationEngine:
                 action_taken="resource_injected"
             )
             crisis_context_str = escalation.get_crisis_context()
-            
+
         # ── Advance Phase ─────────────────────────────────────────
         session.phase = turn_directive.phase
-        
+
         # ── Solution Retrieval ────────────────────────────────────
         retrieved_solution = None
         if turn_directive.offerSolution and turn_directive.problemDetected:
             retrieved_solution = await self._solution_library.get_solution(turn_directive.concernCategory)
-
-        # ── Stage 2: Conversation Summary Check ───────────────────
-        # Note: conversation summary check happens independently here
-        # so it doesn't block the fast path.
-        if self._summarizer.should_summarize(turn):
-            if self._analytics:
-                self._analytics.start_stage("summarization")
-            try:
-                summary = await self._summarizer.summarize_and_store(
-                    db=db,
-                    session_id=session.id,
-                    user_id=user.id,
-                    conversation_history=recent_history,
-                    turn_count=turn,
-                )
-                if summary:
-                    context_obj.conversation_summary = summary
-            except Exception as e:
-                logger.warning("Summarization failed", error=str(e))
-            if self._analytics:
-                self._analytics.end_stage("summarization")
 
         # ── Stage 4: Question Builder ─────────────────────────────
         if self._analytics:
@@ -228,12 +220,19 @@ class ConversationEngine:
             turn_count=turn,
             previously_asked=context_obj.previously_asked_questions,
             preferred_language=context_obj.preferred_language,
+            relevant_memories=context_obj.long_term_memories,
+            conversation_summary=context_obj.conversation_summary,
+            previous_session_context=context_obj.previous_session_context,
         )
 
         if self._analytics:
             self._analytics.end_stage("question_building")
 
-        turn_directive_dict = turn_directive.__dict__.copy() if hasattr(turn_directive, "__dict__") else dict(turn_directive or {})
+        turn_directive_dict = (
+            turn_directive.__dict__.copy()
+            if hasattr(turn_directive, "__dict__")
+            else dict(turn_directive or {})
+        )
         if targeted_question:
             turn_directive_dict["mustAskFollowUp"] = True
             turn_directive_dict["nextQuestionSeed"] = targeted_question
@@ -246,14 +245,29 @@ class ConversationEngine:
             user_name=context_obj.user_name,
             user_message=user_message,
             emotion_data=emotion_context,
-            user_profile={"interests": ",".join(context_obj.interests) if isinstance(context_obj.interests, list) else context_obj.interests, "goals": ",".join(context_obj.goals) if isinstance(context_obj.goals, list) else context_obj.goals, "preferred_language": context_obj.preferred_language, "communication_style": context_obj.communication_style},
+            user_profile={
+                "interests": (
+                    ",".join(context_obj.interests)
+                    if isinstance(context_obj.interests, list)
+                    else context_obj.interests
+                ),
+                "goals": (
+                    ",".join(context_obj.goals)
+                    if isinstance(context_obj.goals, list)
+                    else context_obj.goals
+                ),
+                "preferred_language": context_obj.preferred_language,
+                "communication_style": context_obj.communication_style,
+            },
             long_term_memories=context_obj.long_term_memories,
             conversation_history=recent_history,
             crisis_context=crisis_context_str,
             turn_directive=turn_directive_dict,
             retrieved_solution=retrieved_solution,
+            conversation_summary=context_obj.conversation_summary,
+            previous_session_context=context_obj.previous_session_context,
             targeted_question=targeted_question,
-            mode=mode,
+            mode=mode or "chat",
         )
 
         if self._analytics:
@@ -283,6 +297,9 @@ class ConversationEngine:
         if debug_out is not None:
             debug_out["system_prompt"] = system_prompt
             debug_out["memory"] = context_obj.long_term_memories
+            debug_out["previous_session_context"] = context_obj.previous_session_context
+            debug_out["conversation_summary"] = context_obj.conversation_summary
+            debug_out["targeted_question"] = targeted_question
             debug_out["emotion"] = emotion_context.to_prompt_dict() if emotion_context else None
             debug_out["history"] = recent_history
             debug_out["user_message"] = user_message
@@ -365,7 +382,7 @@ class ConversationEngine:
     ) -> AsyncIterator[StreamChunk]:
         """Handle streaming responses with token filtering and interrupt support."""
         from app.ai.builders.response_builder import ThinkingStreamFilter
-        
+
         if self._analytics:
             self._analytics.start_stage("ai_streaming")
 
@@ -405,3 +422,13 @@ class ConversationEngine:
     def summarizer(self) -> ConversationSummarizer:
         """Access the conversation summarizer."""
         return self._summarizer
+
+    @staticmethod
+    def _extract_questions(text: str) -> list[str]:
+        """Recover recent asked questions from persisted assistant messages."""
+        questions: list[str] = []
+        for fragment in text.replace("\n", " ").split("?")[:-1]:
+            candidate = fragment.strip().rsplit(".", 1)[-1].strip()
+            if candidate:
+                questions.append(f"{candidate}?")
+        return questions[-3:]

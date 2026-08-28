@@ -7,10 +7,11 @@ Flow: receive input → emotion analysis → build prompt → AI streaming
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.conversation_engine import ConversationEngine
@@ -107,7 +108,10 @@ class ConversationService:
         try:
             result = await self._db.execute(
                 select(Message)
-                .where(Message.session_id == session_id)
+                .where(
+                    Message.session_id == session_id,
+                    Message.user_id == user_id,
+                )
                 .order_by(Message.created_at.asc())
             )
             return list(result.scalars().all())
@@ -130,8 +134,28 @@ class ConversationService:
                 session = Session(id=session_id, user_id=user_id, status=SessionStatus.ENDED.value)
                 return session
 
+            history = await self._get_conversation_history(
+                session_id=session_id,
+                user_id=user_id,
+                limit=24,
+            )
+            user_turns = sum(message.get("role") == MessageRole.USER.value for message in history)
+            if history:
+                try:
+                    await self._conversation_engine.summarizer.summarize_and_store(
+                        db=self._db,
+                        session_id=session.id,
+                        user_id=user_id,
+                        conversation_history=history,
+                        turn_count=user_turns,
+                        existing_summary=session.summary,
+                        force=True,
+                    )
+                except Exception as exc:
+                    logger.warning("Final session summary failed", error=str(exc))
+
             session.status = SessionStatus.ENDED.value
-            session.ended_at = datetime.now(timezone.utc)
+            session.ended_at = datetime.now(UTC)
             await self._db.commit()
             await self._db.refresh(session)
             return session
@@ -174,12 +198,20 @@ class ConversationService:
                 communication_style="balanced",
             )
 
-    async def _get_conversation_history(self, session_id: int, limit: int = 10) -> list[dict]:
+    async def _get_conversation_history(
+        self,
+        session_id: int,
+        user_id: int,
+        limit: int = 10,
+    ) -> list[dict]:
         """Get recent messages formatted for prompt injection."""
         try:
             result = await self._db.execute(
                 select(Message)
-                .where(Message.session_id == session_id)
+                .where(
+                    Message.session_id == session_id,
+                    Message.user_id == user_id,
+                )
                 .order_by(Message.created_at.desc())
                 .limit(limit)
             )
@@ -192,6 +224,21 @@ class ConversationService:
                 pass
             logger.warning("Database offline in _get_conversation_history", error=str(exc))
             return []
+
+    async def _count_user_turns(self, session_id: int, user_id: int) -> int:
+        """Count persisted user turns so state survives service recreation."""
+        try:
+            result = await self._db.execute(
+                select(func.count(Message.id)).where(
+                    Message.session_id == session_id,
+                    Message.user_id == user_id,
+                    Message.role == MessageRole.USER.value,
+                )
+            )
+            return int(result.scalar() or 0)
+        except Exception as exc:
+            logger.warning("Database offline in _count_user_turns", error=str(exc))
+            return 0
 
     async def _save_message(
         self,
@@ -256,7 +303,6 @@ class ConversationService:
             yield {"type": "error", "error": "User not found", "code": "USER_NOT_FOUND"}
             return
 
-        user_name = user.name.split()[0] if user.name else "there"
         response_language = normalize_response_language(language)
 
         # 1. Get/create session
@@ -314,7 +360,11 @@ class ConversationService:
 
         # 3. Handle Auto-Greet
         if is_init:
-            content = "[SYSTEM DIRECTIVE: This is a brand new session. Greet the user warmly, introduce yourself as Aura (an AI wellness companion), and ask for their name. Keep it brief. Do not act like the user said this.]"
+            content = (
+                "[SYSTEM DIRECTIVE: This is a brand new session. Greet the user warmly, "
+                "introduce yourself as Aura (an AI wellness companion), and ask for their name. "
+                "Keep it brief. Do not act like the user said this.]"
+            )
         else:
             # Save user message
             await self._save_message(
@@ -328,8 +378,17 @@ class ConversationService:
         # 4. Stream AI response via ConversationEngine
         yield {"type": "start", "provider": "conversation_engine"}
 
-        history = await self._get_conversation_history(session.id, limit=8)
-        
+        history = await self._get_conversation_history(
+            session_id=session.id,
+            user_id=user_id,
+            limit=12,
+        )
+        turn_count = await self._count_user_turns(session.id, user_id)
+        if turn_count <= 0:
+            turn_count = sum(
+                message.get("role") == MessageRole.USER.value for message in history
+            )
+
         full_response = ""
         provider_used = "ai_gateway"
         debug_out = {}
@@ -340,22 +399,24 @@ class ConversationService:
                 session=session,
                 user_message=content,
                 emotion_context=fused,
-                recent_history=history if is_init else history[:-1], # For INIT, there is no user message in history to exclude
+                # For INIT, there is no user message in history to exclude.
+                recent_history=history if is_init else history[:-1],
                 streaming=True,
                 debug_out=debug_out,
                 mode=mode,
                 enable_thinking=enable_thinking,
                 preferred_language=response_language,
+                turn_count=turn_count,
             )
-            
+
             # Yield debug data if available
             if debug_out:
                 yield {"type": "debug", "data": debug_out}
-                
+
                 # Emit crisis event if flagged by safety layer
                 if debug_out.get("is_crisis"):
                     yield {"type": "crisis", "metadata": {"crisis": True}}
-            
+
             async for chunk in stream_gen:
                 if chunk and chunk.content:
                     full_response += chunk.content
@@ -381,6 +442,29 @@ class ConversationService:
             content=full_response,
             ai_provider=provider_used,
         )
+
+        # Persist a rolling summary in Session.summary so future requests and
+        # future chats can restore continuity even though this service object
+        # is recreated for every WebSocket message.
+        if self._conversation_engine.summarizer.should_summarize(turn_count):
+            try:
+                summary_history = await self._get_conversation_history(
+                    session_id=session.id,
+                    user_id=user_id,
+                    limit=24,
+                )
+                summary = await self._conversation_engine.summarizer.summarize_and_store(
+                    db=self._db,
+                    session_id=session.id,
+                    user_id=user_id,
+                    conversation_history=summary_history,
+                    turn_count=turn_count,
+                    existing_summary=session.summary,
+                )
+                if summary:
+                    session.summary = summary
+            except Exception as exc:
+                logger.warning("Rolling session summary failed", error=str(exc))
 
         # 7. Done
         yield {

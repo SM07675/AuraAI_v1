@@ -8,6 +8,8 @@ Semantic memory interface: Abstract hook for future vector DB integration.
 
 from __future__ import annotations
 
+import inspect
+import re
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -22,6 +24,14 @@ logger = get_logger(__name__)
 _STM_WINDOW = 10
 # Max long-term memories to inject into prompts
 _LTM_INJECT_LIMIT = 15
+
+_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+_MEMORY_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "for", "from", "i", "in",
+    "is", "it", "me", "my", "of", "on", "or", "that", "the", "this", "to",
+    "was", "we", "with", "you", "your", "है", "हैं", "था", "थी", "और",
+    "का", "की", "के", "को", "मैं", "मेरा", "मेरी", "से", "यह",
+}
 
 
 class MemoryService:
@@ -134,7 +144,91 @@ class MemoryService:
             query = query.where(LongTermMemory.memory_type == memory_type)
 
         result = await self._db.execute(query)
-        return list(result.scalars().all())
+        scalars = result.scalars()
+        if inspect.isawaitable(scalars):
+            scalars = await scalars
+        items = scalars.all()
+        if inspect.isawaitable(items):
+            items = await items
+        return list(items)
+
+    @staticmethod
+    def lexical_relevance(memory: LongTermMemory, query: str) -> float:
+        """Return topic overlap between the current message and one memory."""
+        query_tokens = {
+            token
+            for token in _TOKEN_RE.findall((query or "").lower())
+            if len(token) > 1 and token not in _MEMORY_STOP_WORDS
+        }
+        memory_text = f"{memory.key} {memory.value}".lower()
+        memory_tokens = {
+            token
+            for token in _TOKEN_RE.findall(memory_text)
+            if len(token) > 1 and token not in _MEMORY_STOP_WORDS
+        }
+
+        lexical_score = 0.0
+        if query_tokens and memory_tokens:
+            lexical_score = len(query_tokens & memory_tokens) / len(query_tokens)
+            if (query or "").strip().lower() in memory_text:
+                lexical_score = max(lexical_score, 0.9)
+        return lexical_score
+
+    @classmethod
+    def relevance_score(cls, memory: LongTermMemory, query: str) -> float:
+        """Score a memory using importance plus lightweight lexical relevance.
+
+        This deliberately has no external embedding dependency, so memory recall
+        remains useful on CPU-only installations and when AI providers are down.
+        """
+        lexical_score = cls.lexical_relevance(memory, query)
+
+        importance = min(1.0, max(0.0, float(memory.importance_score or 0.0)))
+        type_bonus = 0.08 if memory.memory_type in {
+            MemoryType.GOAL.value,
+            MemoryType.FACT.value,
+            MemoryType.PREFERENCE.value,
+        } else 0.0
+        return min(1.0, (importance * 0.55) + (lexical_score * 0.45) + type_bonus)
+
+    async def get_relevant_memory_context(
+        self,
+        user_id: int,
+        query: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Return memories ranked for the current message, ready for prompting."""
+        candidates = await self.get_long_term_memories(
+            user_id=user_id,
+            limit=max(40, limit * 4),
+        )
+        ranked = sorted(
+            candidates,
+            key=lambda memory: self.relevance_score(memory, query),
+            reverse=True,
+        )
+        if (query or "").strip():
+            directly_relevant = [
+                memory for memory in ranked
+                if self.lexical_relevance(memory, query) > 0
+            ]
+            important_background = [
+                memory for memory in ranked
+                if memory not in directly_relevant
+                and float(memory.importance_score or 0.0) >= 0.85
+            ][:3]
+            ranked = directly_relevant + important_background
+        ranked = ranked[:limit]
+        return [
+            {
+                "key": memory.key,
+                "value": memory.value,
+                "type": memory.memory_type,
+                "importance": memory.importance_score,
+                "relevance": round(self.relevance_score(memory, query), 3),
+            }
+            for memory in ranked
+        ]
 
     async def delete_memory(self, memory_id: int, user_id: int) -> bool:
         """Delete a specific long-term memory (user-owned only)."""

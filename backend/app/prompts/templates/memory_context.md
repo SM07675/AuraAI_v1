@@ -1,14 +1,12 @@
-## What You Remember
+## Relevant Long-Term Context
 
-{{ memories }}
-
-
-{% if conversation_history %}
-## Recent Conversation (this session)
-
-{% for turn in conversation_history %}
-**{{ turn.role | title }}**: {{ turn.content }}
+{% if long_term_memories %}
+Use these details only when they genuinely help with the user's current message:
+{% for memory in long_term_memories %}
+- {{ memory.key }}: {{ memory.value }}{% if memory.type %} ({{ memory.type }}){% endif %}
 {% endfor %}
 {% else %}
-This is the start of the conversation.
+No relevant long-term details are available yet.
 {% endif %}
+
+Do not tell the user that these details came from stored memory or a database.
