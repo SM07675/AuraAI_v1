@@ -7,6 +7,7 @@ Flow: receive input → emotion analysis → build prompt → AI streaming
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -287,6 +288,7 @@ class ConversationService:
         mode: str | None = None,
         enable_thinking: bool | None = None,
         language: str | None = None,
+        interrupt_event: asyncio.Event | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Process a text message and yield streaming SSE events.
 
@@ -298,6 +300,9 @@ class ConversationService:
         - done: Full response + metadata
         - error: Error occurred
         """
+        if interrupt_event and interrupt_event.is_set():
+            return
+
         user = await self._get_user(user_id)
         if not user:
             yield {"type": "error", "error": "User not found", "code": "USER_NOT_FOUND"}
@@ -312,6 +317,8 @@ class ConversationService:
             yield {"type": "error", "error": str(exc), "code": "SESSION_NOT_FOUND"}
             return
 
+        if interrupt_event and interrupt_event.is_set():
+            return
         yield {"type": "session_start", "session_id": session.id}
 
         # 2. Emotion analysis
@@ -356,6 +363,8 @@ class ConversationService:
             "sentiment": fused.sentiment,
             "conflict": fused.conflict,
         }
+        if interrupt_event and interrupt_event.is_set():
+            return
         yield {"type": "emotion", "data": emotion_dict}
 
         # 3. Handle Auto-Greet
@@ -374,6 +383,9 @@ class ConversationService:
                 content=content,
                 emotion_data=emotion_dict,
             )
+
+        if interrupt_event and interrupt_event.is_set():
+            return
 
         # 4. Stream AI response via ConversationEngine
         yield {"type": "start", "provider": "conversation_engine"}
@@ -407,6 +419,7 @@ class ConversationService:
                 enable_thinking=enable_thinking,
                 preferred_language=response_language,
                 turn_count=turn_count,
+                interrupt_event=interrupt_event,
             )
 
             # Yield debug data if available
@@ -418,6 +431,8 @@ class ConversationService:
                     yield {"type": "crisis", "metadata": {"crisis": True}}
 
             async for chunk in stream_gen:
+                if interrupt_event and interrupt_event.is_set():
+                    return
                 if chunk and chunk.content:
                     full_response += chunk.content
                     yield {"type": "chunk", "content": chunk.content}
@@ -429,6 +444,9 @@ class ConversationService:
         # Providers may terminate a successful stream without text.  Never
         # persist or send an empty assistant turn: keep the conversation usable
         # and make the fallback visible to every SSE client.
+        if interrupt_event and interrupt_event.is_set():
+            return
+
         if not full_response.strip():
             logger.warning("AI stream completed without response text", session_id=session.id)
             full_response = _RESPONSE_FALLBACK
@@ -442,6 +460,9 @@ class ConversationService:
             content=full_response,
             ai_provider=provider_used,
         )
+
+        if interrupt_event and interrupt_event.is_set():
+            return
 
         # Persist a rolling summary in Session.summary so future requests and
         # future chats can restore continuity even though this service object

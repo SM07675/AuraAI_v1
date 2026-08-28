@@ -137,6 +137,9 @@ export function FaceToFaceScreen() {
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatWs = useRef<WebSocket | null>(null);
+  const chatSessionIdRef = useRef<number | null>(null);
+  const serverGenerationRef = useRef(0);
+  const clientTurnIdRef = useRef(0);
 
   // ── Memory & Context State ───────────────────────────────────────────────────
   const [activeGoal] = useState("Stress Reduction & Balance");
@@ -327,11 +330,14 @@ export function FaceToFaceScreen() {
   // ── 3. Connect Main Chat WebSocket ──────────────────────────────────────────
   const faceEmotionRef = useRef(faceEmotion);
   faceEmotionRef.current = faceEmotion;
+  const currentVoiceIdRef = useRef(currentVoiceId);
+  currentVoiceIdRef.current = currentVoiceId;
 
   useEffect(() => {
     let socket: WebSocket;
     let isUnmounted = false;
     let reconnectTimeout: ReturnType<typeof setTimeout>;
+    let reconnectAttempt = 0;
 
     const connectChat = () => {
       if (isUnmounted) return;
@@ -341,16 +347,44 @@ export function FaceToFaceScreen() {
       chatWs.current = socket;
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "start", mode: "face_to_face" }));
+        reconnectAttempt = 0;
       };
 
       socket.onmessage = (evt) => {
         try {
           const data = JSON.parse(evt.data);
+          if (data.type === "ping") {
+            socket.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+          if (data.type === "interrupted") {
+            serverGenerationRef.current = Math.max(
+              serverGenerationRef.current,
+              Number(data.next_generation_id || data.generation_id || 0)
+            );
+            setTyping(false);
+            streamingTtsService.cancel();
+            voiceService.stop();
+            return;
+          }
+
+          const eventGeneration = Number(data.generation_id || 0);
+          if (eventGeneration > 0) {
+            if (eventGeneration < serverGenerationRef.current) {
+              return;
+            }
+            serverGenerationRef.current = eventGeneration;
+          }
+
+          if (data.type === "session_start") {
+            chatSessionIdRef.current = Number(data.session_id) || chatSessionIdRef.current;
+            return;
+          }
+
           if (data.type === "start") {
             setTyping(true);
             streamingTtsService.startStream({
-              voice: currentVoiceId,
+              voice: currentVoiceIdRef.current,
               emotion: faceEmotionRef.current.primary_emotion || "calm",
             });
           } else if (data.type === "emotion") {
@@ -405,10 +439,6 @@ export function FaceToFaceScreen() {
                 return [...prev, { id: "aura-" + Date.now(), from: "aura", text: reply }];
               });
             }
-          } else if (data.type === "interrupted") {
-            setTyping(false);
-            streamingTtsService.cancel();
-            voiceService.stop();
           } else if (data.type === "error") {
             setTyping(false);
             streamingTtsService.cancel();
@@ -420,7 +450,10 @@ export function FaceToFaceScreen() {
 
       socket.onclose = () => {
         if (!isUnmounted) {
-          reconnectTimeout = setTimeout(connectChat, 2500);
+          reconnectAttempt += 1;
+          const backoff = Math.min(10000, 500 * 2 ** Math.min(reconnectAttempt, 4));
+          const jitter = Math.floor(Math.random() * 250);
+          reconnectTimeout = setTimeout(connectChat, backoff + jitter);
         }
       };
     };
@@ -440,6 +473,16 @@ export function FaceToFaceScreen() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, typing]);
 
+  useEffect(() => {
+    return duplexManager.onInterrupt(() => {
+      if (chatWs.current?.readyState === WebSocket.OPEN) {
+        chatWs.current.send(
+          JSON.stringify({ type: "interrupt", reason: "speech_barge_in" })
+        );
+      }
+    });
+  }, []);
+
   const speakText = (txt: string, customEmotion?: string) => {
     voiceService.speak(txt, {
       emotion: customEmotion || faceEmotionRef.current.primary_emotion || "calm",
@@ -449,13 +492,16 @@ export function FaceToFaceScreen() {
   const micActiveRef = useRef(micActive);
   micActiveRef.current = micActive;
 
-  const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
-  const isAuraSpeakingRef = useRef(false);
+  const [legacyVoiceSpeaking, setLegacyVoiceSpeaking] = useState(false);
+  const isAuraSpeaking =
+    legacyVoiceSpeaking ||
+    duplexState === "AURA_SPEAKING" ||
+    duplexState === "POSSIBLE_INTERRUPT" ||
+    duplexState === "CANCELLING_TTS";
 
   useEffect(() => {
     return voiceService.subscribe((speaking) => {
-      setIsAuraSpeaking(speaking);
-      isAuraSpeakingRef.current = speaking;
+      setLegacyVoiceSpeaking(speaking);
     });
   }, []);
 
@@ -463,22 +509,12 @@ export function FaceToFaceScreen() {
     const unsubscribe = speechService.subscribe({
       onInterim: (interim) => {
         const clean = interim.trim();
-        if (!clean || voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          return;
-        }
+        if (!clean) return;
         setText(clean);
       },
       onFinal: (final) => {
         const clean = final.trim();
         if (!clean) return;
-        if (voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          console.log("[FaceToFace] Ignored speaker echo:", clean);
-          return;
-        }
-        if (isAuraSpeakingRef.current) {
-          console.log("[FaceToFace] Dropped speech while Aura is speaking:", clean);
-          return;
-        }
         setText(clean);
         sendMsg(clean);
       },
@@ -527,10 +563,6 @@ export function FaceToFaceScreen() {
   const sendMsg = (customText?: string) => {
     const t = (customText !== undefined ? customText : text).trim();
     if (!t) return;
-    if (voiceService.isEcho(t) || duplexManager.isTextEcho(t)) {
-      console.log("[FaceToFace] sendMsg blocked echo:", t);
-      return;
-    }
 
     if (isAuraSpeaking) {
       voiceService.stop();
@@ -547,13 +579,16 @@ export function FaceToFaceScreen() {
     setMsgs((m) => [...m, { id, from: "user", text: t }]);
     setText("");
     setTyping(true);
-    duplexManager.transitionTo("THINKING", "User utterance sent to AI");
+    duplexManager.transitionTo("PROCESSING", "User utterance sent to AI");
 
     if (chatWs.current && chatWs.current.readyState === WebSocket.OPEN) {
+      clientTurnIdRef.current += 1;
       chatWs.current.send(
         JSON.stringify({
           type: "message",
           content: t,
+          session_id: chatSessionIdRef.current,
+          client_turn_id: clientTurnIdRef.current,
           mode: "face_to_face",
           language: currentLang,
           face_emotion: faceEmotionRef.current.primary_emotion,
@@ -591,7 +626,7 @@ export function FaceToFaceScreen() {
                     ? "bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/40"
                     : duplexState === "USER_SPEAKING"
                     ? "bg-sky-500/20 text-sky-600 dark:text-sky-300 border-sky-500/40 animate-pulse"
-                    : duplexState === "THINKING"
+                    : duplexState === "PROCESSING"
                     ? "bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40"
                     : duplexState === "POSSIBLE_INTERRUPT"
                     ? "bg-rose-500/20 text-rose-600 dark:text-rose-300 border-rose-500/40 animate-pulse"
@@ -605,7 +640,7 @@ export function FaceToFaceScreen() {
                     ? "Aura Speaking • Barge-in Ready"
                     : duplexState === "USER_SPEAKING"
                     ? "User Speaking"
-                    : duplexState === "THINKING"
+                    : duplexState === "PROCESSING"
                     ? "AI Thinking"
                     : duplexState === "POSSIBLE_INTERRUPT"
                     ? "Evaluating Barge-in"
