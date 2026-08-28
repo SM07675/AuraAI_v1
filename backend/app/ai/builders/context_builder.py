@@ -20,8 +20,10 @@ No raw emotion scores, tensors, or model internals are stored here.
 
 from __future__ import annotations
 
+import inspect
+import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +31,21 @@ from sqlalchemy.future import select
 
 from app.emotion.base import EmotionContext
 from app.models.goal import GoalStatus, UserGoal
-from app.models.memory import LongTermMemory
+from app.models.message import Message
 from app.models.session import Session
 from app.models.user import User
+from app.services.memory_service import MemoryService
+
+
+async def _scalar_list(result: Any) -> list[Any]:
+    """Return SQLAlchemy scalar rows and tolerate async test doubles."""
+    scalars = result.scalars()
+    if inspect.isawaitable(scalars):
+        scalars = await scalars
+    items = scalars.all()
+    if inspect.isawaitable(items):
+        items = await items
+    return list(items)
 
 
 @dataclass
@@ -65,6 +79,7 @@ class ContextObject:
 
     # ── Conversation summary ──────────────────────────────────────
     conversation_summary: str = ""
+    previous_session_context: list[str] = field(default_factory=list)
 
     # ── Question deduplication ────────────────────────────────────
     previously_asked_questions: list[str] = field(default_factory=list)
@@ -111,6 +126,7 @@ class ContextBuilder:
         conversation_summary: str = "",
         previously_asked_questions: list[str] | None = None,
         preferred_language: str | None = None,
+        user_message: str = "",
         # ``emotion_data`` is retained as a compatibility boundary for older
         # API callers.  New callers must pass the structured EmotionContext.
         emotion_data: dict[str, Any] | None = None,
@@ -158,36 +174,24 @@ class ContextBuilder:
                 guidance=_EMOTION_GUIDANCE["neutral"],
             )
 
-        # ── Long-term memories ────────────────────────────────────
+        # ── Long-term memories, ranked for the current message ───
         memories = []
         if self._db is not None:
             try:
-                mem_stmt = (
-                    select(LongTermMemory)
-                    .where(LongTermMemory.user_id == user.id)
-                    .order_by(LongTermMemory.importance_score.desc())
-                    .limit(10)
+                memories = await MemoryService(self._db).get_relevant_memory_context(
+                    user_id=user.id,
+                    query=user_message,
+                    limit=10,
                 )
-                mem_result = await self._db.execute(mem_stmt)
-                scalars = getattr(mem_result, "scalars", None)
-                if scalars is not None and hasattr(scalars, "all"):
-                    items = scalars.all()
-                    if hasattr(items, "__await__"):
-                        items = await items
-                else:
-                    items = []
-                if items is not None:
-                    memories = [
-                        {
-                            "type": m.memory_type,
-                            "key": m.key,
-                            "value": m.value,
-                            "importance": m.importance_score,
-                        }
-                        for m in items
-                    ]
             except Exception:
                 memories = []
+
+        # ── Cross-session continuity ─────────────────────────────
+        previous_session_context = await self._load_previous_session_context(
+            user_id=user.id,
+            current_session_id=session.id,
+            query=user_message,
+        )
 
         # ── Active goals ──────────────────────────────────────────
         active_goals = []
@@ -203,20 +207,14 @@ class ContextBuilder:
                     .limit(10)
                 )
                 goals_result = await self._db.execute(goals_stmt)
-                scalars = getattr(goals_result, "scalars", None)
-                if scalars is not None and hasattr(scalars, "all"):
-                    items = scalars.all()
-                    if hasattr(items, "__await__"):
-                        items = await items
-                else:
-                    items = []
+                items = await _scalar_list(goals_result)
                 if items is not None:
                     active_goals = [g.to_context_dict() for g in items]
             except Exception:
                 active_goals = []
 
         # ── Current time ──────────────────────────────────────────
-        now = datetime.now(timezone.utc).astimezone()
+        now = datetime.now(UTC).astimezone()
         time_str = now.strftime("%A, %d %B %Y %H:%M %Z")
 
         # ── Active project ────────────────────────────────────────
@@ -244,7 +242,81 @@ class ContextBuilder:
             active_goals=active_goals,
             long_term_memories=memories,
             recent_history=recent_history or [],
-            conversation_summary=conversation_summary,
+            conversation_summary=conversation_summary or session.summary or "",
+            previous_session_context=previous_session_context,
             previously_asked_questions=previously_asked_questions or [],
             active_project=active_project,
         )
+
+    async def _load_previous_session_context(
+        self,
+        user_id: int,
+        current_session_id: int,
+        query: str = "",
+        limit: int = 3,
+    ) -> list[str]:
+        """Load concise context from recent chats, preferring saved summaries."""
+        if self._db is None:
+            return []
+
+        try:
+            result = await self._db.execute(
+                select(Session)
+                .where(
+                    Session.user_id == user_id,
+                    Session.id != current_session_id,
+                )
+                .order_by(Session.updated_at.desc())
+                .limit(max(8, limit * 3))
+            )
+            sessions = await _scalar_list(result)
+        except Exception:
+            return []
+
+        context: list[tuple[float, int, str]] = []
+        for recency_index, previous in enumerate(sessions):
+            text = ""
+            if previous.summary:
+                text = previous.summary.strip()
+            else:
+                try:
+                    message_result = await self._db.execute(
+                        select(Message)
+                        .where(
+                            Message.session_id == previous.id,
+                            Message.user_id == user_id,
+                        )
+                        .order_by(Message.created_at.desc())
+                        .limit(6)
+                    )
+                    messages = list(reversed(await _scalar_list(message_result)))
+                except Exception:
+                    messages = []
+
+                if messages:
+                    text = " | ".join(
+                        f"{message.role}: {message.content.strip()[:240]}"
+                        for message in messages
+                        if message.content and message.content.strip()
+                    )
+
+            if text:
+                relevance = self._text_relevance(query, text)
+                context.append((relevance, recency_index, text))
+
+        if (query or "").strip() and any(item[0] > 0 for item in context):
+            context.sort(key=lambda item: (-item[0], item[1]))
+        return [item[2] for item in context[:limit]]
+
+    @staticmethod
+    def _text_relevance(query: str, context: str) -> float:
+        query_tokens = {
+            token for token in re.findall(r"[^\W_]+", query.lower(), re.UNICODE)
+            if len(token) > 2
+        }
+        if not query_tokens:
+            return 0.0
+        context_tokens = set(
+            re.findall(r"[^\W_]+", context.lower(), re.UNICODE)
+        )
+        return len(query_tokens & context_tokens) / len(query_tokens)
