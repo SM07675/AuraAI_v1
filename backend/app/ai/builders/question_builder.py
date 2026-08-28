@@ -17,6 +17,8 @@ Never asks random questions — only asks when:
 from __future__ import annotations
 
 import json
+import re
+from typing import Any
 
 from app.ai.base import AIRequest
 from app.ai.gateway import AIGateway
@@ -42,13 +44,20 @@ class QuestionBuilder:
         self._asked_questions: list[str] = []
         self._system_prompt = (
             "You are Aura's Contextual Question Engine.\n"
-            "Your goal is to formulate ONE highly relevant, insightful follow-up question based on the user's latest message.\n\n"
+            "Your goal is to formulate ONE highly relevant, insightful follow-up question based on the "
+            "user's latest message, emotional state, and recent conversation.\n"
+            "Prefer concrete details from the latest message. When genuinely relevant, connect the "
+            "question to a prior chat, goal, preference, or unresolved concern.\n\n"
             "RULES:\n"
-            "1. If the user asked a technical, academic, coding, or factual question, generate a question asking how they plan to apply it, what specific challenge they are tackling, or if they would like an example.\n"
-            "2. If the user shared a personal thought, goal, or stress, ask a warm, probing question to explore their perspective deeper.\n"
+            "1. If the user asked a technical, academic, coding, or factual question, ask how they plan "
+            "to apply it, what challenge they are tackling, or whether an example would help.\n"
+            "2. If the user shared a personal thought, goal, or stress, ask a warm, probing question "
+            "that explores their perspective more deeply.\n"
             "3. NEVER ask generic clichés like 'What is on your mind?' or 'How are you feeling today?'.\n"
             "4. NEVER re-ask questions from the 'Previously Asked' list.\n"
-            "5. Keep the question brief, sharp, and natural.\n\n"
+            "5. Do not force an old memory into the question when it is unrelated to the latest message.\n"
+            "6. Refer to prior details naturally; never expose storage or database implementation.\n"
+            "7. Keep the question brief, sharp, and natural.\n\n"
             "Return ONLY raw JSON matching this schema:\n"
             '{"needs_question": true, "question": "Your targeted follow-up question"}'
         )
@@ -61,6 +70,9 @@ class QuestionBuilder:
         turn_count: int = 0,
         previously_asked: list[str] | None = None,
         preferred_language: str | None = None,
+        relevant_memories: list[dict[str, Any]] | None = None,
+        conversation_summary: str = "",
+        previous_session_context: list[str] | None = None,
     ) -> str | None:
         """Determine if a follow-up question should be asked.
 
@@ -86,6 +98,19 @@ class QuestionBuilder:
             asked_lines = "\n".join(f"- {q}" for q in asked)
             asked_section = f"\nPreviously Asked Questions (DO NOT re-ask these):\n{asked_lines}\n"
 
+        memory_section = "None"
+        if relevant_memories:
+            memory_section = "\n".join(
+                f"- {memory.get('key', 'detail')}: {memory.get('value', '')}"
+                for memory in relevant_memories[:6]
+            )
+
+        prior_chat_section = "None"
+        if previous_session_context:
+            prior_chat_section = "\n".join(
+                f"- {summary}" for summary in previous_session_context[:3]
+            )
+
         prompt = (
             f"User Profile:\n"
             f"- Name: {user.name or 'Unknown'}\n"
@@ -96,6 +121,9 @@ class QuestionBuilder:
             f"- Learning Style: {user.learning_style or 'Not set'}\n"
             f"- Response Language: {preferred_language or user.preferred_language or 'en'}\n"
             f"{asked_section}\n"
+            f"Relevant Long-Term Details:\n{memory_section}\n\n"
+            f"Current Session Summary:\n{conversation_summary or 'None'}\n\n"
+            f"Previous Chat Context:\n{prior_chat_section}\n\n"
             f"Recent Conversation:\n{conversation_history}\n\n"
             f"Latest Message: {user_message}"
         )
@@ -115,9 +143,14 @@ class QuestionBuilder:
             if content.startswith("```json"):
                 content = content[7:]
             question = None
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+
             try:
                 data = json.loads(content.strip())
-                if isinstance(data, dict):
+                if isinstance(data, dict) and data.get("needs_question", True):
                     question = data.get("question")
             except Exception:
                 # If LLM returned raw text question with a question mark
@@ -135,12 +168,10 @@ class QuestionBuilder:
                     question += "?"
 
                 # Dedup check: don't re-ask similar questions
-                question_lower = question.lower()
                 for prev in asked:
-                    if prev.lower() in question_lower or question_lower in prev.lower():
+                    if self._questions_are_similar(question, prev):
                         logger.debug("Duplicate question suppressed", question=question)
-                        question = "What aspect of this would you like to explore or focus on next?"
-                        break
+                        return None
 
                 self._asked_questions.append(question)
                 self._last_question_turn = turn_count
@@ -159,11 +190,23 @@ class QuestionBuilder:
     def _generate_contextual_fallback(self, user_message: str) -> str:
         """Generate a reliable fallback follow-up question based on user keywords."""
         msg = user_message.lower().strip()
-        if any(w in msg for w in ["what", "how", "why", "when", "where", "explain", "meaning", "definition", "difference", "frequency", "concept"]):
+        factual_terms = [
+            "what", "how", "why", "when", "where", "explain", "meaning",
+            "definition", "difference", "frequency", "concept",
+        ]
+        if any(word in msg for word in factual_terms):
             return "How are you planning to apply or use this concept in your current work or project?"
-        if any(w in msg for w in ["feel", "stressed", "tired", "anxious", "overwhelmed", "sad", "worry", "upset", "down"]):
+        emotion_terms = [
+            "feel", "stressed", "tired", "anxious", "overwhelmed", "sad",
+            "worry", "upset", "down",
+        ]
+        if any(word in msg for word in emotion_terms):
             return "What do you feel has been contributing the most to that feeling lately?"
-        if any(w in msg for w in ["goal", "project", "exam", "interview", "job", "career", "study", "code", "work", "task"]):
+        goal_terms = [
+            "goal", "project", "exam", "interview", "job", "career", "study",
+            "code", "work", "task",
+        ]
+        if any(word in msg for word in goal_terms):
             return "What is the next key milestone or challenge you're focusing on with that?"
         return "What are your thoughts on this, and what would you like to explore next?"
 
@@ -176,3 +219,19 @@ class QuestionBuilder:
         """Reset state for a new session."""
         self._asked_questions.clear()
         self._last_question_turn = 0
+
+    @staticmethod
+    def _questions_are_similar(candidate: str, previous: str) -> bool:
+        """Detect repeated questions across punctuation and light rewording."""
+        def tokens(value: str) -> set[str]:
+            normalized = re.sub(r"[^\w\s]", " ", value.lower(), flags=re.UNICODE)
+            return {token for token in normalized.split() if len(token) > 2}
+
+        candidate_tokens = tokens(candidate)
+        previous_tokens = tokens(previous)
+        if not candidate_tokens or not previous_tokens:
+            return candidate.strip().lower() == previous.strip().lower()
+
+        overlap = len(candidate_tokens & previous_tokens)
+        similarity = overlap / min(len(candidate_tokens), len(previous_tokens))
+        return similarity >= 0.75

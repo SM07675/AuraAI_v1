@@ -22,22 +22,21 @@ accurate context. The user's new utterance is then processed normally.
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.base import AIRequest
 from app.ai.conversation_engine import ConversationEngine
 from app.communication.ai_gateway import CommunicationAIGateway
 from app.communication.interrupt_manager import InterruptManager
 from app.communication.metrics import CommunicationMetrics
-from app.communication.speech_to_text import TranscriptResult, STTEngine
+from app.communication.speech_to_text import STTEngine, TranscriptResult
+from app.communication.state_machine import CommunicationState, StateMachine
 from app.communication.streaming import ResponseStreamer
 from app.communication.text_to_speech import TTSEngine
-from app.communication.state_machine import CommunicationState, StateMachine
 from app.core.logging_config import get_logger
 from app.emotion.service import EmotionService
 from app.models.message import Message, MessageRole, MessageType
@@ -153,13 +152,14 @@ class VoiceConversationManager:
     async def close(self) -> None:
         """End the DB session on disconnect."""
         if self._db_session_id and self._user_id:
+            await self._update_session_summary(force=True)
             result = await self._db.execute(
                 select(Session).where(Session.id == self._db_session_id)
             )
             db_session = result.scalar_one_or_none()
             if db_session:
                 db_session.status = SessionStatus.ENDED.value
-                db_session.ended_at = datetime.now(timezone.utc)
+                db_session.ended_at = datetime.now(UTC)
                 await self._db.commit()
 
     # ── Main Turn Handler ─────────────────────────────────────────
@@ -303,6 +303,7 @@ class VoiceConversationManager:
             )
             self._history.append({"role": "assistant", "content": content})
             self._trim_history()
+            await self._update_session_summary()
 
         self._metrics.end_turn(interrupted=was_interrupted)
 
@@ -394,6 +395,33 @@ class VoiceConversationManager:
         """Keep in-memory history within the window limit."""
         if len(self._history) > _HISTORY_WINDOW:
             self._history = self._history[-_HISTORY_WINDOW:]
+
+    async def _update_session_summary(self, force: bool = False) -> None:
+        """Persist rolling voice-chat continuity in the shared Session model."""
+        if not self._db_session_id or not self._user_id or not self._history:
+            return
+
+        turn_count = self._conversation_engine.turn_count
+        summarizer = self._conversation_engine.summarizer
+        if not force and not summarizer.should_summarize(turn_count):
+            return
+
+        session = await self._get_session()
+        if not session:
+            return
+
+        try:
+            await summarizer.summarize_and_store(
+                db=self._db,
+                session_id=session.id,
+                user_id=self._user_id,
+                conversation_history=list(self._history),
+                turn_count=turn_count,
+                existing_summary=session.summary,
+                force=force,
+            )
+        except Exception as exc:
+            logger.warning("Voice session summary failed", error=str(exc))
 
     @property
     def history(self) -> list[dict[str, str]]:

@@ -11,14 +11,13 @@ as the main response pipeline.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIRequest
 from app.ai.gateway import AIGateway
 from app.core.logging_config import get_logger
+from app.models.session import Session
 from app.services.memory_service import MemoryService
 
 logger = get_logger(__name__)
@@ -66,7 +65,7 @@ class ConversationSummarizer:
         """Check if it's time to generate a new summary."""
         if turn_count <= 0:
             return False
-        return (turn_count - self._last_summary_turn) >= self._summarize_every
+        return turn_count % self._summarize_every == 0
 
     async def summarize(
         self,
@@ -127,6 +126,13 @@ class ConversationSummarizer:
         except Exception as e:
             logger.warning("Conversation summarization failed", error=str(e))
 
+        fallback = self._build_fallback_summary(
+            conversation_history=conversation_history,
+            existing_summary=existing_summary,
+        )
+        if fallback:
+            self._current_summary = fallback
+            self._last_summary_turn = turn_count
         return self._current_summary
 
     async def summarize_and_store(
@@ -136,17 +142,20 @@ class ConversationSummarizer:
         user_id: int,
         conversation_history: list[dict[str, str]],
         turn_count: int,
+        existing_summary: str | None = None,
+        force: bool = False,
     ) -> str | None:
         """Summarize and store the summary in short-term memory.
 
         Returns the summary text, or None if summarization was not triggered.
         """
-        if not self.should_summarize(turn_count):
+        if not force and not self.should_summarize(turn_count):
             return None
 
         summary = await self.summarize(
             conversation_history=conversation_history,
             turn_count=turn_count,
+            existing_summary=existing_summary,
         )
 
         if summary:
@@ -159,7 +168,39 @@ class ConversationSummarizer:
                 metadata={"turn_count": turn_count},
             )
 
+            result = await db.execute(
+                select(Session).where(
+                    Session.id == session_id,
+                    Session.user_id == user_id,
+                )
+            )
+            session = result.scalar_one_or_none()
+            if session:
+                session.summary = summary
+                await db.commit()
+
         return summary
+
+    @staticmethod
+    def _build_fallback_summary(
+        conversation_history: list[dict[str, str]],
+        existing_summary: str | None = None,
+    ) -> str:
+        """Create deterministic continuity when an AI summarizer is unavailable."""
+        lines: list[str] = []
+        if existing_summary:
+            compact_existing = " ".join(existing_summary.split())[:600]
+            if compact_existing:
+                lines.append(f"- Earlier context: {compact_existing}")
+
+        for message in conversation_history[-8:]:
+            content = " ".join((message.get("content") or "").split())[:260]
+            if not content:
+                continue
+            role = "User" if message.get("role") == "user" else "Aura"
+            lines.append(f"- {role}: {content}")
+
+        return "\n".join(lines[-9:])
 
     @property
     def current_summary(self) -> str:

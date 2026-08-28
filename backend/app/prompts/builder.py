@@ -7,13 +7,11 @@ Never hardcodes prompt content — everything comes from template files.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.emotion.base import EmotionContext
 from app.prompts.loader import render_template
-
-
-import re
 
 try:
     from app.ai.builders.context_builder import ContextObject
@@ -74,6 +72,8 @@ class PromptBuilder:
         crisis_context: str | None = None,
         turn_directive: dict[str, Any] | None = None,
         retrieved_solution: str | None = None,
+        conversation_summary: str | None = None,
+        previous_session_context: list[str] | None = None,
         targeted_question: str | None = None,
         mode: str = "chat",
     ) -> tuple[str, list[dict]]:
@@ -89,6 +89,9 @@ class PromptBuilder:
             crisis_context: Optional context override if a crisis was detected.
             turn_directive: Optional fast-tier structural directive for this turn.
             retrieved_solution: Optional coping solution retrieved from the library.
+            conversation_summary: Saved summary of the current session.
+            previous_session_context: Concise summaries or excerpts from earlier chats.
+            targeted_question: Best context-aware question selected for this turn.
             mode: "chat" or "live" — dictates verbosity and cadence.
 
         Returns:
@@ -198,7 +201,15 @@ class PromptBuilder:
             conversation_history=history,
         ))
 
-        # 4. Emotion awareness (if we have emotion data)
+        # 4. Conversation continuity across long and previous sessions
+        if conversation_summary or previous_session_context:
+            system_parts.append(render_template(
+                "conversation_summary.md",
+                conversation_summary=conversation_summary or "",
+                previous_session_context=previous_session_context or [],
+            ))
+
+        # 5. Emotion awareness (if we have emotion data)
         if has_explicit_emotion:
             system_parts.append(render_template(
                 "system_emotion_aware.md",
@@ -243,7 +254,7 @@ class PromptBuilder:
 
         if crisis_context:
             system_parts.append(f"## CRISIS RESPONSE OVERRIDE\n\n{crisis_context}")
-            
+
         if turn_directive or targeted_question:
             td = turn_directive or {}
             q_seed = targeted_question or td.get("nextQuestionSeed") or ""
@@ -256,19 +267,30 @@ class PromptBuilder:
                 must_ask_follow_up=True,
                 next_question_seed=q_seed,
             ))
-            
+
         # ── Dynamic Per-Turn Language Directive ───────────────────
         if _is_hindi_turn(user_message):
             system_parts.append(
                 "## MANDATORY LANGUAGE FOR THIS TURN: HINDI\n"
-                "The patient's current message is in HINDI. You MUST generate your response entirely in natural, fluent HINDI IN DEVANAGARI SCRIPT (e.g. 'नमस्ते, मैं समझ सकती हूँ...'). "
+                "The patient's current message is in HINDI. You MUST generate your response entirely "
+                "in natural, fluent HINDI IN DEVANAGARI SCRIPT "
+                "(e.g. 'नमस्ते, मैं समझ सकती हूँ...'). "
                 "Use feminine grammatical agreement (स्त्रीलिंग: 'सकती हूँ', 'करूँगी'). Do NOT reply in English."
             )
         else:
             system_parts.append(
                 "## MANDATORY LANGUAGE FOR THIS TURN: ENGLISH\n"
-                "The patient's current message is in ENGLISH. You MUST generate your response entirely in natural, fluent ENGLISH. "
+                "The patient's current message is in ENGLISH. You MUST generate your response entirely "
+                "in natural, fluent ENGLISH. "
                 "Do NOT reply in Hindi."
+            )
+
+        if targeted_question:
+            system_parts.append(
+                "## CONTEXTUAL FOLLOW-UP\n"
+                "End this response with the following question, woven in naturally. "
+                "Do not add a second question and do not mention that this was generated from memory:\n"
+                f'"{targeted_question}"'
             )
 
         if mode == "live":
@@ -281,7 +303,7 @@ class PromptBuilder:
             )
 
         system_prompt = "\n\n---\n\n".join(part for part in system_parts if part.strip())
-        
+
         if not system_prompt.strip():
             system_prompt = "You are a helpful AI assistant. Always provide a thoughtful response."
 
