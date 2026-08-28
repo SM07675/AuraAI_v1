@@ -211,6 +211,11 @@ class SpeechRecognitionEngine {
 
       rec.onspeechstart = () => {
         this.speechStartTimestamp = Date.now();
+        duplexManager.notifySpeechStart();
+      };
+
+      rec.onspeechend = () => {
+        duplexManager.notifySpeechEnd();
       };
 
       rec.onresult = (event: any) => {
@@ -243,10 +248,6 @@ class SpeechRecognitionEngine {
         if (interim) {
           const cleanInterim = interim.trim();
           if (cleanInterim) {
-            if (voiceService.isEcho(cleanInterim) || duplexManager.isTextEcho(cleanInterim)) {
-              return;
-            }
-
             const evalResult = duplexManager.evaluateSpeechEvent({
               transcript: cleanInterim,
               isFinal: false,
@@ -265,11 +266,6 @@ class SpeechRecognitionEngine {
         if (final) {
           const cleanFinal = final.trim();
           if (cleanFinal) {
-            if (voiceService.isEcho(cleanFinal) || duplexManager.isTextEcho(cleanFinal)) {
-              console.log("[SPEECH SERVICE] Ignored speaker echo transcript:", cleanFinal);
-              return;
-            }
-
             const evalResult = duplexManager.evaluateSpeechEvent({
               transcript: cleanFinal,
               isFinal: true,

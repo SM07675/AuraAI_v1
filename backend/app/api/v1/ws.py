@@ -1,25 +1,8 @@
-"""
-WebSocket endpoint for full-duplex streaming conversation.
+"""WebSocket endpoint for interruption-safe, full-duplex chat.
 
-Supports:
-- Real-time text streaming (send message, receive streamed response)
-- Barge-in: user can interrupt AI while it's speaking
-- Heartbeat ping/pong to keep connection alive
-- Structured JSON message protocol
-
-Message protocol (client → server):
-  {"type": "message",   "content": "...", "session_id": null, "language": "hi-IN"}
-  {"type": "interrupt"} — cancel current AI generation (barge-in)
-  {"type": "ping"}      — keepalive ping
-
-Message protocol (server → client):
-  {"type": "session_start", "session_id": 123}
-  {"type": "emotion",       "data": {...}}
-  {"type": "start",         "provider": "..."}
-  {"type": "chunk",         "content": "..."}
-  {"type": "done",          "response": "...", "session_id": 123}
-  {"type": "pong"}
-  {"type": "error",         "error": "...", "code": "..."}
+The receive loop never waits for generation to finish. Each user turn runs in
+its own task, so an interrupt or a newer user turn can cancel stale work while
+the socket continues receiving audio transcripts and control messages.
 """
 
 from __future__ import annotations
@@ -29,13 +12,11 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.deps import get_redis
 from app.core.exceptions import TokenExpiredError, TokenInvalidError
-from app.core.security import decode_token, is_token_blacklisted
 from app.core.logging_config import get_logger
+from app.core.security import decode_token, is_token_blacklisted
 from app.db.engine import async_session_factory
 from app.services.conversation_service import ConversationService
 
@@ -44,10 +25,7 @@ logger = get_logger(__name__)
 
 
 async def _authenticate_ws(websocket: WebSocket) -> int | None:
-    """Authenticate a WebSocket connection from query param token.
-
-    Returns user_id if valid, None otherwise.
-    """
+    """Authenticate a WebSocket connection from its access-token query param."""
     token = websocket.query_params.get("token")
     if not token:
         return None
@@ -63,47 +41,208 @@ async def _authenticate_ws(websocket: WebSocket) -> int | None:
         return None
 
 
-async def _send_json(ws: WebSocket, data: dict[str, Any]) -> None:
-    """Send JSON message to WebSocket client."""
-    try:
-        await ws.send_text(json.dumps(data))
-    except Exception:
-        pass
+class _DuplexChatSession:
+    """Own one socket's active generation and prevent stale events escaping."""
+
+    def __init__(self, websocket: WebSocket, user_id: int) -> None:
+        self.websocket = websocket
+        self.user_id = user_id
+        self.current_session_id: int | None = None
+        self._generation_id = 0
+        self._active_task: asyncio.Task[None] | None = None
+        self._active_cancel_event: asyncio.Event | None = None
+        self._send_lock = asyncio.Lock()
+
+    async def send(self, data: dict[str, Any]) -> None:
+        """Serialize control messages which are not tied to one generation."""
+        async with self._send_lock:
+            await self.websocket.send_text(json.dumps(data))
+
+    async def _send_for_generation(
+        self,
+        generation_id: int,
+        data: dict[str, Any],
+    ) -> bool:
+        """Send only if this response is still the current response."""
+        if generation_id != self._generation_id:
+            return False
+        payload = {**data, "generation_id": generation_id}
+        async with self._send_lock:
+            if generation_id != self._generation_id:
+                return False
+            await self.websocket.send_text(json.dumps(payload))
+        return True
+
+    async def interrupt(self, reason: str = "user_barge_in", notify: bool = True) -> None:
+        """Invalidate and cancel active work before acknowledging the interrupt."""
+        interrupted_generation = self._generation_id
+        task = self._active_task
+        cancel_event = self._active_cancel_event
+        had_active_generation = task is not None and not task.done()
+
+        # Invalidate first. Even a provider that ignores task cancellation can
+        # no longer send a stale chunk through _send_for_generation.
+        self._generation_id += 1
+        self._active_task = None
+        self._active_cancel_event = None
+        if cancel_event is not None:
+            cancel_event.set()
+
+        if notify:
+            await self.send(
+                {
+                    "type": "interrupted",
+                    "reason": reason,
+                    "generation_id": interrupted_generation,
+                    "next_generation_id": self._generation_id,
+                }
+            )
+        if had_active_generation and task is not None:
+            task.cancel()
+            # Cleanup must not hold up the receive loop. Generation gating above
+            # already guarantees that the cancelled task cannot send late data.
+            asyncio.create_task(self._drain_cancelled_task(task))
+
+    @staticmethod
+    async def _drain_cancelled_task(task: asyncio.Task[None]) -> None:
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def start_message(self, msg: dict[str, Any]) -> None:
+        """Start a new turn and automatically supersede an unfinished turn."""
+        if self._active_task is not None and not self._active_task.done():
+            await self.interrupt(reason="superseded_by_new_turn", notify=True)
+
+        self._generation_id += 1
+        generation_id = self._generation_id
+        cancel_event = asyncio.Event()
+        task = asyncio.create_task(
+            self._run_generation(msg, generation_id, cancel_event),
+            name=f"chat-generation-{generation_id}",
+        )
+        self._active_cancel_event = cancel_event
+        self._active_task = task
+        task.add_done_callback(self._clear_finished_task)
+
+    def _clear_finished_task(self, task: asyncio.Task[None]) -> None:
+        if self._active_task is task:
+            self._active_task = None
+            self._active_cancel_event = None
+
+    async def _run_generation(
+        self,
+        msg: dict[str, Any],
+        generation_id: int,
+        cancel_event: asyncio.Event,
+    ) -> None:
+        content = str(msg.get("content", "")).strip()
+        session_id = msg.get("session_id") or self.current_session_id
+        language = msg.get("language")
+        emotion_payload = (
+            msg.get("emotion_data")
+            or msg.get("emotion_payload")
+            or (
+                {
+                    "face_emotion": msg.get("face_emotion"),
+                    "confidence": msg.get("confidence"),
+                }
+                if msg.get("face_emotion")
+                else None
+            )
+            or (
+                {"image": msg.get("image") or msg.get("face_image")}
+                if (msg.get("image") or msg.get("face_image"))
+                else None
+            )
+        )
+
+        try:
+            async with async_session_factory() as db:
+                service = ConversationService(db)
+                async for event in service.process_text_message(
+                    user_id=self.user_id,
+                    content=content,
+                    session_id=session_id,
+                    emotion_payload=emotion_payload,
+                    mode=msg.get("mode"),
+                    enable_thinking=msg.get("enable_thinking"),
+                    language=language,
+                    interrupt_event=cancel_event,
+                ):
+                    if cancel_event.is_set() or generation_id != self._generation_id:
+                        return
+                    if event.get("type") == "session_start":
+                        self.current_session_id = event.get("session_id")
+                    if msg.get("client_turn_id") is not None:
+                        event = {**event, "client_turn_id": msg["client_turn_id"]}
+                    if not await self._send_for_generation(generation_id, event):
+                        return
+        except asyncio.CancelledError:
+            # A barge-in is a normal control-flow event, not a server error.
+            raise
+        except Exception as exc:
+            logger.error("Message processing error", user_id=self.user_id, error=str(exc))
+            if cancel_event.is_set() or generation_id != self._generation_id:
+                return
+            await self._send_fallback(generation_id, content, language)
+
+    async def _send_fallback(
+        self,
+        generation_id: int,
+        content: str,
+        language: str | None,
+    ) -> None:
+        try:
+            from app.ai.base import AIRequest
+            from app.ai.gateway import AIGateway
+
+            response = await AIGateway().generate(
+                AIRequest(
+                    system_prompt=(
+                        "You are Dr. Aura, an empathetic AI wellness companion. "
+                        "Answer directly and end with exactly one useful follow-up question."
+                    ),
+                    prompt=content,
+                    stream=False,
+                    temperature=0.7,
+                )
+            )
+            reply = response.content.strip()
+        except Exception:
+            is_hindi = isinstance(language, str) and language.lower().startswith("hi")
+            reply = (
+                "मैं आपकी बात सुन रही हूँ और आपके साथ हूँ। अभी आपके मन में क्या चल रहा है?"
+                if is_hindi
+                else "I'm listening. Could you tell me a little more about what you need right now?"
+            )
+
+        if not await self._send_for_generation(generation_id, {"type": "start"}):
+            return
+        if not await self._send_for_generation(
+            generation_id, {"type": "chunk", "content": reply}
+        ):
+            return
+        await self._send_for_generation(
+            generation_id, {"type": "done", "response": reply}
+        )
 
 
 @router.websocket("/chat")
 async def websocket_chat(websocket: WebSocket) -> None:
-    """Full-duplex streaming conversation over WebSocket.
-
-    Connect: ws://host/api/v1/ws/chat?token=<access_token>
-
-    The endpoint:
-    1. Authenticates via token query param
-    2. Accepts incoming messages
-    3. Streams AI responses chunk by chunk
-    4. Supports barge-in (interrupt) to cancel ongoing AI generation
-    """
+    """Stream chat while independently accepting interrupt and heartbeat events."""
     await websocket.accept()
-
-    # Authenticate
     user_id = await _authenticate_ws(websocket)
     if not user_id:
-        user_id = 1 # Bypass for dev / local live mode
+        user_id = 1  # Local-development fallback retained for the existing app.
 
     logger.info("WebSocket connected", user_id=user_id)
-
-    # Shared state
-    current_session_id: int | None = None
-    # Cancel event to support barge-in
-    cancel_event = asyncio.Event()
+    duplex = _DuplexChatSession(websocket, user_id)
 
     try:
         while True:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-            except asyncio.TimeoutError:
-                # Send heartbeat
-                await _send_json(websocket, {"type": "ping"})
+            except TimeoutError:
+                await duplex.send({"type": "ping"})
                 continue
             except WebSocketDisconnect:
                 break
@@ -111,100 +250,37 @@ async def websocket_chat(websocket: WebSocket) -> None:
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
-                await _send_json(websocket, {"type": "error", "error": "Invalid JSON", "code": "INVALID_JSON"})
+                await duplex.send(
+                    {"type": "error", "error": "Invalid JSON", "code": "INVALID_JSON"}
+                )
                 continue
 
             msg_type = msg.get("type", "")
-
-            if msg_type == "ping":
-                await _send_json(websocket, {"type": "pong"})
+            if msg_type in {"ping", "pong"}:
+                if msg_type == "ping":
+                    await duplex.send({"type": "pong"})
                 continue
-
             if msg_type == "interrupt":
-                # Barge-in: signal the streaming task to stop
-                cancel_event.set()
-                await _send_json(websocket, {"type": "interrupted"})
+                await duplex.interrupt(reason=str(msg.get("reason") or "user_barge_in"))
                 continue
-
             if msg_type == "message":
-                content = str(msg.get("content", "")).strip()
-                if not content:
-                    await _send_json(websocket, {"type": "error", "error": "Empty message", "code": "EMPTY_MESSAGE"})
+                if not str(msg.get("content", "")).strip():
+                    await duplex.send(
+                        {"type": "error", "error": "Empty message", "code": "EMPTY_MESSAGE"}
+                    )
                     continue
-
-                session_id = msg.get("session_id") or current_session_id
-                mode = msg.get("mode")
-                enable_thinking = msg.get("enable_thinking")
-                language = msg.get("language")
-                emotion_payload = (
-                    msg.get("emotion_data")
-                    or msg.get("emotion_payload")
-                    or ({"face_emotion": msg.get("face_emotion"), "confidence": msg.get("confidence")} if msg.get("face_emotion") else None)
-                    or ({"image": msg.get("image") or msg.get("face_image")} if (msg.get("image") or msg.get("face_image")) else None)
-                )
-
-                # Reset cancel event for this new generation
-                cancel_event.clear()
-
-                try:
-                    # Fresh DB session per message turn to prevent session corruption
-                    async with async_session_factory() as db:
-                        service = ConversationService(db)
-                        async for event in service.process_text_message(
-                            user_id=user_id,
-                            content=content,
-                            session_id=session_id,
-                            emotion_payload=emotion_payload,
-                            mode=mode,
-                            enable_thinking=enable_thinking,
-                            language=language,
-                        ):
-                            # Check for barge-in cancellation
-                            if cancel_event.is_set():
-                                await _send_json(websocket, {"type": "interrupted"})
-                                break
-
-                            await _send_json(websocket, event)
-
-                            # Track session ID
-                            if event.get("type") == "session_start":
-                                current_session_id = event.get("session_id")
-                except Exception as m_err:
-                    logger.error("Message processing error", user_id=user_id, error=str(m_err))
-                    try:
-                        from app.ai.gateway import AIGateway
-                        from app.ai.base import AIRequest
-                        gateway = AIGateway()
-                        fallback_req = AIRequest(
-                            system_prompt=(
-                                "You are Dr. Aura, an empathetic and intelligent AI wellness companion. "
-                                "Directly, clearly, and helpfully answer the user's message or question, and conclude with exactly ONE engaging follow-up question."
-                            ),
-                            prompt=content,
-                            stream=False,
-                            temperature=0.7,
-                        )
-                        ai_res = await gateway.generate(fallback_req)
-                        reply = ai_res.content.strip()
-                    except Exception:
-                        is_hindi = isinstance(language, str) and language.lower().startswith("hi")
-                        reply = (
-                            "मैं आपकी बात सुन रही हूँ और आपके साथ हूँ। धीरे से एक गहरी साँस लीजिए। अभी आपके मन में क्या चल रहा है?"
-                            if is_hindi
-                            else f"I'm listening and thinking about what you said regarding '{content[:40]}'. Could you tell me more about how you'd like to explore this?"
-                        )
-
-                    await _send_json(websocket, {"type": "start"})
-                    await _send_json(websocket, {"type": "chunk", "content": reply})
-                    await _send_json(websocket, {"type": "done", "response": reply})
+                await duplex.start_message(msg)
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected", user_id=user_id)
     except Exception as exc:
         logger.error("WebSocket error", user_id=user_id, error=str(exc))
         try:
-            await _send_json(websocket, {"type": "error", "error": "Connection error", "code": "SERVER_ERROR"})
+            await duplex.send(
+                {"type": "error", "error": "Connection error", "code": "SERVER_ERROR"}
+            )
         except Exception:
             pass
     finally:
+        await duplex.interrupt(reason="connection_closed", notify=False)
         logger.info("WebSocket closed", user_id=user_id)
