@@ -7,6 +7,7 @@ Primary AI provider for Aura AI 2.0.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import AsyncIterator
@@ -64,7 +65,8 @@ class NvidiaNimProvider(AIProvider):
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                 },
-                timeout=httpx.Timeout(60.0, connect=10.0),
+                timeout=httpx.Timeout(45.0, connect=15.0),
+                trust_env=False,
             )
         return self._client
 
@@ -76,77 +78,29 @@ class NvidiaNimProvider(AIProvider):
     def _determine_thinking_mode(self, request: AIRequest) -> bool:
         """Dynamically determine whether thinking mode should be enabled.
         
-        Rules:
-        1. If explicitly requested in request.enable_thinking, respect it.
-        2. If in real-time mode ('face_to_face', 'voice', 'live', 'realtime'), disable thinking
-           to ensure sub-second low-latency voice and video interaction.
-        3. If the user message is a short greeting, casual acknowledgement, or quick check-in
-           (< 12 words without complex emotional/cognitive triggers), disable thinking for fast responses.
-        4. If the message is a complex question, deep emotional query, or long paragraph,
-           enable thinking mode for deep reasoning.
+        Default: False for fast, sub-second streaming conversations.
+        Enabled only if explicitly requested in request.enable_thinking.
         """
-        # 1. Explicit request override
         if request.enable_thinking is not None:
-            return request.enable_thinking
+            return bool(request.enable_thinking)
+        return False
 
-        # 2. Mode-based rule: Face-to-Face and Voice require ultra-low latency
-        if request.mode in ("face_to_face", "voice", "live", "realtime"):
-            logger.debug("Thinking mode DISABLED for real-time mode", mode=request.mode)
-            return False
-
-        # Extract the user's latest text
-        user_text = ""
-        if request.messages:
-            for m in reversed(request.messages):
-                if m.get("role") == "user":
-                    content = m.get("content", "")
-                    if isinstance(content, str):
-                        user_text = content
-                    elif isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict) and item.get("type") == "text":
-                                user_text += item.get("text", "") + " "
-                    break
-        if not user_text:
-            user_text = request.prompt or ""
-
-        clean_text = user_text.strip().lower()
-        clean_no_punct = re.sub(r"[^\w\s]", "", clean_text).strip()
-
-        # Fast Response for casual greetings & common pleasantries
-        if clean_no_punct in _FAST_RESPONSE_PATTERNS or clean_text in _FAST_RESPONSE_PATTERNS:
-            logger.debug("Thinking mode DISABLED for casual greeting/chit-chat", user_text=user_text[:50])
-            return False
-
-        words = clean_text.split()
-        has_complex_trigger = any(kw in clean_text for kw in _COMPLEX_TRIGGER_KEYWORDS)
-
-        # Fast response for brief utterances under 10 words without complex triggers
-        if len(words) <= 10 and not has_complex_trigger:
-            logger.debug("Thinking mode DISABLED for short quick query", word_count=len(words))
-            return False
-
-        logger.debug("Thinking mode ENABLED for complex/deep query", word_count=len(words), has_trigger=has_complex_trigger)
-        return True
-
-    def _build_messages(self, request: AIRequest) -> list[dict]:
-        """Build OpenAI-format message list."""
+    def _build_messages(self, request: AIRequest) -> list[dict[str, str]]:
         messages = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
         if request.messages:
             messages.extend(request.messages)
-        else:
+        elif request.prompt:
             messages.append({"role": "user", "content": request.prompt})
         return messages
 
     async def generate(self, request: AIRequest) -> AIResponse:
-        """Generate a complete response."""
+        """Generate a complete non-streaming response."""
         client = self._get_client()
         enable_thinking = self._determine_thinking_mode(request)
         model_name = self._settings.nvidia_nim_model
 
-        # Token allocation: up to 16384 for deep thinking, lower for fast responses
         max_tokens = 16384 if enable_thinking else (request.max_tokens or 1024)
 
         payload: dict = {
@@ -191,8 +145,10 @@ class NvidiaNimProvider(AIProvider):
         except (AIProviderError, AIProviderRateLimitError):
             raise
         except httpx.TimeoutException as exc:
+            self._client = None
             raise AIProviderError(f"NVIDIA NIM request timed out: {exc}") from exc
         except Exception as exc:
+            self._client = None
             raise AIProviderError(f"NVIDIA NIM error: {exc}") from exc
 
     async def stream(self, request: AIRequest) -> AsyncIterator[StreamChunk]:
@@ -245,9 +201,12 @@ class NvidiaNimProvider(AIProvider):
                             )
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
+        except (GeneratorExit, asyncio.CancelledError):
+            raise
         except (AIProviderError, AIProviderRateLimitError):
             raise
         except Exception as exc:
+            self._client = None
             raise AIProviderError(f"NVIDIA NIM stream error: {exc}") from exc
 
     async def health_check(self) -> dict:
@@ -264,4 +223,3 @@ class NvidiaNimProvider(AIProvider):
             }
         except Exception as exc:
             return {"status": "unhealthy", "provider": self.name, "error": str(exc)}
-

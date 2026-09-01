@@ -14,6 +14,18 @@ RUN apt-get update && \
         build-essential \
         libpq-dev \
         curl \
+        ffmpeg \
+        libgl1 \
+        libegl1 \
+        libgl1-mesa-dev \
+        libglib2.0-0 \
+        libxcb1 \
+        libx11-xcb1 \
+        libxcb-render0 \
+        libxcb-shape0 \
+        libxcb-xfixes0 \
+        libxrender1 \
+        libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip + install build tools
@@ -26,8 +38,15 @@ RUN pip install -r requirements.txt
 # Copy application code
 COPY . .
 
+# Ensure entrypoint is executable and pre-cache core models
+RUN chmod +x /app/docker-entrypoint.sh && \
+    python /app/scripts/download_models.py || true
+
 # Expose port
 EXPOSE 8000
+
+# Entrypoint automatically verifies models & runs database migrations on startup
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Run with uvicorn (reload enabled for development)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app"]

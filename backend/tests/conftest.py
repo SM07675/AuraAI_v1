@@ -103,6 +103,13 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
     """Create one SQLite engine for the whole test session and build all tables."""
+    # Clean up any leftover test DB file from previous runs
+    if os.path.exists(TEST_DB_PATH):
+        try:
+            os.remove(TEST_DB_PATH)
+        except Exception:
+            pass
+
     # Must patch before create_all
     _patch_jsonb_for_sqlite()
 

@@ -8,10 +8,27 @@ Secrets are never hardcoded — see .env.example for required variables.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env from the project root
+def _find_project_root() -> Path:
+    curr = Path(__file__).resolve().parent
+    # 1. Look for .env file explicitly in parents
+    for p in [curr, *curr.parents]:
+        if (p / ".env").is_file():
+            return p
+    # 2. Look for project boundary markers
+    for p in [curr, *curr.parents]:
+        if (p / "backend").is_dir() and (p / "frontend").is_dir():
+            return p
+    return Path("/app") if Path("/app").exists() else curr
+
+_PROJECT_ROOT = _find_project_root()
+_ENV_FILE = _PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -22,7 +39,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -43,7 +60,7 @@ class Settings(BaseSettings):
     postgres_user: str = "aura"
     postgres_password: str = "aura_dev_password_change_me"
     postgres_db: str = "aura_ai"
-    postgres_host: str = "postgres"
+    postgres_host: str = "localhost"
     postgres_port: int = 5432
     # Explicit URLs take precedence when supplied by a managed deployment.
     # Keeping these as declared settings means they are never silently ignored.
@@ -72,7 +89,7 @@ class Settings(BaseSettings):
         )
 
     # ── Redis ────────────────────────────────────────────────────
-    redis_host: str = "redis"
+    redis_host: str = "localhost"
     redis_port: int = 6379
     redis_password: str = ""
     redis_url_override: str | None = Field(default=None, validation_alias="REDIS_URL")
@@ -108,9 +125,12 @@ class Settings(BaseSettings):
 
     # ── AI Providers ─────────────────────────────────────────────
     # NVIDIA NIM (Main Brain)
-    nvidia_nim_api_key: str = "YOUR_NVIDIA_API_KEY_HERE"
+    nvidia_nim_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("NVIDIA_NIM_API_KEY", "nvidia_nim_api_key"),
+    )
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_nim_model: str = "nvidia/nemotron-3-nano-30b-a3b"
+    nvidia_nim_model: str = "meta/llama-3.2-11b-vision-instruct"
 
     # Google Gemini
     gemini_api_key: str = ""
@@ -129,8 +149,8 @@ class Settings(BaseSettings):
         return [p.strip() for p in self.ai_provider_priority.split(",") if p.strip()]
 
     # ── TTS ──────────────────────────────────────────────────────
-    tts_provider: str = "elevenlabs"      # elevenlabs | edge_tts | nvidia_tts
-    tts_voice: str = "en-US-AvaMultilingualNeural"  # Ultra-realistic multilingual voice (English + Hindi)
+    tts_provider: str = "edge_tts"        # elevenlabs | edge_tts | nvidia_tts
+    tts_voice: str = "en-IN-NeerjaExpressiveNeural"  # Expressive Indian English neural voice
     tts_sentence_buffer_chars: int = 80   # Flush TTS after this many buffered chars
 
     # ElevenLabs TTS

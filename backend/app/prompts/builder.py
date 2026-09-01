@@ -68,6 +68,7 @@ class PromptBuilder:
         emotion_data: dict[str, Any] | None = None,
         user_profile: dict[str, Any] | None = None,
         long_term_memories: list[dict] | None = None,
+        graph_facts: list[str] | None = None,
         conversation_history: list[dict] | None = None,
         crisis_context: str | None = None,
         turn_directive: dict[str, Any] | None = None,
@@ -201,6 +202,13 @@ class PromptBuilder:
             conversation_history=history,
         ))
 
+        # 3b. Knowledge Graph context
+        if graph_facts:
+            system_parts.append(render_template(
+                "graph_context.md",
+                graph_facts=graph_facts,
+            ))
+
         # 4. Conversation continuity across long and previous sessions
         if conversation_summary or previous_session_context:
             system_parts.append(render_template(
@@ -230,6 +238,7 @@ class PromptBuilder:
                 conflict_emotion=conflict_emotion,
                 conversation_trend=emotion.get("conversation_trend", ""),
                 guidance=emotion.get("guidance", {}),
+                face_behavior_summary=emotion.get("face_behavior_summary") or getattr(emotion_data, "_face_behavior_summary", ""),
             ))
         else:
             system_parts.append(render_template(

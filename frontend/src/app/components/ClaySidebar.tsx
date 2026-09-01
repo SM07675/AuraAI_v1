@@ -178,6 +178,7 @@ const MOBILE_NAV_ITEMS = [
   { id: "Dashboard", label: "Home", IconComponent: ClayHomeIcon },
   { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
+  { id: "Face-to-Face", label: "Face", IconComponent: ClayCameraSidebarIcon },
   { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
   { id: "Settings", label: "Settings", IconComponent: ClaySettingsSidebarIcon },
 ];

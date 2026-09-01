@@ -195,12 +195,18 @@ class VoiceConversationManager:
                 "confidence": round(transcript.confidence, 3),
             })
 
-        # ── 3. Emotion Analysis on transcript text ────────────────
+        # ── 3. Emotion Analysis (text + parallel voice emotion from VAD loop) ──
         self._analytics.start_stage("emotion_analysis")
         emotion_context = None
         emotion_data: dict[str, Any] | None = None
         try:
-            fused = await self._emotion_service.analyze_and_fuse(text=transcript.text)
+            # If voice emotion was analyzed in parallel during STT (from VAD loop),
+            # pass it through to the fusion engine along with text analysis.
+            voice_emotion_data = getattr(transcript, "voice_emotion", None)
+            fused = await self._emotion_service.analyze_and_fuse(
+                text=transcript.text,
+                voice_result=voice_emotion_data,
+            )
             emotion_context = fused
             emotion_data = fused.to_dict()
 
@@ -208,10 +214,13 @@ class VoiceConversationManager:
                 await self._on_event("emotion", {
                     "fused": fused.fused_emotion,
                     "confidence": round(fused.confidence, 1),
+                    "voice_emotion": voice_emotion_data.get("primary_emotion") if voice_emotion_data else None,
+                    "sources": getattr(fused, "source_contributions", {}),
                 })
         except Exception as e:
             logger.warning("Emotion analysis failed", error=str(e))
         self._analytics.end_stage("emotion_analysis")
+
 
         # ── 4. Run Conversation Engine ────────────────────────────
         await self._sm.transition(CommunicationState.GENERATING)

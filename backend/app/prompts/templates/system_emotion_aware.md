@@ -18,6 +18,7 @@
 | Sentiment | {{ sentiment | default("neutral") | title }} |
 | Sources | {{ sources | join(", ") }} |
 {% if intent != "casual" %}| Intent | {{ intent | replace("_", " ") | title }} |{% endif %}
+{% if face_behavior_summary %}| Facial Demeanor | {{ face_behavior_summary }} |{% endif %}
 
 {% if emotion_conflict %}
 ⚠️ **Emotion conflict detected**: {{ conflict_detail }}

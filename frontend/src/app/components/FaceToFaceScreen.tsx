@@ -22,6 +22,9 @@ import {
   Play,
   Pause,
   Volume2,
+  Sliders,
+  AlertTriangle,
+  Gauge,
 } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead, ClaySmileyBeadIcon } from "./clay-icons";
@@ -32,6 +35,7 @@ import { getWebSocketUrl } from "../services/wsHelper";
 import { duplexManager, ConversationState, InterruptionScoreDetails } from "../services/duplexManager";
 import { streamingTtsService } from "../services/streamingTtsService";
 import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
+import { FaceDebugPanel } from "./FaceDebugPanel";
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -87,20 +91,33 @@ export function FaceToFaceScreen() {
   const [lighting, setLighting] = useState<"Good" | "Low" | "Bright">("Good");
   const [eyeContact, setEyeContact] = useState(true);
 
-  // ── Emotion State ────────────────────────────────────────────────────────────
+  // ── Emotion State (Strictly Verified, No Fake Initial Face Detected) ───────
   const [faceEmotion, setFaceEmotion] = useState<FaceEmotion>({
-    primary_emotion: "Neutral",
-    confidence: 0.85,
+    primary_emotion: "Detecting...",
+    confidence: 0.0,
     secondary_emotion: "calm",
-    secondary_confidence: 0.42,
-    face_detected: true,
+    secondary_confidence: 0.0,
+    face_detected: false,
     stress: "Low",
-    sentiment: "Positive",
-    box_norm: { x: 0.2, y: 0.12, w: 0.6, h: 0.74 },
+    sentiment: "Neutral",
+    box_norm: null,
   });
 
   const [emotionWsConnected, setEmotionWsConnected] = useState(false);
   const emotionWs = useRef<WebSocket | null>(null);
+
+  // ── Camera Permission Error State ──────────────────────────────────────────
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // ── Live Face Debug Telemetry State ─────────────────────────────────────────
+  const [showFaceDebug, setShowFaceDebug] = useState(false);
+  const [trackingQuality, setTrackingQuality] = useState(0.0);
+  const [qualityBreakdown, setQualityBreakdown] = useState<Record<string, number>>({});
+  const [ferScores, setFerScores] = useState<Record<string, number>>({});
+  const [facialMovement, setFacialMovement] = useState<any>({});
+  const [transitions, setTransitions] = useState<any>({});
+  const [droppedFrames, setDroppedFrames] = useState(0);
+  const [faceErrors, setFaceErrors] = useState<string[]>([]);
 
   // ── Chat & Voice State ───────────────────────────────────────────────────────
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -141,10 +158,36 @@ export function FaceToFaceScreen() {
   const serverGenerationRef = useRef(0);
   const clientTurnIdRef = useRef(0);
 
-  // ── Memory & Context State ───────────────────────────────────────────────────
-  const [activeGoal] = useState("Stress Reduction & Balance");
-  const [activeInterest] = useState("Somatic & Psychological Health");
-  const [sessionSummary] = useState("Clinical consultation: active face tracking & diagnostic dialogue.");
+  // ── Memory, Behavioral & Dynamic Context State ───────────────────────────
+  const [activeGoal, setActiveGoal] = useState<string>("Career & Interview Preparation");
+  const [activeInterest, setActiveInterest] = useState<string>("Artificial Intelligence & ML");
+  const [sessionSummary, setSessionSummary] = useState<string>("Active clinical multimodal intake & diagnostic dialogue.");
+  const [actionUnits, setActionUnits] = useState<Record<string, number>>({});
+  const [gazeInfo, setGazeInfo] = useState<{ eye_contact?: boolean; gaze_angle_x?: number; ear?: number }>({});
+  const [headPose, setHeadPose] = useState<{ pitch?: number; yaw?: number; roll?: number }>({});
+  const [fusedEmotion, setFusedEmotion] = useState<{ primary?: string; confidence?: number; text?: string; voice?: string; face?: string }>({});
+  const [latencyMetrics, setLatencyMetrics] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    fetch("/api/v1/users/me")
+      .then((r) => r.json())
+      .then((u) => {
+        if (u) {
+          if (u.goals) setActiveGoal(u.goals);
+          if (u.interests) setActiveInterest(u.interests);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/v1/goals")
+      .then((r) => r.json())
+      .then((goals) => {
+        if (Array.isArray(goals) && goals.length > 0) {
+          setActiveGoal(goals[0].title || goals[0].goal || "Career & Placement Goals");
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Guided Breathing Loop
   useEffect(() => {
@@ -190,9 +233,10 @@ export function FaceToFaceScreen() {
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play().catch((e) => console.warn("Video play error:", e));
           setCameraActive(true);
+          setCameraError(null);
         };
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Combined media access attempt failed, trying video only:", err);
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
@@ -203,11 +247,19 @@ export function FaceToFaceScreen() {
           videoRef.current.srcObject = videoStream;
           videoRef.current.play().catch(() => {});
           setCameraActive(true);
+          setCameraError(null);
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn("Webcam access error:", e);
         setCameraActive(false);
+        const isDenied = e.name === "NotAllowedError" || e.name === "PermissionDeniedError";
+        setCameraError(
+          isDenied
+            ? "Camera permission was denied. You can continue speaking or typing normally without facial analysis."
+            : "Camera unavailable or could not be accessed. Continuing in chat & voice mode."
+        );
         setFaceEmotion((prev) => ({ ...prev, face_detected: false }));
+        setTrackingQuality(0.0);
       }
     }
   };
@@ -219,7 +271,9 @@ export function FaceToFaceScreen() {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
+    setCameraError(null);
     setFaceEmotion((prev) => ({ ...prev, face_detected: false }));
+    setTrackingQuality(0.0);
   };
 
   const toggleCamera = () => {
@@ -236,8 +290,15 @@ export function FaceToFaceScreen() {
     startCamera();
 
     fpsInterval = setInterval(() => {
-      setCamFps(Math.floor(Math.random() * 3) + 29);
-    }, 1500);
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        const settings = track?.getSettings();
+        setCamFps(settings?.frameRate ? Math.round(settings.frameRate) : 30);
+      } else {
+        setCamFps(0);
+      }
+    }, 1000);
 
     return () => {
       stopCamera();
@@ -266,23 +327,50 @@ export function FaceToFaceScreen() {
         try {
           const data = JSON.parse(evt.data);
           if (data.type === "emotion" || data.type === "face_emotion") {
-            const rawPrimary = data.primary_emotion || data.emotion || "neutral";
+            const rawPrimary = data.primary_emotion || data.emotion?.primary || data.emotion || "neutral";
             const formattedPrimary = rawPrimary.charAt(0).toUpperCase() + rawPrimary.slice(1);
-            const confRaw = data.confidence !== undefined ? data.confidence : 0.85;
+            const confRaw = data.confidence !== undefined ? data.confidence : (data.emotion?.confidence ?? 0.85);
             const confVal = confRaw > 1.0 ? confRaw / 100.0 : confRaw;
+
+            if (data.tracking_quality !== undefined) setTrackingQuality(data.tracking_quality);
+            if (data.quality_breakdown) setQualityBreakdown(data.quality_breakdown);
+            if (data.action_units) setActionUnits(data.action_units);
+            if (data.gaze) {
+              setGazeInfo(data.gaze);
+              if (data.gaze.eye_contact !== undefined) setEyeContact(Boolean(data.gaze.eye_contact));
+            }
+            if (data.head_pose) setHeadPose(data.head_pose);
+            if (data.facial_movement) setFacialMovement(data.facial_movement);
+            if (data.transitions) setTransitions(data.transitions);
+            if (data.scores) setFerScores(data.scores);
+            if (data.latencies) setLatencyMetrics(data.latencies);
+
             setFaceEmotion((prev) => ({
               primary_emotion: formattedPrimary,
               confidence: confVal,
-              secondary_emotion: data.secondary_emotion || "calm",
+              secondary_emotion: data.secondary_emotion || data.emotion?.secondary || "calm",
               secondary_confidence: data.secondary_confidence || 0.4,
-              face_detected: cameraActive && data.face_detected !== false,
+              face_detected: cameraActive && data.face_detected === true,
               stress: data.stress ? data.stress.charAt(0).toUpperCase() + data.stress.slice(1) : "Low",
               sentiment: data.sentiment ? data.sentiment.charAt(0).toUpperCase() + data.sentiment.slice(1) : "Positive",
               box_norm: data.box_norm || null,
               face_box: data.face_box || null,
             }));
           } else if (data.type === "no_face") {
-            setFaceEmotion((prev) => ({ ...prev, face_detected: false }));
+            setFaceEmotion((prev) => ({
+              ...prev,
+              face_detected: false,
+              confidence: 0,
+              primary_emotion: "No Face",
+            }));
+            if (data.tracking_quality !== undefined) setTrackingQuality(data.tracking_quality);
+            if (data.quality_breakdown) setQualityBreakdown(data.quality_breakdown);
+            if (data.transitions) setTransitions(data.transitions);
+            setActionUnits({ presence: {}, intensity: {} });
+            setGazeInfo({});
+            setHeadPose({});
+          } else if (data.type === "error") {
+            setFaceErrors((prev) => [data.message || "Face stream error", ...prev].slice(0, 5));
           }
         } catch (e) {
         }
@@ -866,6 +954,51 @@ export function FaceToFaceScreen() {
         )}
       </AnimatePresence>
 
+      {/* Camera Permission Denial / Error Banner */}
+      <AnimatePresence>
+        {cameraError && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="bg-amber-500/15 border border-amber-500/30 rounded-[18px] p-2.5 mb-2 flex items-center justify-between text-amber-200 text-xs shadow-lg"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-400 shrink-0" />
+              <span>{cameraError}</span>
+            </div>
+            <button
+              onClick={() => setCameraError(null)}
+              className="w-5 h-5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 flex items-center justify-center cursor-pointer border-none ml-2 shrink-0"
+            >
+              <X size={11} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Advanced Live Face Debug Panel */}
+      <FaceDebugPanel
+        isOpen={showFaceDebug}
+        onClose={() => setShowFaceDebug(false)}
+        cameraActive={cameraActive}
+        camFps={camFps}
+        faceDetected={cameraActive && faceEmotion.face_detected}
+        trackingQuality={trackingQuality}
+        qualityBreakdown={qualityBreakdown}
+        actionUnits={actionUnits as any}
+        gaze={gazeInfo}
+        headPose={headPose}
+        ferScores={ferScores}
+        facialMovement={facialMovement}
+        transitions={transitions}
+        latencies={latencyMetrics}
+        smoothedEmotion={faceEmotion.primary_emotion}
+        confidence={faceEmotion.confidence}
+        droppedFrames={droppedFrames}
+        errors={faceErrors}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-h-0">
         <div className="lg:col-span-4 flex flex-col gap-2.5 h-full min-h-0 justify-between">
           <div className="clay-card p-3 rounded-[24px] flex-1 flex flex-col justify-between min-h-0">
@@ -877,6 +1010,18 @@ export function FaceToFaceScreen() {
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setShowFaceDebug(!showFaceDebug)}
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold cursor-pointer transition-all border flex items-center gap-1 ${
+                    showFaceDebug
+                      ? "bg-purple-600 text-white border-purple-400 shadow-sm"
+                      : "bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/20"
+                  }`}
+                  title="Toggle Live FACS & Behavioral Debug Panel"
+                >
+                  <Sliders size={10} />
+                  <span>Face HUD</span>
+                </button>
                 <span className="clay-pill px-2 py-0.5 text-[9px] font-extrabold text-[#059669] dark:text-[#34D399]">
                   {camFps} FPS
                 </span>
@@ -956,21 +1101,20 @@ export function FaceToFaceScreen() {
             <div className="grid grid-cols-3 gap-1.5 mt-2 shrink-0">
               <div className="clay-card-flat p-1.5 rounded-[12px] text-center">
                 <div className="text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Affect Gaze</div>
-                <div className="text-[10.5px] font-extrabold text-[#059669] dark:text-[#34D399] mt-0.5">
+                <div className={`text-[10.5px] font-extrabold mt-0.5 ${eyeContact ? "text-[#059669] dark:text-[#34D399]" : "text-amber-500"}`}>
                   {eyeContact ? "Attentive" : "Averted"}
                 </div>
               </div>
               <div className="clay-card-flat p-1.5 rounded-[12px] text-center">
-                <div className="text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Somatic Pulse</div>
-                <div className="text-[10.5px] font-extrabold text-[#0284C7] dark:text-[#38BDF8] mt-0.5 flex items-center justify-center gap-0.5">
-                  <Activity size={10} className="animate-pulse text-rose-500" />
-                  <span>{simulatedPulse} bpm</span>
+                <div className="text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Tracking Quality</div>
+                <div className={`text-[10.5px] font-extrabold mt-0.5 ${trackingQuality >= 0.7 ? "text-emerald-500" : trackingQuality >= 0.4 ? "text-amber-500" : "text-rose-500"}`}>
+                  {Math.round(trackingQuality * 100)}%
                 </div>
               </div>
               <div className="clay-card-flat p-1.5 rounded-[12px] text-center">
-                <div className="text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Local ONNX</div>
-                <div className="text-[10.5px] font-extrabold text-[#7C3AED] dark:text-[#A78BFA] mt-0.5">
-                  FERPlus
+                <div className="text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4]">Pipeline State</div>
+                <div className="text-[10.5px] font-extrabold text-[#7C3AED] dark:text-[#A78BFA] mt-0.5 truncate capitalize">
+                  {transitions?.state || "Active"}
                 </div>
               </div>
             </div>
@@ -979,34 +1123,53 @@ export function FaceToFaceScreen() {
           <div className="clay-card p-3 rounded-[22px] shrink-0">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11.5px] font-extrabold text-[#2E2544] dark:text-white">
-                Live Facial Presentation
+                FACS Action Units (OpenFace)
               </span>
-              <span className="text-[9px] font-extrabold text-[#7C3AED] dark:text-[#C7B5F3] capitalize">
-                {faceEmotion.primary_emotion}
+              <span className="text-[9px] font-extrabold text-[#7C3AED] dark:text-[#C7B5F3]">
+                {headPose?.yaw !== undefined ? `Yaw ${headPose.yaw}° · Pitch ${headPose.pitch || 0}°` : "MediaPipe 478D"}
               </span>
             </div>
 
             {(() => {
-              const confPct = Math.min(100, Math.max(0, Math.round(faceEmotion.confidence > 1.0 ? faceEmotion.confidence : faceEmotion.confidence * 100)));
-              const theme = getEmotionTheme(faceEmotion.primary_emotion);
+              const auInt = (actionUnits as any)?.intensity || {};
+              const auPres = (actionUnits as any)?.presence || {};
+              const getVal = (k: string, alt: string) => {
+                if (auInt[k] !== undefined) return auInt[k];
+                if ((actionUnits as any)[k] !== undefined) return (actionUnits as any)[k];
+                if ((actionUnits as any)[alt] !== undefined) return (actionUnits as any)[alt];
+                return 0;
+              };
+
+              const au12 = getVal("AU12", "AU12_LipCornerPuller");
+              const au04 = getVal("AU04", "AU04_BrowLowerer");
+              const au01 = getVal("AU01", "AU01_InnerBrowRaiser");
+              const au06 = getVal("AU06", "AU06_CheekRaiser");
+
               return (
-                <div>
-                  <div className="flex justify-between text-[9.5px] font-bold text-[#7A748A] dark:text-[#8E88A4] mb-1">
-                    <span>Diagnostic Confidence</span>
-                    <span className="font-extrabold" style={{ color: theme.color }}>
-                      {confPct}%
+                <div className="grid grid-cols-2 gap-1.5 text-[9.5px]">
+                  <div className="clay-card-flat p-1.5 rounded-[10px] flex items-center justify-between">
+                    <span className="text-[#7A748A] dark:text-[#8E88A4] font-bold">AU12 Smile</span>
+                    <span className="font-mono font-extrabold text-emerald-500">
+                      {typeof au12 === "number" ? (au12 <= 1.0 ? `${Math.round(au12 * 100)}%` : `${au12.toFixed(1)}/5`) : au12}
                     </span>
                   </div>
-                  <div className="clay-track-inset h-[5px] w-full rounded-full overflow-hidden">
-                    <motion.div
-                      animate={{ width: `${confPct}%` }}
-                      transition={{ duration: 0.6, ease: "easeOut" }}
-                      style={{
-                        height: "100%",
-                        borderRadius: 999,
-                        background: theme.bg,
-                      }}
-                    />
+                  <div className="clay-card-flat p-1.5 rounded-[10px] flex items-center justify-between">
+                    <span className="text-[#7A748A] dark:text-[#8E88A4] font-bold">AU04 Brow Low</span>
+                    <span className="font-mono font-extrabold text-amber-500">
+                      {typeof au04 === "number" ? (au04 <= 1.0 ? `${Math.round(au04 * 100)}%` : `${au04.toFixed(1)}/5`) : au04}
+                    </span>
+                  </div>
+                  <div className="clay-card-flat p-1.5 rounded-[10px] flex items-center justify-between">
+                    <span className="text-[#7A748A] dark:text-[#8E88A4] font-bold">AU06 Cheek</span>
+                    <span className="font-mono font-extrabold text-sky-500">
+                      {typeof au06 === "number" ? (au06 <= 1.0 ? `${Math.round(au06 * 100)}%` : `${au06.toFixed(1)}/5`) : au06}
+                    </span>
+                  </div>
+                  <div className="clay-card-flat p-1.5 rounded-[10px] flex items-center justify-between">
+                    <span className="text-[#7A748A] dark:text-[#8E88A4] font-bold">AU45 Blink/EAR</span>
+                    <span className="font-mono font-extrabold text-purple-500">
+                      {gazeInfo?.ear !== undefined ? gazeInfo.ear : (auPres?.AU45 ? "Blink" : "Open")}
+                    </span>
                   </div>
                 </div>
               );
@@ -1166,7 +1329,7 @@ export function FaceToFaceScreen() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-[12px] font-extrabold text-[#2E2544] dark:text-white flex items-center gap-1.5">
                 <Heart size={13} className="text-rose-500" />
-                <span>Emotion Vitals</span>
+                <span>Multimodal Emotion State</span>
               </span>
               <span className="clay-pill px-1.5 py-0.5 text-[8.5px] font-extrabold text-[#059669] dark:text-[#34D399]">
                 FUSED
@@ -1183,8 +1346,8 @@ export function FaceToFaceScreen() {
                 <span className="text-[#059669] dark:text-[#34D399] capitalize">{faceEmotion.stress}</span>
               </div>
               <div className="clay-card-flat px-2.5 py-1 rounded-[12px] flex justify-between items-center text-[10.5px] font-bold">
-                <span className="text-[#7A748A] dark:text-[#8E88A4]">Congruence</span>
-                <span className="text-purple-600 dark:text-purple-300 font-extrabold">Active Check</span>
+                <span className="text-[#7A748A] dark:text-[#8E88A4]">Active Sources</span>
+                <span className="text-purple-600 dark:text-purple-300 font-extrabold">Face + Voice + Text</span>
               </div>
             </div>
           </div>
@@ -1192,36 +1355,34 @@ export function FaceToFaceScreen() {
           <div className="clay-card p-3 rounded-[22px] flex-1 flex flex-col justify-between min-h-0">
             <div className="flex items-center gap-1.5 mb-1.5 text-[#2E2544] dark:text-white shrink-0">
               <Stethoscope size={14} className="text-[#7C3AED] dark:text-[#A78BFA]" />
-              <span className="text-[12px] font-extrabold">Doctor's Care Protocol</span>
+              <span className="text-[12px] font-extrabold">Live Personalized Context</span>
             </div>
 
             <div className="flex flex-col gap-1.5 flex-1 justify-between min-h-0">
               <div className="p-2 rounded-[12px] bg-sky-500/10 border border-sky-500/20">
                 <div className="text-[8.5px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-wider">
-                  Step 1 • Somatic Reset
+                  Target Goal
                 </div>
-                <div className="text-[10px] font-semibold text-[#2E2544] dark:text-white mt-0.5">
-                  Diaphragmatic oxygenation (Box / 4-7-8 breathing)
+                <div className="text-[10px] font-semibold text-[#2E2544] dark:text-white mt-0.5 truncate">
+                  {activeGoal}
                 </div>
               </div>
 
               <div className="p-2 rounded-[12px] bg-emerald-500/10 border border-emerald-500/20">
                 <div className="text-[8.5px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                  Step 2 • Cognitive Reframing
+                  Known Interest & Project
                 </div>
-                <div className="text-[10px] font-semibold text-[#2E2544] dark:text-white mt-0.5">
-                  Deconstruct acute stressors into actionable steps
+                <div className="text-[10px] font-semibold text-[#2E2544] dark:text-white mt-0.5 truncate">
+                  {activeInterest}
                 </div>
               </div>
 
-              <div className="p-2 rounded-[12px] bg-purple-500/10 border border-purple-500/20">
-                <div className="text-[8.5px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-                  Step 3 • Somatic Release
+              {latencyMetrics.total_turn_latency_ms ? (
+                <div className="p-2 rounded-[12px] bg-purple-500/10 border border-purple-500/20 text-[9px] font-mono flex justify-between items-center text-purple-600 dark:text-purple-300">
+                  <span>Turn Latency</span>
+                  <span className="font-bold">{latencyMetrics.total_turn_latency_ms} ms</span>
                 </div>
-                <div className="text-[10px] font-semibold text-[#2E2544] dark:text-white mt-0.5">
-                  Hydration & cervical neck tension release
-                </div>
-              </div>
+              ) : null}
 
               {/* Session Summary Card */}
               <div className="clay-card-flat p-2.5 rounded-[16px]">

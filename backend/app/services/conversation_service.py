@@ -8,6 +8,7 @@ Flow: receive input → emotion analysis → build prompt → AI streaming
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -241,6 +242,26 @@ class ConversationService:
             logger.warning("Database offline in _count_user_turns", error=str(exc))
             return 0
 
+    async def save_message(
+        self,
+        session_id: int,
+        user_id: int,
+        role: str,
+        content: str,
+        emotion_data: dict | None = None,
+        ai_provider: str | None = None,
+        message_type: str = MessageType.TEXT.value,
+    ) -> Message:
+        return await self._save_message(
+            session_id=session_id,
+            user_id=user_id,
+            role=role,
+            content=content,
+            emotion_data=emotion_data,
+            ai_provider=ai_provider,
+            message_type=message_type,
+        )
+
     async def _save_message(
         self,
         session_id: int,
@@ -430,18 +451,28 @@ class ConversationService:
                 if debug_out.get("is_crisis"):
                     yield {"type": "crisis", "metadata": {"crisis": True}}
 
+            seq = 0
+            t_first_chunk = None
             async for chunk in stream_gen:
                 if interrupt_event and interrupt_event.is_set():
                     return
                 if chunk and chunk.content:
+                    if t_first_chunk is None:
+                        t_first_chunk = time.perf_counter()
                     full_response += chunk.content
-                    yield {"type": "chunk", "content": chunk.content}
+                    seq += 1
+                    yield {
+                        "type": "chunk",
+                        "content": chunk.content,
+                        "sequence": seq,
+                        "session_id": session.id,
+                    }
         except Exception as exc:
             logger.error("AI generation failed", error=str(exc))
             yield {"type": "error", "error": f"AI Error: {str(exc)}", "code": "AI_ERROR"}
             return
 
-        # Providers may terminate a successful stream without text.  Never
+        # Providers may terminate a successful stream without text. Never
         # persist or send an empty assistant turn: keep the conversation usable
         # and make the fallback visible to every SSE client.
         if interrupt_event and interrupt_event.is_set():
@@ -450,7 +481,8 @@ class ConversationService:
         if not full_response.strip():
             logger.warning("AI stream completed without response text", session_id=session.id)
             full_response = _RESPONSE_FALLBACK
-            yield {"type": "chunk", "content": full_response}
+            seq += 1
+            yield {"type": "chunk", "content": full_response, "sequence": seq, "session_id": session.id}
 
         # 6. Save assistant response
         await self._save_message(
@@ -488,10 +520,16 @@ class ConversationService:
                 logger.warning("Rolling session summary failed", error=str(exc))
 
         # 7. Done
+        metrics = debug_out.get("metrics") or debug_out.get("telemetry") or {}
+        if not metrics and "timings" in debug_out:
+            metrics = debug_out["timings"]
+
         yield {
             "type": "done",
             "response": full_response,
             "provider": provider_used,
             "session_id": session.id,
             "emotion": emotion_dict,
+            "total_chunks": seq,
+            "metrics": metrics,
         }

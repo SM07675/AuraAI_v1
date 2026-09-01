@@ -90,6 +90,20 @@ class EdgeTTSProvider(TTSProvider):
         except ImportError:
             return False
 
+    async def synthesize(self, text: str, voice: str = "en-US-AriaNeural") -> bytes:
+        """Synthesize text to complete MP3 bytes."""
+        chunks = []
+        async for chunk in self.stream_audio(text, voice):
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    async def synthesize_stream(
+        self, text: str, voice: str = "en-US-AriaNeural"
+    ) -> AsyncIterator[bytes]:
+        """Synthesize text to streaming MP3 chunks."""
+        async for chunk in self.stream_audio(text, voice):
+            yield chunk
+
     async def stream_audio(
         self, text: str, voice: str = "en-US-AriaNeural"
     ) -> AsyncIterator[bytes]:
@@ -264,6 +278,16 @@ class TTSEngine:
         # To interrupt immediately:
         await engine.stop()
     """
+
+    @classmethod
+    def get_instance(cls) -> TTSEngine:
+        return cls.from_settings(session_id="global_tts")
+
+    async def synthesize_stream(
+        self, text: str, voice: str = "en-US-AriaNeural"
+    ) -> AsyncIterator[bytes]:
+        async for chunk in self._provider.stream_audio(text, voice or self._voice):
+            yield chunk
 
     def __init__(
         self,

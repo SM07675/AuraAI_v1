@@ -161,7 +161,7 @@ async def blacklist_token(redis_client: Any, token: str, expires_in: int | None 
         except jwt.InvalidTokenError:
             expires_in = 3600  # Default 1 hour
 
-    await redis_client.setex(f"blacklist:{token}", expires_in, "1")
+    await redis_client.set(f"blacklist:{token}", "1", ex=expires_in)
 
 
 async def is_token_blacklisted(redis_client: Any, token: str) -> bool:

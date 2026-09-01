@@ -71,6 +71,7 @@ class QuestionBuilder:
         previously_asked: list[str] | None = None,
         preferred_language: str | None = None,
         relevant_memories: list[dict[str, Any]] | None = None,
+        graph_facts: list[str] | None = None,
         conversation_summary: str = "",
         previous_session_context: list[str] | None = None,
     ) -> str | None:
@@ -82,6 +83,7 @@ class QuestionBuilder:
             conversation_history: Formatted conversation history string.
             turn_count: Current turn number in the session.
             previously_asked: Questions already asked this session.
+            graph_facts: Active knowledge graph facts.
 
         Returns:
             A question string if one should be asked, or None.
@@ -105,6 +107,10 @@ class QuestionBuilder:
                 for memory in relevant_memories[:6]
             )
 
+        graph_section = "None"
+        if graph_facts:
+            graph_section = "\n".join(f"- {fact}" for fact in graph_facts[:6])
+
         prior_chat_section = "None"
         if previous_session_context:
             prior_chat_section = "\n".join(
@@ -121,6 +127,7 @@ class QuestionBuilder:
             f"- Learning Style: {user.learning_style or 'Not set'}\n"
             f"- Response Language: {preferred_language or user.preferred_language or 'en'}\n"
             f"{asked_section}\n"
+            f"Knowledge Graph Facts (Already known — do NOT ask these):\n{graph_section}\n\n"
             f"Relevant Long-Term Details:\n{memory_section}\n\n"
             f"Current Session Summary:\n{conversation_summary or 'None'}\n\n"
             f"Previous Chat Context:\n{prior_chat_section}\n\n"

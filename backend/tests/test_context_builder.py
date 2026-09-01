@@ -9,7 +9,13 @@ from app.models.session import Session
 async def test_context_builder_builds_correctly():
     # Mock DB
     mock_db = AsyncMock()
-    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+    mock_db.add = MagicMock()
+    exec_result = MagicMock()
+    exec_result.scalars.return_value.all.return_value = []
+    exec_result.scalars.return_value.first.return_value = None
+    exec_result.scalar_one_or_none.return_value = None
+    exec_result.scalar.return_value = None
+    mock_db.execute.return_value = exec_result
 
     builder = ContextBuilder(mock_db)
 
@@ -46,7 +52,13 @@ async def test_context_builder_builds_correctly():
 @pytest.mark.asyncio
 async def test_context_builder_allows_per_turn_language_override():
     mock_db = AsyncMock()
-    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+    mock_db.add = MagicMock()
+    exec_result = MagicMock()
+    exec_result.scalars.return_value.all.return_value = []
+    exec_result.scalars.return_value.first.return_value = None
+    exec_result.scalar_one_or_none.return_value = None
+    exec_result.scalar.return_value = None
+    mock_db.execute.return_value = exec_result
 
     context = await ContextBuilder(mock_db).build(
         user=User(id=1, name="Asha", preferred_language="en"),

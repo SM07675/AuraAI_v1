@@ -45,6 +45,10 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - ./models:/app/models
+      - ./models:/models
+      - ./model:/app/model
+      - ./model:/model
     env_file:
       - .env
     environment:
