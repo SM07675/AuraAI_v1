@@ -206,7 +206,6 @@ class SpeechRecognitionEngine {
 
       rec.onstart = () => {
         this.isRecognizing = true;
-        this.consecutiveErrors = 0;
       };
 
       rec.onspeechstart = () => {
@@ -219,6 +218,7 @@ class SpeechRecognitionEngine {
       };
 
       rec.onresult = (event: any) => {
+        this.consecutiveErrors = 0;
         const interimParts: string[] = [];
         const finalParts: string[] = [];
         let bestConf = 0.85;
@@ -298,9 +298,21 @@ class SpeechRecognitionEngine {
 
         if (err === "network") {
           this.consecutiveErrors++;
-          if (this.consecutiveErrors <= 2) {
-            console.warn("[SPEECH SERVICE] SpeechRecognition network glitch, scheduling backoff retry...");
+          if (this.consecutiveErrors >= 2) {
+            console.warn("[SPEECH SERVICE] SpeechRecognition cloud service unreachable. Halting auto-retry loop.");
+            this.isListeningDesired = false;
+            this.notifyListeningChange(false);
+            this.notifyError("Speech recognition is currently unavailable (network/cloud service unreachable). You can type or click the microphone to retry.");
+            this.clearRestartTimer();
+            if (this.recognition) {
+              try {
+                this.recognition.abort();
+              } catch (e) {}
+              this.recognition = null;
+            }
+            return;
           }
+          console.warn("[SPEECH SERVICE] SpeechRecognition network glitch, scheduling backoff retry...");
           return;
         }
 
@@ -310,11 +322,12 @@ class SpeechRecognitionEngine {
       rec.onend = () => {
         this.isRecognizing = false;
 
-        if (this.isListeningDesired) {
-          const delay = this.consecutiveErrors > 0 ? Math.min(300 * this.consecutiveErrors, 1500) : 120;
+        // Only restart if listening is desired and we haven't halted due to persistent network errors
+        if (this.isListeningDesired && this.consecutiveErrors < 2) {
+          const delay = this.consecutiveErrors > 0 ? 1500 : 120;
           this.clearRestartTimer();
           this.restartTimeout = setTimeout(() => {
-            if (this.isListeningDesired) {
+            if (this.isListeningDesired && this.consecutiveErrors < 2) {
               this.recreateAndStart();
             }
           }, delay);

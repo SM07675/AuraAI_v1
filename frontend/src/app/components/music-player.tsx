@@ -1,9 +1,10 @@
 import { motion, AnimatePresence } from "motion/react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, Sparkles, ChevronUp, ChevronDown, Music2, X } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, Sparkles, ChevronUp, ChevronDown, Music2, Search, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { ClayMusicTileIcon } from "./clay-icons";
+import { apiClient } from "../services/apiClient";
 
-const TRACKS = [
+const DEFAULT_TRACKS = [
   {
     title: "Lofi Hip Hop Radio – Beats to Relax/Study to",
     artist: "Lofi Girl · Ambient",
@@ -11,12 +12,12 @@ const TRACKS = [
   },
   {
     title: "Peaceful Mind & Serene River",
-    artist: "Aura · Lofi Meditation",
+    artist: "Mindset Zen · Meditation",
     url: "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=ambient-piano-amp-strings-10711.mp3",
   },
   {
     title: "Aurora Focus Flow",
-    artist: "Aura · Ambient Synth",
+    artist: "Ambient Synth · Focus",
     url: "https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a70514.mp3?filename=relaxing-light-background-116686.mp3",
   },
 ];
@@ -28,37 +29,98 @@ interface MusicPlayerProps {
 }
 
 export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded = false }: MusicPlayerProps) {
-  const [tracks, setTracks] = useState(TRACKS);
+  const [tracks, setTracks] = useState(DEFAULT_TRACKS);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackIdx, setTrackIdx] = useState(0);
   const [vol, setVol] = useState(70);
   const [toastMsg, setToastMsg] = useState("");
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [progress, setProgress] = useState(25);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscNodeRef = useRef<OscillatorNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
 
-  const currentTrack = tracks[trackIdx] || TRACKS[0];
+  const currentTrack = tracks[trackIdx] || DEFAULT_TRACKS[0];
 
-  // Fetch YouTube Music ambient tracks from backend if available
-  useEffect(() => {
-    fetch("/api/v1/music/ambient")
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const loadedTracks = data.map((t: any, i: number) => ({
-            title: t.title || TRACKS[i % TRACKS.length].title,
-            artist: t.artist || "Lofi Girl · Ambient",
-            url: t.stream_url || TRACKS[i % TRACKS.length].url,
+  // Emotion-adaptive query mapping
+  const loadEmotionAdaptiveMusic = async () => {
+    try {
+      // 1. Fetch latest emotion
+      const historyData = await apiClient.get<{ history: any[] }>("/api/v1/analytics/emotion_history?days=1").catch(() => null);
+      const latestLog = historyData?.history && historyData.history.length > 0
+        ? historyData.history[historyData.history.length - 1]
+        : null;
+
+      const emo = (latestLog?.fused_emotion || "calm").toLowerCase();
+      let query = "lofi chill study ambient";
+
+      if (emo.includes("joy") || emo.includes("happy")) {
+        query = "upbeat feel good indie acoustic";
+      } else if (emo.includes("sad") || emo.includes("lonely")) {
+        query = "comforting healing peaceful piano";
+      } else if (emo.includes("anxious") || emo.includes("fear")) {
+        query = "calm meditation soundscape deep relaxation";
+      } else if (emo.includes("angry") || emo.includes("frustrated")) {
+        query = "deep focus binaural lofi";
+      }
+
+      // 2. Fetch music matching query or ambient fallback
+      const searchRes = await apiClient.get<any>(`/api/v1/music/search?query=${encodeURIComponent(query)}`).catch(() => null);
+      if (searchRes?.results && searchRes.results.length > 0) {
+        const mapped = searchRes.results.map((t: any, i: number) => ({
+          title: t.title || `Track ${i + 1}`,
+          artist: t.artist || "YouTube Music",
+          url: t.stream_url || DEFAULT_TRACKS[i % DEFAULT_TRACKS.length].url,
+        }));
+        setTracks(mapped);
+      } else {
+        const ambientRes = await apiClient.get<any[]>("/api/v1/music/ambient").catch(() => null);
+        if (Array.isArray(ambientRes) && ambientRes.length > 0) {
+          const loadedTracks = ambientRes.map((t: any, i: number) => ({
+            title: t.title || DEFAULT_TRACKS[i % DEFAULT_TRACKS.length].title,
+            artist: t.artist || "Ambient Flow",
+            url: t.stream_url || DEFAULT_TRACKS[i % DEFAULT_TRACKS.length].url,
           }));
           setTracks(loadedTracks);
         }
-      })
-      .catch(() => {});
+      }
+    } catch {
+      // Keep DEFAULT_TRACKS
+    }
+  };
+
+  useEffect(() => {
+    loadEmotionAdaptiveMusic();
   }, []);
+
+  const handleManualSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    try {
+      const res = await apiClient.get<any>(`/api/v1/music/search?query=${encodeURIComponent(searchQuery.trim())}`);
+      if (res?.results && res.results.length > 0) {
+        const mapped = res.results.map((t: any, i: number) => ({
+          title: t.title || `Result ${i + 1}`,
+          artist: t.artist || "YouTube Music",
+          url: t.stream_url || DEFAULT_TRACKS[i % DEFAULT_TRACKS.length].url,
+        }));
+        setTracks(mapped);
+        setTrackIdx(0);
+        showToast(`Loaded ${mapped.length} tracks for "${searchQuery}"`);
+      } else {
+        showToast("No tracks found, playing ambient");
+      }
+    } catch {
+      showToast("Music search unavailable");
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   // Initialize Audio Element
   useEffect(() => {
@@ -76,7 +138,7 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
 
   // Update track source when trackIdx changes
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && currentTrack) {
       audioRef.current.src = currentTrack.url;
       if (isPlaying) {
         audioRef.current.play().catch(() => {
@@ -84,7 +146,7 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
         });
       }
     }
-  }, [trackIdx]);
+  }, [trackIdx, tracks]);
 
   // Sync Volume
   useEffect(() => {
@@ -231,7 +293,7 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: -45, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            className="absolute right-0 -top-3 clay-pill px-3.5 py-1.5 text-xs font-bold text-[#2E2544] shadow-md flex items-center gap-2 pointer-events-none whitespace-nowrap z-50"
+            className="absolute right-0 -top-3 clay-pill px-3.5 py-1.5 text-xs font-bold text-[#2E2544] dark:text-[#FFFFFF] shadow-md flex items-center gap-2 pointer-events-none whitespace-nowrap z-50"
           >
             <Sparkles size={13} className="text-[#9E7EE6] animate-pulse" />
             <span>{toastMsg}</span>
@@ -263,7 +325,7 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
                 {currentTrack.title.replace(/ – .*/, "")}
               </div>
               <div className="text-[10.5px] text-[#777287] dark:text-[#9E98B4] font-semibold truncate mt-0.5">
-                {isPlaying ? "Playing Lofi Ambient" : "Paused · Click to expand"}
+                {isPlaying ? "Playing Adaptive Soundscape" : "Paused · Click to expand"}
               </div>
             </div>
 
@@ -295,7 +357,7 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 8 }}
             transition={{ type: "spring", stiffness: 320, damping: 24 }}
-            className="clay-floating-music-expanded p-4 sm:p-4.5 w-[310px] sm:w-[360px] flex flex-col gap-3"
+            className="clay-floating-music-expanded p-4 sm:p-4.5 w-[320px] sm:w-[370px] flex flex-col gap-3"
           >
             {/* Top Row: Track Metadata + Minimize Button */}
             <div className="flex items-center justify-between gap-2.5">
@@ -325,6 +387,27 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
                 <ChevronDown size={15} />
               </motion.button>
             </div>
+
+            {/* Search Bar for YouTube Music */}
+            <form onSubmit={handleManualSearch} className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9E9EB2]" />
+                <input
+                  type="text"
+                  placeholder="Search music, lofi, artists..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="clay-input w-full pl-7 pr-2 py-1 text-[11px] font-medium rounded-full"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSearching}
+                className="clay-button px-3 py-1 text-[10.5px] font-bold text-[#7B59DC] rounded-full cursor-pointer border-none"
+              >
+                {isSearching ? "..." : "Find"}
+              </button>
+            </form>
 
             {/* Subtle Progress Bar */}
             <div className="w-full bg-[#E8DDD8] dark:bg-[#100E1A] h-1.5 rounded-full overflow-hidden relative">
@@ -392,4 +475,3 @@ export function MusicPlayer({ variant = "fixed", className = "", defaultExpanded
     </div>
   );
 }
-

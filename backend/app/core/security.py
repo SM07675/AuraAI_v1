@@ -140,39 +140,31 @@ def decode_token(token: str) -> dict[str, Any]:
 
 
 async def blacklist_token(redis_client: Any, token: str, expires_in: int | None = None) -> None:
-    """Add a token to the blacklist in Redis.
+    """Add a token to the blacklist in Redis."""
+    try:
+        if expires_in is None:
+            try:
+                payload = jwt.decode(
+                    token,
+                    get_settings().jwt_secret_key,
+                    algorithms=[get_settings().jwt_algorithm],
+                    options={"verify_exp": False},
+                )
+                exp = payload.get("exp", 0)
+                now = int(datetime.now(timezone.utc).timestamp())
+                expires_in = max(exp - now, 60)
+            except jwt.InvalidTokenError:
+                expires_in = 3600  # Default 1 hour
 
-    Args:
-        redis_client: Async Redis client.
-        token: The JWT token to blacklist.
-        expires_in: TTL in seconds. If None, uses the token's own expiry.
-    """
-    if expires_in is None:
-        try:
-            payload = jwt.decode(
-                token,
-                get_settings().jwt_secret_key,
-                algorithms=[get_settings().jwt_algorithm],
-                options={"verify_exp": False},
-            )
-            exp = payload.get("exp", 0)
-            now = int(datetime.now(timezone.utc).timestamp())
-            expires_in = max(exp - now, 60)
-        except jwt.InvalidTokenError:
-            expires_in = 3600  # Default 1 hour
-
-    await redis_client.setex(f"blacklist:{token}", expires_in, "1")
+        await redis_client.setex(f"blacklist:{token}", expires_in, "1")
+    except Exception:
+        pass
 
 
 async def is_token_blacklisted(redis_client: Any, token: str) -> bool:
-    """Check if a token is blacklisted.
-
-    Args:
-        redis_client: Async Redis client.
-        token: The JWT token to check.
-
-    Returns:
-        True if the token is blacklisted.
-    """
-    result = await redis_client.get(f"blacklist:{token}")
-    return result is not None
+    """Check if a token is blacklisted."""
+    try:
+        result = await redis_client.get(f"blacklist:{token}")
+        return result is not None
+    except Exception:
+        return False

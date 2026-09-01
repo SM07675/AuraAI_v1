@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, MicOff, MessageCircle, Activity, History as HistoryIcon, FileText, Wind, Heart, ArrowRight, Send, Plus, X, LogOut, User as UserIcon, LogIn, ShieldCheck, Video, Music, BookOpen, Target, Leaf } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, LineChart, Line, PieChart, Pie } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import { AuraRobot, AuraMascot3D, AuraBlobMascot } from "./aura-robot";
 import { MusicPlayer } from "./music-player";
 import { useTheme } from "../context/ThemeContext";
+import { useUser } from "../context/UserContext";
+import { apiClient } from "../services/apiClient";
 import { voiceService } from "../services/voiceService";
 import { speechService } from "../services/speechRecognitionService";
 import { getWebSocketUrl } from "../services/wsHelper";
@@ -35,6 +37,35 @@ const QUICK_ACTIONS = [
   { label: "Meditation", icon: Heart },
 ];
 
+const EMOTION_SCORE_MAP: Record<string, number> = {
+  calm: 85,
+  joy: 95,
+  happy: 90,
+  relaxed: 85,
+  content: 80,
+  neutral: 65,
+  surprised: 70,
+  anxious: 40,
+  fear: 35,
+  sad: 35,
+  lonely: 30,
+  angry: 30,
+  frustrated: 35,
+  disgusted: 30,
+};
+
+const EMOTION_COLORS: Record<string, string> = {
+  Calm: "#9A80E5",
+  Joy: "#10B981",
+  Happy: "#00D4FF",
+  Neutral: "#8B5CF6",
+  Anxious: "#F59E0B",
+  Sad: "#6366F1",
+  Angry: "#EF4444",
+  Surprised: "#EC4899",
+};
+
+const DONUT_COLORS = ["#9E7EE6", "#38BDF8", "#34D399", "#F59E0B", "#EC4899"];
 
 /* ─────────────────────────── HOME ─────────────────────────── */
 export function HomeScreen({
@@ -47,16 +78,123 @@ export function HomeScreen({
   onNavigateToAuth?: () => void;
 }) {
   const { isDark } = useTheme();
-  const user = (() => {
-    try {
-      const saved = localStorage.getItem("aura_user");
-      return saved ? JSON.parse(saved) : { name: "athavpalekar", email: "atharv@aura.ai" };
-    } catch {
-      return { name: "athavpalekar", email: "atharv@aura.ai" };
+  const { user } = useUser();
+  const userName = user?.name || "Friend";
+
+  const [emotionHistory, setEmotionHistory] = useState<any[]>([]);
+  const [todayOverview, setTodayOverview] = useState<any>(null);
+  const [trendDays, setTrendDays] = useState<number>(7);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      try {
+        const [historyRes, overviewRes] = await Promise.allSettled([
+          apiClient.get<{ history: any[] }>(`/api/v1/analytics/emotion_history?days=${trendDays}`),
+          apiClient.get<any>(`/api/v1/analytics/overview?days=1`),
+        ]);
+
+        if (isMounted) {
+          if (historyRes.status === "fulfilled" && historyRes.value?.history) {
+            setEmotionHistory(historyRes.value.history);
+          }
+          if (overviewRes.status === "fulfilled" && overviewRes.value) {
+            setTodayOverview(overviewRes.value);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load dashboard data:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+    return () => {
+      isMounted = false;
+    };
+  }, [trendDays]);
+
+  // Compute 7-day trend curve data
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const trendData = dayNames.map((d, idx) => {
+    // Check logs matching this weekday
+    const dayLogs = emotionHistory.filter((l) => {
+      if (!l.timestamp) return false;
+      const date = new Date(l.timestamp);
+      // JS getDay(): 0=Sun, 1=Mon, ..., 6=Sat -> convert to 0=Mon, ..., 6=Sun
+      const dayIdx = (date.getDay() + 6) % 7;
+      return dayIdx === idx;
+    });
+
+    if (dayLogs.length > 0) {
+      const totalScore = dayLogs.reduce((acc, curr) => {
+        const clean = (curr.fused_emotion || "neutral").toLowerCase();
+        return acc + (EMOTION_SCORE_MAP[clean] || 65);
+      }, 0);
+      return { d, v: Math.round(totalScore / dayLogs.length) };
     }
+    return { d, v: 0 };
+  });
+
+  // Latest recorded emotion
+  const latestLog = emotionHistory.length > 0 ? emotionHistory[emotionHistory.length - 1] : null;
+  const currentEmotionLabel = latestLog?.fused_emotion
+    ? latestLog.fused_emotion.charAt(0).toUpperCase() + latestLog.fused_emotion.slice(1)
+    : "Calm";
+  const rawConfidence = latestLog?.confidence ?? 0.85;
+  const currentConfidence = Math.round(rawConfidence <= 1.0 ? rawConfidence * 100 : rawConfidence);
+
+  // Sparkline data from recent logs
+  const sparkData = emotionHistory.length >= 2
+    ? emotionHistory.slice(-6).map((l) => ({
+        v: Math.round((l.confidence <= 1.0 ? l.confidence * 100 : l.confidence) || 75),
+      }))
+    : [{ v: 60 }, { v: 75 }, { v: 80 }, { v: 70 }, { v: 85 }];
+
+  // Metric pills counts from recent logs
+  const emotionPills = (() => {
+    if (emotionHistory.length === 0) {
+      return [
+        { label: "Joy", val: "—", color: "#F59E0B" },
+        { label: "Focus", val: "—", color: "#10B981" },
+        { label: "Calm", val: "—", color: "#38BDF8" },
+        { label: "Stress", val: "—", color: "#F87171" },
+      ];
+    }
+    const counts: Record<string, number> = { Joy: 0, Focus: 0, Calm: 0, Stress: 0 };
+    emotionHistory.slice(-10).forEach((l) => {
+      const e = (l.fused_emotion || "").toLowerCase();
+      if (e.includes("joy") || e.includes("happy")) counts.Joy++;
+      else if (e.includes("calm") || e.includes("relaxed")) counts.Calm++;
+      else if (e.includes("anxious") || e.includes("angry") || e.includes("stress")) counts.Stress++;
+      else counts.Focus++;
+    });
+    const total = Math.max(1, emotionHistory.slice(-10).length);
+    return [
+      { label: "Joy", val: `${Math.round((counts.Joy / total) * 100)}%`, color: "#F59E0B" },
+      { label: "Focus", val: `${Math.round((counts.Focus / total) * 100)}%`, color: "#10B981" },
+      { label: "Calm", val: `${Math.round((counts.Calm / total) * 100)}%`, color: "#38BDF8" },
+      { label: "Stress", val: `${Math.round((counts.Stress / total) * 100)}%`, color: "#F87171" },
+    ];
   })();
 
-  const userName = user.name || "athavpalekar";
+  // Today's Insights Donut data
+  const donutData = (todayOverview?.emotion_distribution && todayOverview.emotion_distribution.length > 0)
+    ? todayOverview.emotion_distribution.map((item: any, i: number) => ({
+        name: item.name,
+        value: item.percentage || item.count,
+        fill: EMOTION_COLORS[item.name] || DONUT_COLORS[i % DONUT_COLORS.length],
+      }))
+    : [
+        { name: "Balanced", value: 100, fill: isDark ? "#8B5CF6" : "#C7B5F3" },
+      ];
+
+  const dominantToday = todayOverview?.kpis?.dominant_emotion && todayOverview.kpis.dominant_emotion !== "None"
+    ? todayOverview.kpis.dominant_emotion.toLowerCase()
+    : null;
 
   return (
     <div className="relative w-full select-none h-full min-h-0 flex flex-col justify-between overflow-y-auto custom-scrollbar pb-24 lg:pb-3" style={{ maxWidth: 1240 }}>
@@ -82,7 +220,6 @@ export function HomeScreen({
 
             {/* 3D Mascot Area with Surrounding Clay Floating Orbs */}
             <div className="relative shrink-0 sm:mr-3">
-              {/* Floating Purple Sphere (Top Left) */}
               <motion.div
                 animate={{ y: [0, -4, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
@@ -93,7 +230,6 @@ export function HomeScreen({
                 }}
               />
 
-              {/* Floating Pink Sphere (Top Right) */}
               <motion.div
                 animate={{ y: [0, -5, 0] }}
                 transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
@@ -104,7 +240,6 @@ export function HomeScreen({
                 }}
               />
 
-              {/* Main 3D Mascot on Lavender Platform */}
               <AuraMascot3D size={125} />
             </div>
           </div>
@@ -266,22 +401,21 @@ export function HomeScreen({
             <div className="clay-card flex flex-col justify-between" style={{ padding: "12px 14px", borderRadius: 22 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
                 <h3 className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Emotion Trend</h3>
-                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} className="clay-pill" style={{ padding: "2px 8px", fontSize: 9.5, fontWeight: 600, cursor: "pointer" }}>
-                  7 Days <span style={{ fontSize: 8 }}>⌄</span>
+                <motion.div
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setTrendDays((prev) => (prev === 7 ? 14 : prev === 14 ? 30 : 7))}
+                  className="clay-pill"
+                  style={{ padding: "2px 8px", fontSize: 9.5, fontWeight: 600, cursor: "pointer" }}
+                  title="Toggle Timeframe"
+                >
+                  {trendDays} Days <span style={{ fontSize: 8 }}>⌄</span>
                 </motion.div>
               </div>
               <div style={{ height: 68, width: "100%" }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
-                    data={[
-                      { d: "Mon", v: 62 },
-                      { d: "Tue", v: 78 },
-                      { d: "Wed", v: 55 },
-                      { d: "Thu", v: 82 },
-                      { d: "Fri", v: 68 },
-                      { d: "Sat", v: 89 },
-                      { d: "Sun", v: 94 },
-                    ]}
+                    data={trendData}
                     margin={{ top: 4, right: 6, left: 6, bottom: 0 }}
                   >
                     <defs>
@@ -374,8 +508,8 @@ export function HomeScreen({
               <div
                 style={{
                   padding: "2px 7px",
-                  background: "linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%)",
-                  color: "#15803D",
+                  background: latestLog ? "linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%)" : "linear-gradient(135deg, #E2D5FC 0%, #C7B5F3 100%)",
+                  color: latestLog ? "#15803D" : "#7B59DC",
                   fontSize: 9,
                   fontWeight: 700,
                   display: "flex",
@@ -385,8 +519,8 @@ export function HomeScreen({
                   border: "1px solid rgba(255,255,255,0.85)",
                 }}
               >
-                <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: 999, background: "#15803D", display: "inline-block" }} />
-                ACTIVE
+                <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: 999, background: latestLog ? "#15803D" : "#7B59DC", display: "inline-block" }} />
+                {latestLog ? "LOGGED" : "READY"}
               </div>
             </div>
 
@@ -409,13 +543,17 @@ export function HomeScreen({
                   <ClayCalmFaceIcon size={26} />
                 </motion.div>
                 <div>
-                  <div className="text-[15px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">Calm</div>
-                  <div className="text-[10px] font-medium text-[#9E98AA] dark:text-[#8E88A4] mt-0.5">FERPlus Live</div>
+                  <div className="text-[15px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] leading-tight">
+                    {currentEmotionLabel}
+                  </div>
+                  <div className="text-[10px] font-medium text-[#9E98AA] dark:text-[#8E88A4] mt-0.5">
+                    {latestLog ? "FERPlus Synced" : "Aura Baseline"}
+                  </div>
                 </div>
               </div>
               <div style={{ width: 95, height: 32 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={[{ v: 55 }, { v: 72 }, { v: 64 }, { v: 85 }, { v: 80 }, { v: 92 }]} margin={{ top: 2, bottom: 0, left: 2, right: 2 }}>
+                  <AreaChart data={sparkData} margin={{ top: 2, bottom: 0, left: 2, right: 2 }}>
                     <defs>
                       <linearGradient id="calmSparkFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.35} />
@@ -439,12 +577,12 @@ export function HomeScreen({
             <div style={{ marginTop: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 600, color: isDark ? "#9E98B4" : "#777287", marginBottom: 3 }}>
                 <span>Confidence</span>
-                <span style={{ color: "#0284C7", fontWeight: 800 }}>85%</span>
+                <span style={{ color: "#0284C7", fontWeight: 800 }}>{currentConfidence}%</span>
               </div>
               <div className="w-full h-[5px] rounded-full bg-[#EAE2E6] dark:bg-[#100E1A] overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: "85%" }}
+                  animate={{ width: `${currentConfidence}%` }}
                   transition={{ duration: 1.0, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
                   style={{ height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #38BDF8, #0284C7)", boxShadow: "inset 0 1px 2px rgba(255,255,255,0.6)" }}
                 />
@@ -453,12 +591,7 @@ export function HomeScreen({
 
             {/* 4 metric pills */}
             <div className="grid grid-cols-4 gap-1.5 mt-2">
-              {[
-                { label: "Joy", val: "72%", color: "#F59E0B" },
-                { label: "Focus", val: "64%", color: "#10B981" },
-                { label: "Stress", val: "18%", color: "#F87171" },
-                { label: "Sad", val: "6%", color: "#60A5FA" },
-              ].map((m) => (
+              {emotionPills.map((m) => (
                 <motion.div
                   key={m.label}
                   whileHover={{ y: -1 }}
@@ -475,7 +608,7 @@ export function HomeScreen({
             </div>
           </div>
 
-          {/* ── 2. Today's Insights (Compact Donut Chart) ── */}
+          {/* ── 2. Today's Insights (Donut Chart) ── */}
           <div className="clay-card" style={{ padding: "10px 14px", borderRadius: 22 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <h4 className="text-[13px] font-bold text-[#2E2544] dark:text-[#FFFFFF] m-0">Today's Insights</h4>
@@ -489,18 +622,17 @@ export function HomeScreen({
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={[
-                        { name: "Coral", value: 30, fill: isDark ? "#EC4899" : "#F4A6C8" },
-                        { name: "Peach", value: 25, fill: isDark ? "#F97316" : "#F7C8BA" },
-                        { name: "Mint", value: 25, fill: isDark ? "#10B981" : "#8EE0C6" },
-                        { name: "Lavender", value: 20, fill: isDark ? "#8B5CF6" : "#C7B5F3" },
-                      ]}
+                      data={donutData}
                       innerRadius={19}
                       outerRadius={29}
                       paddingAngle={2}
                       cornerRadius={2}
                       dataKey="value"
-                    />
+                    >
+                      {donutData.map((entry: any, index: number) => (
+                        <Cell key={`donut-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
                   </PieChart>
                 </ResponsiveContainer>
                 <motion.div
@@ -519,7 +651,15 @@ export function HomeScreen({
               </div>
 
               <div className="text-[11.5px] font-semibold text-[#2E2544] dark:text-[#FFFFFF] leading-snug">
-                You've been <strong className="text-[#2E2544] dark:text-[#FFFFFF] font-extrabold">mostly calm & focused</strong> today.
+                {dominantToday ? (
+                  <>
+                    You've been <strong className="text-[#2E2544] dark:text-[#FFFFFF] font-extrabold">mostly {dominantToday}</strong> today.
+                  </>
+                ) : (
+                  <>
+                    Start a session to reveal <strong className="text-[#2E2544] dark:text-[#FFFFFF] font-extrabold">today's emotional rhythm</strong>.
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -658,12 +798,14 @@ export function HomeScreen({
 type Msg = { id: string; from: "user" | "aura"; text: string; time?: string; showBeads?: boolean };
 
 export function ChatScreen() {
+  const { user } = useUser();
+  const userName = user?.name || "Friend";
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       id: "init",
       from: "aura",
-      text: "Hi — I am Aura. How are you feeling today?",
-      time: "10:30 AM",
+      text: `Hi ${userName} — I am Aura. How are you feeling today?`,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
   const [text, setText] = useState("");
@@ -688,7 +830,7 @@ export function ChatScreen() {
       ws.current = socket;
 
       socket.onopen = () => {
-        console.log("Connected to Aura AI");
+        console.log("Connected to Aura AI Chat WS");
       };
 
       socket.onmessage = (event) => {
@@ -730,9 +872,9 @@ export function ChatScreen() {
       };
 
       socket.onclose = () => {
-        console.log("Disconnected from Aura AI");
+        console.log("Disconnected from Aura AI Chat WS");
         if (!isUnmounted) {
-          reconnectTimeout = setTimeout(connect, 2000);
+          reconnectTimeout = setTimeout(connect, 2500);
         }
       };
     };
@@ -764,32 +906,19 @@ export function ChatScreen() {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: "message", content: t, mode: "chat" }));
     } else {
-      // Fallback local response generator if backend WS is offline
       setTimeout(() => {
         setTyping(false);
-        const lower = t.toLowerCase();
-        let reply = "I'm right here with you and listening. What's on your mind today?";
-        if (lower.includes("stress") || lower.includes("frustrat") || lower.includes("project") || lower.includes("pressure") || lower.includes("work") || lower.includes("exam")) {
-          reply = "I understand that can feel really overwhelming. Remember to take it one step at a time. What part of it feels heaviest right now?";
-        } else if (lower.includes("sad") || lower.includes("lonely") || lower.includes("alone") || lower.includes("unhappy")) {
-          reply = "I hear you, and it is completely okay to feel this way. You don't have to carry it all by yourself. I'm here for you.";
-        } else if (lower.includes("anxious") || lower.includes("panic") || lower.includes("worry") || lower.includes("scared")) {
-          reply = "Let's pause together for a moment. Inhale gently for 4 counts, hold for 4, and release. You are safe here.";
-        } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
-          reply = "Hello! I'm glad you reached out. How has your day been treating you?";
-        }
-
         setMsgs((m) => [
           ...m,
           {
             id: "aura-" + Date.now(),
             from: "aura",
-            text: reply,
+            text: "I'm right here with you and listening. Take your time, what's on your mind today?",
             time: getCurrentTime(),
             showBeads: true,
           },
         ]);
-      }, 1000);
+      }, 800);
     }
   };
 
@@ -834,18 +963,26 @@ export function ChatScreen() {
         }}
       >
         {/* ── 1. Compact Header: 3D Aura Mascot with Floating Spheres + Title ── */}
-        <div className="flex items-center gap-3.5 mb-2.5 pt-0.5 pl-0.5 shrink-0 border-b border-white/60 dark:border-white/10 pb-2">
-          <div className="shrink-0 flex items-center justify-center">
-            <AuraMascot3D size={65} />
+        <div className="flex items-center justify-between gap-3.5 mb-2.5 pt-0.5 pl-0.5 shrink-0 border-b border-white/60 dark:border-white/10 pb-2">
+          <div className="flex items-center gap-3">
+            <div className="shrink-0 flex items-center justify-center">
+              <AuraMascot3D size={65} />
+            </div>
+            <div>
+              <h2 className="text-[19px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
+                Live Counseling Session
+              </h2>
+              <p className="text-[11.5px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-0.5 m-0">
+                Continuous personalized session with Aura for {userName}.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-[19px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] m-0 leading-tight tracking-tight">
-              Live Counseling Session
-            </h2>
-            <p className="text-[11.5px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-0.5 m-0">
-              Real-time, continuous empathetic session with Aura.
-            </p>
-          </div>
+          {user?.interests && user.interests.length > 0 && (
+            <div className="hidden sm:inline-flex items-center gap-1.5 clay-pill px-3 py-1 text-[11px] font-bold text-[#7B59DC]">
+              <Target size={12} />
+              <span>Context: {user.interests[0]}</span>
+            </div>
+          )}
         </div>
 
         {/* ── 2. Spacious Conversation Thread ── */}
@@ -876,7 +1013,7 @@ export function ChatScreen() {
                     className="flex items-center gap-1.5 mt-1 mr-1.5"
                     style={{ fontSize: 11, fontWeight: 500, color: "#8F87A0" }}
                   >
-                    <span>{m.time || "10:31 AM"}</span>
+                    <span>{m.time || "Now"}</span>
                     <ClayDoubleCheckIcon size={14} color="#8F87A0" />
                   </div>
                 </motion.div>
@@ -903,7 +1040,6 @@ export function ChatScreen() {
                       {m.text}
                     </span>
 
-                    {/* 3 Pastel Reaction/Status Spheres matching target reference */}
                     {m.showBeads && (
                       <div className="absolute -bottom-1.5 -right-2 flex items-center gap-1 pointer-events-none">
                         <span
@@ -948,7 +1084,7 @@ export function ChatScreen() {
                       marginLeft: 4,
                     }}
                   >
-                    {m.time || "10:30 AM"}
+                    {m.time || "Now"}
                   </div>
                 </div>
               </motion.div>
@@ -1033,71 +1169,105 @@ export function ChatScreen() {
 }
 
 /* ─────────────────────────── EMOTION ─────────────────────────── */
-const EMOTIONS = [
-  { label: "Joy", emoji: "😊", val: 72, color: "#F59E0B" },
-  { label: "Calm", emoji: "😌", val: 85, color: "#38BDF8" },
-  { label: "Focus", emoji: "🎯", val: 64, color: "#34D399" },
-  { label: "Stress", emoji: "😮‍💨", val: 18, color: "#9A80E5" },
-];
-
 export function EmotionScreen() {
+  const [overview, setOverview] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient.get<any>("/api/v1/analytics/overview?days=7")
+      .then((data) => setOverview(data))
+      .catch((err) => console.warn("Failed to load emotion overview:", err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const emotionsList = overview?.emotion_distribution && overview.emotion_distribution.length > 0
+    ? overview.emotion_distribution.map((item: any) => ({
+        label: item.name,
+        emoji: item.name.toLowerCase().includes("joy") ? "😊" : item.name.toLowerCase().includes("calm") ? "😌" : item.name.toLowerCase().includes("anxious") ? "😮‍💨" : "🎯",
+        val: item.percentage,
+        color: EMOTION_COLORS[item.name] || "#9A80E5",
+      }))
+    : [
+        { label: "Calm", emoji: "😌", val: 85, color: "#38BDF8" },
+        { label: "Joy", emoji: "😊", val: 72, color: "#F59E0B" },
+      ];
+
+  const dominantMood = overview?.kpis?.dominant_emotion || "Calm";
+  const avgMood = overview?.kpis?.avg_mood || 78;
+
   return (
     <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <h2 className="text-[26px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] m-0 tracking-tight">Emotion Insight</h2>
-      <p className="text-[14px] font-medium text-[#7A7A96] dark:text-[#9E98B4] mt-1.5 mb-6">Live emotional signals detected by Aura.</p>
+        <h2 className="text-[26px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] m-0 tracking-tight">
+          Emotion Insight
+        </h2>
+        <p className="text-[14px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1.5 mb-6">
+          Real-time emotional signals and historical telemetry detected by Aura.
+        </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Left: Current State */}
-        <div className="clay-card p-6 sm:p-7">
-          <div className="flex items-center gap-3.5 mb-6">
-            <div style={{
-              width: 64, height: 64, borderRadius: 22,
-              background: "linear-gradient(135deg, #38BDF8, #0284C7)",
-              display: "grid", placeItems: "center", fontSize: 32,
-              boxShadow: "4px 6px 14px rgba(2,132,199,0.3), inset 2px 2px 4px rgba(255,255,255,0.6)",
-              border: "1px solid rgba(255,255,255,0.8)",
-            }}>
-              😌
-            </div>
-            <div>
-              <div className="text-[22px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF]">Calm & Balanced</div>
-              <div className="text-[13px] font-semibold text-[#7A7A96] dark:text-[#9E98B4]">Confidence 85%</div>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3.5">
-            {EMOTIONS.map((e) => (
-              <div key={e.label}>
-                <div className="flex justify-between mb-1.5 text-[13px] font-semibold text-[#4B4B60] dark:text-[#D8D2E8]">
-                  <span>{e.emoji} {e.label}</span>
-                  <span style={{ fontWeight: 700, color: e.color }}>{e.val}%</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Left: Current State */}
+          <div className="clay-card p-6 sm:p-7 rounded-[28px]">
+            <div className="flex items-center gap-3.5 mb-6">
+              <div style={{
+                width: 64, height: 64, borderRadius: 22,
+                background: "linear-gradient(135deg, #38BDF8, #0284C7)",
+                display: "grid", placeItems: "center", fontSize: 32,
+                boxShadow: "4px 6px 14px rgba(2,132,199,0.3), inset 2px 2px 4px rgba(255,255,255,0.6)",
+                border: "1px solid rgba(255,255,255,0.8)",
+              }}>
+                😌
+              </div>
+              <div>
+                <div className="text-[22px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF]">
+                  {dominantMood} & Balanced
                 </div>
-                <div className="h-2 rounded-full bg-[#E8E0E3] dark:bg-[#100E1A] overflow-hidden">
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${e.val}%` }} transition={{ duration: 1, ease: "easeOut" }} style={{ height: "100%", borderRadius: 99, background: `linear-gradient(90deg, ${e.color}, ${e.color}88)` }} />
+                <div className="text-[13px] font-semibold text-[#7A748A] dark:text-[#9E98B4]">
+                  Mood Index: {avgMood}%
                 </div>
               </div>
-            ))}
+            </div>
+            <div className="flex flex-col gap-3.5">
+              {emotionsList.map((e) => (
+                <div key={e.label}>
+                  <div className="flex justify-between mb-1.5 text-[13px] font-semibold text-[#4B4B60] dark:text-[#D8D2E8]">
+                    <span>{e.emoji} {e.label}</span>
+                    <span style={{ fontWeight: 700, color: e.color }}>{e.val}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#E8E0E3] dark:bg-[#100E1A] overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${e.val}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      style={{ height: "100%", borderRadius: 99, background: `linear-gradient(90deg, ${e.color}, ${e.color}88)` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Right: Mood Chart */}
-        <div className="clay-card p-6 sm:p-7">
-          <span className="text-[16px] font-bold text-[#2D2D42] dark:text-[#FFFFFF]">Mood over the day</span>
-          <div style={{ height: 240, marginTop: 16 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={[40, 55, 48, 70, 62, 82, 76, 90, 84].map((v, i) => ({ i, v }))}>
-                <defs>
-                  <linearGradient id="emo2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#9A80E5" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#9A80E5" stopOpacity={0.04} />
-                  </linearGradient>
-                </defs>
-                <Area type="monotone" dataKey="v" stroke="#9A80E5" strokeWidth={3} fill="url(#emo2)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          {/* Right: Mood Chart */}
+          <div className="clay-card p-6 sm:p-7 rounded-[28px]">
+            <span className="text-[16px] font-bold text-[#2D2D42] dark:text-[#FFFFFF]">
+              Weekly Mood Rhythm
+            </span>
+            <div style={{ height: 240, marginTop: 16 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={overview?.weekly_wellbeing || [{ d: "Mon", v: 65 }, { d: "Tue", v: 75 }]}>
+                  <defs>
+                    <linearGradient id="emo2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#9A80E5" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#9A80E5" stopOpacity={0.04} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="d" axisLine={false} tickLine={false} />
+                  <Area type="monotone" dataKey="v" stroke="#9A80E5" strokeWidth={3} fill="url(#emo2)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </div>
       </div>
     </div>
   );
@@ -1113,7 +1283,7 @@ export function PlaceholderScreen({ title, desc }: { title: string; desc: string
         <AuraRobot expression="calm" />
       </div>
       <h2 className="text-[28px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] mt-2">{title}</h2>
-      <p className="text-[15px] font-medium text-[#7A7A96] dark:text-[#9E98B4] mt-2">{desc}</p>
+      <p className="text-[15px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-2">{desc}</p>
       <div className="clay-card p-6 mt-6">
         <p className="text-[#7A7A96] dark:text-[#9E98B4] font-medium">This space is coming to life soon — Aura is preparing your {title.toLowerCase()}.</p>
       </div>

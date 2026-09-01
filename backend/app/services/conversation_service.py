@@ -23,6 +23,7 @@ from app.emotion.service import EmotionService
 from app.models.message import Message, MessageRole, MessageType
 from app.models.session import Session, SessionStatus
 from app.models.user import User
+from app.models.emotion_log import EmotionLog
 
 logger = get_logger(__name__)
 
@@ -376,7 +377,7 @@ class ConversationService:
             )
         else:
             # Save user message
-            await self._save_message(
+            user_msg = await self._save_message(
                 session_id=session.id,
                 user_id=user_id,
                 role=MessageRole.USER.value,
@@ -460,6 +461,33 @@ class ConversationService:
             content=full_response,
             ai_provider=provider_used,
         )
+
+        # Persist EmotionLog for this turn
+        try:
+            raw_conf = float(emotion_dict.get("confidence") or 80.0)
+            norm_conf = raw_conf / 100.0 if raw_conf > 1.0 else raw_conf
+            fused_emo = str(emotion_dict.get("fused_emotion") or "neutral").lower()
+
+            emo_log = EmotionLog(
+                user_id=user_id,
+                session_id=session.id,
+                message_id=getattr(user_msg, "id", None) if "user_msg" in locals() and user_msg else None,
+                text_emotion=emotion_dict.get("text_emotion"),
+                voice_emotion=emotion_dict.get("voice_emotion"),
+                face_emotion=emotion_dict.get("face_emotion"),
+                fused_emotion=fused_emo,
+                confidence=round(norm_conf, 3),
+                raw_scores={"fused": emotion_dict, "sentiment": emotion_dict.get("sentiment")},
+            )
+            self._db.add(emo_log)
+            await self._db.commit()
+            logger.info("Persisted turn EmotionLog", user_id=user_id, session_id=session.id, emotion=fused_emo)
+        except Exception as emo_err:
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
+            logger.warning("Failed to persist turn EmotionLog", error=str(emo_err))
 
         if interrupt_event and interrupt_event.is_set():
             return

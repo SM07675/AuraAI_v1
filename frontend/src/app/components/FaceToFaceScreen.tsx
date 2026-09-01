@@ -65,6 +65,12 @@ function getEmotionTheme(emotion: string) {
   if (emo.includes("ang")) {
     return { color: "#EF4444", bg: "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)", border: "#F87171", glow: "rgba(248, 113, 113, 0.5)", emoji: "😠" };
   }
+  if (emo.includes("disgust") || emo.includes("contempt")) {
+    return { color: "#84CC16", bg: "linear-gradient(135deg, #84CC16 0%, #65A30D 100%)", border: "#A3E635", glow: "rgba(163, 230, 53, 0.5)", emoji: "😒" };
+  }
+  if (emo.includes("shock")) {
+    return { color: "#EC4899", bg: "linear-gradient(135deg, #EC4899 0%, #DB2777 100%)", border: "#F472B6", glow: "rgba(244, 114, 182, 0.5)", emoji: "😲" };
+  }
   return { color: "#8B5CF6", bg: "linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)", border: "#A78BFA", glow: "rgba(167, 139, 250, 0.5)", emoji: "😐" };
 }
 
@@ -252,8 +258,9 @@ export function FaceToFaceScreen() {
     let reconnectTimeout: ReturnType<typeof setTimeout>;
 
     const connectEmotion = () => {
-      if (isUnmounted) return;
-      const wsUrl = getWebSocketUrl("/api/v1/emotion/ws");
+      const sessId = chatSessionIdRef.current;
+      const queryParam = sessId ? `?session_id=${sessId}` : "";
+      const wsUrl = getWebSocketUrl(`/api/v1/emotion/ws${queryParam}`);
 
       socket = new WebSocket(wsUrl);
       emotionWs.current = socket;
@@ -475,13 +482,40 @@ export function FaceToFaceScreen() {
 
   useEffect(() => {
     return duplexManager.onInterrupt(() => {
+      // 1. Send interrupt event to backend WebSocket to halt token streaming
       if (chatWs.current?.readyState === WebSocket.OPEN) {
         chatWs.current.send(
           JSON.stringify({ type: "interrupt", reason: "speech_barge_in" })
         );
       }
+
+      // 2. Mark the last assistant message with [Interrupted] if it was actively being spoken
+      setMsgs((prev) => {
+        if (prev.length === 0) return prev;
+        const lastIdx = prev.length - 1;
+        const last = prev[lastIdx];
+        if (last.from === "aura" && !last.text.includes("[Interrupted]")) {
+          const updated = [...prev];
+          updated[lastIdx] = { ...last, text: last.text.trim() + " ... [Interrupted]" };
+          return updated;
+        }
+        return prev;
+      });
+
+      // 3. Natural voice acknowledgment ("Go ahead, I'm listening")
+      const isHindi = currentLang.startsWith("hi");
+      const ackText = isHindi ? "जी, बताइए, मैं सुन रही हूँ।" : "Go ahead, I'm listening.";
+
+      setTimeout(() => {
+        const isSpeaking = (typeof duplexManager.isSpeaking === "function" && duplexManager.isSpeaking()) || voiceService.isSpeaking();
+        if (!isSpeaking && duplexManager.getState() !== "USER_SPEAKING") {
+          voiceService.speak(ackText, {
+            emotion: "calm",
+          });
+        }
+      }, 350);
     });
-  }, []);
+  }, [currentLang]);
 
   const speakText = (txt: string, customEmotion?: string) => {
     voiceService.speak(txt, {
@@ -946,8 +980,16 @@ export function FaceToFaceScreen() {
                   <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 rounded-bl-sm" style={{ borderColor: getEmotionTheme(faceEmotion.primary_emotion).border }} />
                   <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 rounded-br-sm" style={{ borderColor: getEmotionTheme(faceEmotion.primary_emotion).border }} />
 
-                  <div className="absolute -bottom-2.5 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white/95 px-2.5 py-0.5 rounded-full text-[8px] font-bold tracking-wider whitespace-nowrap shadow">
-                    {faceEmotion.stress} Tension · {faceEmotion.sentiment}
+                  <div className="absolute -bottom-2.5 left-1/2 transform -translate-x-1/2 bg-black/85 backdrop-blur-md text-white/95 px-2.5 py-0.5 rounded-full text-[8px] font-bold tracking-wider whitespace-nowrap shadow flex items-center gap-1">
+                    <span>{faceEmotion.stress} Tension</span>
+                    <span>·</span>
+                    <span>{faceEmotion.sentiment}</span>
+                    {faceEmotion.secondary_emotion && (
+                      <>
+                        <span>·</span>
+                        <span className="text-amber-300 font-semibold">{faceEmotion.secondary_emotion}</span>
+                      </>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -981,9 +1023,12 @@ export function FaceToFaceScreen() {
               <span className="text-[11.5px] font-extrabold text-[#2E2544] dark:text-white">
                 Live Facial Presentation
               </span>
-              <span className="text-[9px] font-extrabold text-[#7C3AED] dark:text-[#C7B5F3] capitalize">
-                {faceEmotion.primary_emotion}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-[12px]">{getEmotionTheme(faceEmotion.primary_emotion).emoji}</span>
+                <span className="text-[9.5px] font-extrabold text-[#7C3AED] dark:text-[#C7B5F3] capitalize">
+                  {faceEmotion.primary_emotion}
+                </span>
+              </div>
             </div>
 
             {(() => {
@@ -997,7 +1042,7 @@ export function FaceToFaceScreen() {
                       {confPct}%
                     </span>
                   </div>
-                  <div className="clay-track-inset h-[5px] w-full rounded-full overflow-hidden">
+                  <div className="clay-track-inset h-[5px] w-full rounded-full overflow-hidden mb-2">
                     <motion.div
                       animate={{ width: `${confPct}%` }}
                       transition={{ duration: 0.6, ease: "easeOut" }}
@@ -1007,6 +1052,15 @@ export function FaceToFaceScreen() {
                         background: theme.bg,
                       }}
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[8.5px] font-bold text-[#7A748A] dark:text-[#8E88A4] pt-1 border-t border-black/5 dark:border-white/5">
+                    <span>
+                      Undertone: <strong className="text-[#2E2544] dark:text-white capitalize">{faceEmotion.secondary_emotion || "Calm"}</strong>
+                    </span>
+                    <span>
+                      Tension: <strong className="text-emerald-600 dark:text-emerald-400 capitalize">{faceEmotion.stress || "Low"}</strong>
+                    </span>
                   </div>
                 </div>
               );

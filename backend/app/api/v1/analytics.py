@@ -24,10 +24,14 @@ EMOTION_WEIGHTS: Dict[str, float] = {
     "surprised": 70.0,
     "anxious": 40.0,
     "fear": 35.0,
+    "fearful": 35.0,
     "sad": 35.0,
     "lonely": 30.0,
     "angry": 30.0,
     "frustrated": 35.0,
+    "disgusted": 30.0,
+    "contempt": 30.0,
+    "fatigued": 50.0,
 }
 
 def get_mood_score(emotion_str: str) -> float:
@@ -39,38 +43,50 @@ def get_mood_score(emotion_str: str) -> float:
 
 @router.get("/emotion_history", summary="Get recent emotion trends")
 async def get_emotion_history(
+    days: int = Query(default=7, ge=1, le=90),
     user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return emotion history for the current user to build mood trends."""
     try:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
         stmt = (
             select(EmotionLog)
-            .where(EmotionLog.user_id == user_id)
+            .where(EmotionLog.user_id == user_id, EmotionLog.created_at >= cutoff)
             .order_by(desc(EmotionLog.created_at))
-            .limit(20)
+            .limit(50)
         )
         result = await db.execute(stmt)
         logs = result.scalars().all()
         logs.reverse()
+
+        # If no logs in cutoff, try getting last 10 logs without cutoff
+        if not logs:
+            stmt_recent = (
+                select(EmotionLog)
+                .where(EmotionLog.user_id == user_id)
+                .order_by(desc(EmotionLog.created_at))
+                .limit(10)
+            )
+            res_recent = await db.execute(stmt_recent)
+            logs = res_recent.scalars().all()
+            logs.reverse()
+
         return {
             "history": [
                 {
                     "id": log.id,
                     "fused_emotion": log.fused_emotion,
                     "confidence": log.confidence,
-                    "timestamp": log.created_at.isoformat() if log.created_at else "2026-08-23T10:00:00Z"
+                    "timestamp": log.created_at.isoformat() if log.created_at else datetime.now(timezone.utc).isoformat()
                 }
                 for log in logs
             ]
         }
     except Exception:
         return {
-            "history": [
-                {"id": 1, "fused_emotion": "calm", "confidence": 0.92, "timestamp": "2026-08-23T09:00:00Z"},
-                {"id": 2, "fused_emotion": "joy", "confidence": 0.88, "timestamp": "2026-08-23T12:00:00Z"},
-                {"id": 3, "fused_emotion": "relaxed", "confidence": 0.85, "timestamp": "2026-08-23T15:00:00Z"},
-            ]
+            "history": []
         }
 
 
@@ -87,9 +103,9 @@ async def get_analytics_overview(
 
     all_logs = []
     sessions = []
-    active_goals_count = 2
+    active_goals_count = 0
 
-    # 1. Query Emotion Logs with offline catch
+    # 1. Query Emotion Logs
     try:
         stmt_emotions = (
             select(EmotionLog)
@@ -108,29 +124,36 @@ async def get_analytics_overview(
     current_mood_scores = [get_mood_score(l.fused_emotion) for l in current_logs]
     prev_mood_scores = [get_mood_score(l.fused_emotion) for l in previous_logs]
 
-    avg_mood = round(sum(current_mood_scores) / len(current_mood_scores)) if current_mood_scores else 78
-    prev_avg_mood = round(sum(prev_mood_scores) / len(prev_mood_scores)) if prev_mood_scores else 72
-    mood_shift = avg_mood - prev_avg_mood
-    mood_shift_str = f"{'+' if mood_shift >= 0 else ''}{mood_shift}% vs last period"
+    if current_mood_scores:
+        avg_mood = round(sum(current_mood_scores) / len(current_mood_scores))
+        if prev_mood_scores:
+            prev_avg_mood = round(sum(prev_mood_scores) / len(prev_mood_scores))
+            mood_shift = avg_mood - prev_avg_mood
+            mood_shift_str = f"{'+' if mood_shift >= 0 else ''}{mood_shift}% vs last period"
+        else:
+            mood_shift_str = "Baseline recorded"
+    else:
+        avg_mood = 0
+        mood_shift_str = "No logs yet"
 
     # Emotion Distribution Counts
     emotion_counts: Dict[str, int] = {}
     for l in current_logs:
-        emo = (l.fused_emotion or "calm").capitalize()
+        emo = (l.fused_emotion or "Neutral").capitalize()
         emotion_counts[emo] = emotion_counts.get(emo, 0) + 1
 
-    if not emotion_counts:
-        emotion_counts = {"Calm": 12, "Joy": 6, "Neutral": 4, "Anxious": 2}
-
     total_emo_records = sum(emotion_counts.values())
-    emotion_distribution = [
-        {"name": emo, "count": count, "percentage": round((count / total_emo_records) * 100)}
-        for emo, count in sorted(emotion_counts.items(), key=lambda x: x[1], reverse=True)
-    ]
+    if total_emo_records > 0:
+        emotion_distribution = [
+            {"name": emo, "count": count, "percentage": round((count / total_emo_records) * 100)}
+            for emo, count in sorted(emotion_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        dominant_emotion = emotion_distribution[0]["name"]
+    else:
+        emotion_distribution = []
+        dominant_emotion = "None"
 
-    dominant_emotion = emotion_distribution[0]["name"] if emotion_distribution else "Calm"
-
-    # 2. Query Sessions with offline catch
+    # 2. Query Sessions
     try:
         stmt_sessions = (
             select(Session)
@@ -144,7 +167,7 @@ async def get_analytics_overview(
 
     total_sessions_count = len(sessions)
     mode_counts: Dict[str, int] = {"chat": 0, "voice": 0, "face_to_face": 0}
-    
+
     # Calculate active streak & duration
     unique_days = set()
     total_minutes = 0
@@ -154,19 +177,14 @@ async def get_analytics_overview(
         if m in ("face", "facetoface", "face-to-face"):
             m = "face_to_face"
         mode_counts[m] = mode_counts.get(m, 0) + 1
-        
+
         if s.created_at:
             unique_days.add(s.created_at.date())
             if s.ended_at:
                 dur = (s.ended_at - s.created_at).total_seconds() / 60
-                total_minutes += max(int(dur), 5)
+                total_minutes += max(int(dur), 1)
             else:
-                total_minutes += 15  # estimated default
-
-    if total_sessions_count == 0:
-        total_sessions_count = 24
-        mode_counts = {"chat": 14, "voice": 7, "face_to_face": 3}
-        total_minutes = 760  # 12h 40m
+                total_minutes += 5
 
     hours = total_minutes // 60
     mins = total_minutes % 60
@@ -178,24 +196,20 @@ async def get_analytics_overview(
     while check_date in unique_days:
         streak += 1
         check_date -= timedelta(days=1)
-    if streak == 0:
-        streak = max(len(unique_days), 9)
 
-    # 3. Query Goals with offline catch
+    # 3. Query Goals
     try:
         stmt_goals = (
             select(func.count(UserGoal.id))
             .where(UserGoal.user_id == user_id, UserGoal.status == "active")
         )
         res_goals = await db.execute(stmt_goals)
-        active_goals_count = res_goals.scalar_one_or_none() or 2
+        active_goals_count = res_goals.scalar_one_or_none() or 0
     except Exception:
-        active_goals_count = 2
+        active_goals_count = 0
 
     # 4. Build Weekly Wellbeing & Focus Rhythm Daily Trends (Mon - Sun)
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    baseline_scores = [64, 72, 68, 80, 75, 86, 90]
-    baseline_focus = [70, 78, 65, 84, 76, 88, 92]
 
     # Map logs to weekday (0=Mon, ..., 6=Sun)
     day_scores: Dict[int, List[float]] = {i: [] for i in range(7)}
@@ -209,48 +223,69 @@ async def get_analytics_overview(
 
     for i in range(7):
         scores = day_scores[i]
-        calc_v = round(sum(scores) / len(scores)) if scores else baseline_scores[i]
-        focus_v = min(100, calc_v + 4 if i >= 4 else calc_v - 2)
+        calc_v = round(sum(scores) / len(scores)) if scores else 0
+        focus_v = min(100, max(0, calc_v + 5)) if calc_v > 0 else 0
         weekly_wellbeing.append({"d": day_names[i], "v": calc_v})
-        focus_rhythm.append({"d": day_names[i], "v": focus_v, "focus": baseline_focus[i]})
+        focus_rhythm.append({"d": day_names[i], "v": calc_v, "focus": focus_v})
+
+    has_data = total_sessions_count > 0 or len(current_logs) > 0
 
     # 5. Generate AI Insights & Recommendations
-    insights: List[Dict[str, Any]] = [
-        {
-            "id": "1",
-            "category": "Mood Resonance",
-            "title": f"Predominantly {dominant_emotion} Baseline",
-            "description": f"Your emotion tracking reflects a strong presence of {dominant_emotion} ({emotion_distribution[0]['percentage']}% of sessions), indicating good emotional equilibrium.",
-            "type": "positive",
-            "icon": "HeartHandshake"
-        },
-        {
-            "id": "2",
-            "category": "Session Dynamics",
-            "title": "Voice & Interactive Clarity",
-            "description": f"You've completed {mode_counts.get('voice', 0) + mode_counts.get('face_to_face', 0)} multi-modal sessions. Voice interaction boosts emotional expression quality by up to 18%.",
-            "type": "insight",
-            "icon": "Sparkles"
-        },
-        {
-            "id": "3",
-            "category": "Consistency",
-            "title": f"{streak}-Day Resilience Streak",
-            "description": f"Maintaining a {streak}-day active check-in streak improves long-term mood stability and cognitive calm.",
-            "type": "achievement",
-            "icon": "Flame"
-        },
-        {
+    insights: List[Dict[str, Any]] = []
+
+    if has_data:
+        if dominant_emotion != "None":
+            pct = emotion_distribution[0]['percentage'] if emotion_distribution else 0
+            insights.append({
+                "id": "1",
+                "category": "Mood Resonance",
+                "title": f"Predominantly {dominant_emotion} Baseline",
+                "description": f"Your emotion tracking reflects a strong presence of {dominant_emotion} ({pct}% of recorded checks), showing your current emotional rhythm.",
+                "type": "positive",
+                "icon": "HeartHandshake"
+            })
+
+        total_interactive = mode_counts.get('voice', 0) + mode_counts.get('face_to_face', 0)
+        if total_interactive > 0:
+            insights.append({
+                "id": "2",
+                "category": "Session Dynamics",
+                "title": "Interactive Multi-Modal Depth",
+                "description": f"You've completed {total_interactive} voice and camera sessions. Engaging across multiple modalities deepens contextual empathy.",
+                "type": "insight",
+                "icon": "Sparkles"
+            })
+
+        if streak > 0:
+            insights.append({
+                "id": "3",
+                "category": "Consistency",
+                "title": f"{streak}-Day Check-in Streak",
+                "description": f"You're on a {streak}-day active reflection streak. Daily check-ins build long-term emotional awareness.",
+                "type": "achievement",
+                "icon": "Flame"
+            })
+
+        insights.append({
             "id": "4",
             "category": "Wellness Recommendation",
-            "title": "Mid-Week Rhythm Booster",
-            "description": "Mid-week check-ins show a slight reduction in relaxation. Try scheduling a short 5-minute ambient audio session on Wednesdays.",
+            "title": "Daily Reflection Habit",
+            "description": "Pairing a short 3-minute check-in with your morning or evening routine provides high-resolution emotional tracking.",
             "type": "recommendation",
             "icon": "Compass"
-        }
-    ]
+        })
+    else:
+        insights.append({
+            "id": "welcome",
+            "category": "Getting Started",
+            "title": "Welcome to Aura AI",
+            "description": "Start your first Chat, Voice, or Face-to-Face consultation to begin tracking emotional patterns, streaks, and personal growth insights.",
+            "type": "insight",
+            "icon": "Sparkles"
+        })
 
     return {
+        "has_data": has_data,
         "kpis": {
             "avg_mood": avg_mood,
             "mood_shift": mood_shift_str,
@@ -270,4 +305,3 @@ async def get_analytics_overview(
         ],
         "insights": insights,
     }
-

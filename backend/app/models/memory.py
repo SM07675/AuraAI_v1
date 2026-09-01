@@ -91,3 +91,7 @@ class LongTermMemory(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<LongTermMemory(id={self.id}, type='{self.memory_type}', key='{self.key}')>"
+
+
+# Alias for backward compatibility
+Memory = LongTermMemory

@@ -66,9 +66,9 @@ export interface DuplexConfig {
 }
 
 const DEFAULT_CONFIG: DuplexConfig = {
-  minInterruptionDurationMs: 100,
-  confirmationWindowMs: 180,
-  interruptThreshold: 0.52,
+  minInterruptionDurationMs: 500,
+  confirmationWindowMs: 250,
+  interruptThreshold: 0.58,
   echoThreshold: 0.38,
   bargeInKeywords: new Set([
     // English barge-in
@@ -83,8 +83,9 @@ const DEFAULT_CONFIG: DuplexConfig = {
     "अरे", "अच्छा", "बताइए", "मेरी बात सुनो", "चुप", "रोक", "बस", "मेरी सुनो", "रुकिए", "सुनिए", "रुक जाओ", "एक सेकंड"
   ]),
   backchannelKeywords: new Set([
-    "hmm", "mhm", "uh-huh", "yeah", "ok", "okay", "haan", "accha", "theek hai", "sahi hai", "got it",
-    "हाँ", "हां", "अच्छा", "ठीक है", "सही है", "हम्म"
+    "hmm", "mhm", "uh-huh", "yeah", "yes", "ok", "okay", "haan", "ha", "accha", "achha", "theek hai",
+    "thik hai", "sahi hai", "got it", "yep", "sure", "right", "i see", "understood", "go on", "yup",
+    "हाँ", "हां", "अच्छा", "ठीक है", "सही है", "हम्म", "बिलकुल", "समझ गया", "जी"
   ])
 };
 
@@ -120,6 +121,10 @@ export class FullDuplexManager {
 
   public getState(): ConversationState {
     return this.state;
+  }
+
+  public isSpeaking(): boolean {
+    return this.playbackState.isSpeaking || this.state === "AURA_SPEAKING";
   }
 
   public getGenerationId(): number {
@@ -367,10 +372,12 @@ export class FullDuplexManager {
     let decision: InterruptionScoreDetails["decision"] = "IGNORE_ECHO";
     let reason = "";
 
-    // 1. Check for passive backchannel (e.g. "hmm", "haan", "yeah", "ok") -> do not interrupt
+    const words = clean.split(/\s+/).filter(Boolean);
+
+    // 1. Check for passive backchannel (e.g. "hmm", "haan", "yeah", "ok", "got it") -> do not interrupt
     if (this.isBackchannel(clean)) {
       decision = "BACKCHANNEL";
-      reason = `Passive backchannel ("${clean}") — Aura continues speaking`;
+      reason = `Passive backchannel ("${clean}") — Aura continues speaking smoothly`;
     }
     // 2. High-priority barge-in trigger word ("wait", "stop", "ruko", "suno", "doctor") -> Instant halt!
     else if (this.isBargeInKeyword(clean)) {
@@ -378,14 +385,22 @@ export class FullDuplexManager {
       reason = `Explicit barge-in keyword ("${clean}") -> Instant interruption`;
       this.triggerBargeIn(clean);
     }
-    // 3. User speech dominance in acoustic overlap
-    else if (telem.userSpeechProb > 0.70 && combinedEchoProb < 0.35) {
+    // 3. User speech dominance in acoustic overlap — requires sustained speech or >= 3 words
+    else if (
+      telem.userSpeechProb > 0.75 &&
+      combinedEchoProb < 0.32 &&
+      (speechDurationMs >= this.config.minInterruptionDurationMs || words.length >= 3)
+    ) {
       decision = "USER_INTERRUPT";
       reason = `Acoustic user speech dominance (${(telem.userSpeechProb * 100).toFixed(0)}% speech vs ${(combinedEchoProb * 100).toFixed(0)}% echo)`;
       this.triggerBargeIn(clean);
     }
-    // 4. Confident user speech with high score & low echo -> Trigger interrupt!
-    else if (interruptScore >= this.config.interruptThreshold && combinedEchoProb < this.config.echoThreshold) {
+    // 4. Confident user speech with high score & low echo -> Trigger interrupt if sustained!
+    else if (
+      interruptScore >= this.config.interruptThreshold &&
+      combinedEchoProb < this.config.echoThreshold &&
+      (speechDurationMs >= this.config.minInterruptionDurationMs || words.length >= 2)
+    ) {
       decision = "USER_INTERRUPT";
       reason = `High-confidence user barge-in (Score: ${(interruptScore * 100).toFixed(1)}%, Echo: ${(combinedEchoProb * 100).toFixed(1)}%)`;
       this.triggerBargeIn(clean);
@@ -400,6 +415,11 @@ export class FullDuplexManager {
       decision = "PENDING_CONFIRMATION";
       reason = `Ambiguous speech onset (Score: ${(interruptScore * 100).toFixed(1)}%), ducking Aura volume for ${this.config.confirmationWindowMs}ms confirmation window`;
       this.scheduleConfirmationWindow(clean, confidence, vadEnergy);
+    }
+    // 7. Short final phrase without barge-in keyword -> treat safely as non-interruptive backchannel
+    else if (words.length <= 2 && speechDurationMs < this.config.minInterruptionDurationMs) {
+      decision = "BACKCHANNEL";
+      reason = `Brief utterance ("${clean}", ${speechDurationMs}ms) treated as non-interruptive backchannel`;
     }
     // 7. Ambiguous final result with low score -> Drop safely
     else {
@@ -519,8 +539,14 @@ export class FullDuplexManager {
   }
 
   private isBackchannel(text: string): boolean {
-    const norm = this.normalize(text);
-    return this.config.backchannelKeywords.has(norm);
+    const norm = this.normalize(text).trim();
+    if (!norm) return true;
+    if (this.config.backchannelKeywords.has(norm)) return true;
+    const words = norm.split(/\s+/).filter(Boolean);
+    if (words.length <= 3 && words.every((w) => this.config.backchannelKeywords.has(w))) {
+      return true;
+    }
+    return false;
   }
 
   // ── Barge-In Action Execution ──────────────────────────────────────────────

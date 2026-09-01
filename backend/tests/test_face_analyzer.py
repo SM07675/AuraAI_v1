@@ -107,8 +107,8 @@ class TestFaceEmotionAnalyzerFERPlus:
     def test_ferplus_secondary_emotion(self):
         """Secondary emotion is the second highest probability."""
         import numpy as np
-        # neutral=0.6, happy=0.3, rest tiny
-        logits = [2.0, 1.0, -3.0, -4.0, -4.0, -5.0, -5.0, -6.0]
+        # neutral dominant, happy secondary
+        logits = [3.5, 1.0, -3.0, -4.0, -4.0, -5.0, -5.0, -6.0]
         analyzer = self._make_analyzer_with_mock_session(logits)
         fake_crop = np.zeros((64, 64, 3), dtype=np.uint8)
 

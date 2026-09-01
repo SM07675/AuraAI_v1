@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mail, Lock, User, ArrowRight, Sparkles, CheckCircle2, ShieldCheck } from "lucide-react";
-import { GlassCard } from "./glass-card";
+import { apiClient } from "../services/apiClient";
 
 interface AuthScreenProps {
-  onLoginSuccess: (user: { name: string; email: string; isNewUser?: boolean }) => void;
+  onLoginSuccess: (token: string, user: { id?: number; name: string; email: string; isNewUser?: boolean }) => void;
   onGuestAccess: () => void;
 }
 
@@ -16,7 +16,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -27,24 +27,64 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
 
     setLoading(true);
 
-    // Simulate authentication delay for smooth UX
-    setTimeout(() => {
+    try {
+      if (mode === "signup") {
+        const data = await apiClient.post<any>("/api/v1/auth/register", {
+          name,
+          email,
+          password,
+        });
+
+        const token = data.access_token || data.token || data.tokens?.access_token || "";
+        const userObj = data.user || { name, email };
+        onLoginSuccess(token, { ...userObj, isNewUser: true });
+      } else {
+        const data = await apiClient.post<any>("/api/v1/auth/login", {
+          email,
+          password,
+        });
+
+        const token = data.access_token || data.token || data.tokens?.access_token || "";
+        const userObj = data.user || { name: email.split("@")[0], email };
+        onLoginSuccess(token, { ...userObj, isNewUser: false });
+      }
+    } catch (err: any) {
+      console.warn("Auth request error:", err);
+      // If server failed, provide clear message
+      setError(err?.message || "Authentication failed. Please check credentials or server connection.");
+    } finally {
       setLoading(false);
-      // Retrieve any previous name associated with this email
-      let userName = name;
-      if (mode === "login") {
-        try {
-          const savedProfile = localStorage.getItem(`aura_profile_${email}`);
-          if (savedProfile) {
-            const parsed = JSON.parse(savedProfile);
-            if (parsed.name) userName = parsed.name;
-          }
-        } catch (e) {}
-        if (!userName) userName = email.split("@")[0] || "User";
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // Try logging in as demo guest, or register if not existing
+      let data: any;
+      try {
+        data = await apiClient.post<any>("/api/v1/auth/login", {
+          email: "guest@aura.ai",
+          password: "GuestPassword123!",
+        });
+      } catch {
+        data = await apiClient.post<any>("/api/v1/auth/register", {
+          name: "Guest User",
+          email: "guest@aura.ai",
+          password: "GuestPassword123!",
+        });
       }
 
-      onLoginSuccess({ name: userName, email, isNewUser: mode === "signup" });
-    }, 600);
+      const token = data.access_token || data.token || data.tokens?.access_token || "dev_guest_token";
+      const userObj = data.user || { name: "Guest User", email: "guest@aura.ai" };
+      onLoginSuccess(token, { ...userObj, isNewUser: false });
+    } catch {
+      // Fallback guest access
+      onGuestAccess();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -67,10 +107,10 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
             <Sparkles size={14} className="text-[#9A80E5] animate-pulse" />
             AURA AI — EMOTION & MINDSET COMPANION
           </motion.div>
-          <h1 className="text-3xl font-extrabold text-[#2D2D42] tracking-tight mb-2">
+          <h1 className="text-3xl font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] tracking-tight mb-2">
             {mode === "login" ? "Welcome Back" : "Create Account"}
           </h1>
-          <p className="text-xs text-[#7A7A96] max-w-xs mx-auto font-medium">
+          <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] max-w-xs mx-auto font-medium">
             Experience intelligent, emotion-aware conversation tailored to your mood and goals.
           </p>
         </div>
@@ -88,7 +128,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
               className={`flex-1 py-2 text-xs font-bold rounded-full transition-all cursor-pointer border-none outline-none ${
                 mode === "login"
                   ? "clay-active-nav"
-                  : "text-[#7A7A96] hover:text-[#2D2D42]"
+                  : "text-[#7A7A96] dark:text-[#9E98B4] hover:text-[#2D2D42] dark:hover:text-[#FFFFFF]"
               }`}
             >
               Sign In
@@ -102,7 +142,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
               className={`flex-1 py-2 text-xs font-bold rounded-full transition-all cursor-pointer border-none outline-none ${
                 mode === "signup"
                   ? "clay-active-nav"
-                  : "text-[#7A7A96] hover:text-[#2D2D42]"
+                  : "text-[#7A7A96] dark:text-[#9E98B4] hover:text-[#2D2D42] dark:hover:text-[#FFFFFF]"
               }`}
             >
               Register
@@ -120,7 +160,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <label className="block text-[11px] font-bold text-[#4B4B60] uppercase tracking-wider mb-1.5">
+                  <label className="block text-[11px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1.5">
                     Full Name
                   </label>
                   <div className="relative flex items-center">
@@ -138,7 +178,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
             </AnimatePresence>
 
             <div>
-              <label className="block text-[11px] font-bold text-[#4B4B60] uppercase tracking-wider mb-1.5">
+              <label className="block text-[11px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1.5">
                 Email Address
               </label>
               <div className="relative flex items-center">
@@ -154,7 +194,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[#4B4B60] uppercase tracking-wider mb-1.5">
+              <label className="block text-[11px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1.5">
                 Password
               </label>
               <div className="relative flex items-center">
@@ -199,11 +239,11 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
 
           {/* Quick Demo Access Divider */}
           <div className="relative flex py-4 items-center">
-            <div className="flex-grow border-t border-white/80"></div>
+            <div className="flex-grow border-t border-white/80 dark:border-white/10"></div>
             <span className="flex-shrink mx-3 text-[10px] font-bold text-[#9E9EB2] uppercase tracking-widest">
               OR
             </span>
-            <div className="flex-grow border-t border-white/80"></div>
+            <div className="flex-grow border-t border-white/80 dark:border-white/10"></div>
           </div>
 
           {/* Instant Guest / Demo Button */}
@@ -211,8 +251,8 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
             whileHover={{ scale: 1.02, y: -1 }}
             whileTap={{ scale: 0.98 }}
             type="button"
-            onClick={onGuestAccess}
-            className="clay-card-flat w-full py-2.5 rounded-full text-[#4B4B60] font-bold text-xs cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
+            onClick={handleGuestLogin}
+            className="clay-card-flat w-full py-2.5 rounded-full text-[#4B4B60] dark:text-[#E2D5FC] font-bold text-xs cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
           >
             <ShieldCheck size={16} className="text-[#10B981]" />
             <span>Continue as Guest (Instant Demo)</span>
@@ -220,7 +260,7 @@ export function AuthScreen({ onLoginSuccess, onGuestAccess }: AuthScreenProps) {
         </div>
 
         {/* Security badge footer */}
-        <div className="flex items-center justify-center gap-2 mt-6 text-xs text-[#7A7A96] font-semibold">
+        <div className="flex items-center justify-center gap-2 mt-6 text-xs text-[#7A7A96] dark:text-[#9E98B4] font-semibold">
           <CheckCircle2 size={14} className="text-[#10B981]" />
           <span>Encrypted Session · Privacy Guaranteed</span>
         </div>

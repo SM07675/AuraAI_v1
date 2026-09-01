@@ -31,18 +31,35 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-_dev_user_profiles: dict[int, dict] = {
-    1: {
-        "id": 1,
-        "name": "User",
-        "email": "user@aura.ai",
-        "preferred_language": "en",
-        "timezone": "UTC",
-        "communication_style": "balanced",
-        "interests": ["Mindfulness", "Focus", "Music"],
-        "goals": ["Improve Focus", "Reduce Anxiety"],
-    }
-}
+_dev_user_profiles: dict[int, dict] = {}
+
+
+def _user_to_response(user: Any) -> UserProfileResponse:
+    """Convert User ORM model to UserProfileResponse schema."""
+    if isinstance(getattr(user, "interests", None), list):
+        interests = user.interests
+    elif isinstance(getattr(user, "interests", None), str) and user.interests:
+        interests = [i.strip() for i in user.interests.split(",") if i.strip()]
+    else:
+        interests = []
+
+    if isinstance(getattr(user, "goals", None), list):
+        goals = user.goals
+    elif isinstance(getattr(user, "goals", None), str) and user.goals:
+        goals = [g.strip() for g in user.goals.split(",") if g.strip()]
+    else:
+        goals = []
+
+    return UserProfileResponse(
+        id=user.id,
+        name=user.name or "User",
+        email=user.email or "user@aura.ai",
+        preferred_language=getattr(user, "preferred_language", "en") or "en",
+        timezone=getattr(user, "timezone", "UTC") or "UTC",
+        communication_style=getattr(user, "communication_style", "balanced") or "balanced",
+        interests=interests,
+        goals=goals,
+    )
 
 
 def _get_dev_user(user_id: int) -> UserProfileResponse:
@@ -54,8 +71,8 @@ def _get_dev_user(user_id: int) -> UserProfileResponse:
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "interests": [],
+            "goals": [],
         }
     data = _dev_user_profiles[user_id]
     return UserProfileResponse(**data)
@@ -100,8 +117,8 @@ async def update_profile(
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "interests": [],
+            "goals": [],
         })
         if body.name is not None:
             u["name"] = body.name
@@ -134,7 +151,7 @@ async def update_interests(
             "timezone": "UTC",
             "communication_style": "balanced",
             "interests": [],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "goals": [],
         })
         u["interests"] = body.interests
         return UserProfileResponse(**u)
@@ -159,12 +176,11 @@ async def update_goals(
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
+            "interests": [],
             "goals": [],
         })
         u["goals"] = body.goals
         return UserProfileResponse(**u)
-    return _user_to_response(user)
 
 
 @router.get("/me/preferences", summary="Get all preferences")

@@ -19,20 +19,16 @@ import { MemoryScreen } from "./components/MemoryScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
 import { VoiceScreen } from "./components/VoiceScreen";
 import { voiceService } from "./services/voiceService";
+import { apiClient } from "./services/apiClient";
 
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { UserProvider, useUser } from "./context/UserContext";
 
 function MainApp() {
   const { isDark } = useTheme();
+  const { user, isAuthenticated, isLoading, login, logout, updateUserLocally } = useUser();
   const [active, setActive] = useState("Dashboard");
-  const [user, setUser] = useState<{ name: string; email: string } | null>(() => {
-    try {
-      const saved = localStorage.getItem("aura_user");
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
+
   const [isOnboarded, setIsOnboarded] = useState<boolean>(() => {
     try {
       const savedUser = localStorage.getItem("aura_user");
@@ -47,16 +43,11 @@ function MainApp() {
     }
   });
 
-  const handleLoginSuccess = (userData: { name: string; email: string; isNewUser?: boolean }) => {
-    setUser(userData);
-    localStorage.setItem("aura_user", JSON.stringify(userData));
+  const handleLoginSuccess = (token: string, userData: { id?: number; name: string; email: string; isNewUser?: boolean }) => {
+    login(token, userData);
 
     // Sync user name dynamically with backend profile
-    fetch("/api/v1/users/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: userData.name }),
-    }).catch(() => {});
+    apiClient.patch("/api/v1/users/me", { name: userData.name }).catch(() => {});
 
     const wasOnboarded =
       !userData.isNewUser &&
@@ -76,10 +67,9 @@ function MainApp() {
   };
 
   const handleGuestAccess = () => {
-    const guestUser = { name: "Guest User", email: "guest@aura.ai" };
-    setUser(guestUser);
+    const guestUser = { id: 1, name: "Guest User", email: "guest@aura.ai" };
+    login("guest_demo_token", guestUser);
     setIsOnboarded(true);
-    localStorage.setItem("aura_user", JSON.stringify(guestUser));
     localStorage.setItem("aura_onboarded", "true");
     localStorage.setItem("aura_onboarded_guest@aura.ai", "true");
     setActive("Dashboard");
@@ -94,27 +84,22 @@ function MainApp() {
     localStorage.setItem("aura_user_interests", JSON.stringify(data.interests));
     localStorage.setItem("aura_user_style", data.communicationStyle);
 
-    // Sync interests and communication style dynamically to backend
-    fetch("/api/v1/users/me/interests", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interests: data.interests }),
-    }).catch(() => {});
+    updateUserLocally({
+      interests: data.interests,
+      goals: data.goals,
+      communication_style: data.communicationStyle,
+    });
 
-    fetch("/api/v1/users/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ communication_style: data.communicationStyle }),
-    }).catch(() => {});
+    // Sync interests and communication style dynamically to backend
+    apiClient.put("/api/v1/users/me/interests", { interests: data.interests }).catch(() => {});
+    apiClient.patch("/api/v1/users/me", { communication_style: data.communicationStyle }).catch(() => {});
 
     setActive("Dashboard");
   };
 
   const handleLogout = () => {
-    setUser(null);
+    logout();
     setIsOnboarded(false);
-    localStorage.removeItem("aura_user");
-    localStorage.removeItem("aura_onboarded");
   };
 
   const handleNavigateScreen = (screenName: string) => {
@@ -128,7 +113,15 @@ function MainApp() {
   }, [active]);
 
   const renderScreen = () => {
-    if (!user) {
+    if (isLoading) {
+      return (
+        <div className="w-full h-full flex items-center justify-center min-h-[50vh]">
+          <div className="w-8 h-8 border-3 border-[#7B59DC] border-t-transparent rounded-full animate-spin" />
+        </div>
+      );
+    }
+
+    if (!user || !isAuthenticated) {
       return (
         <AuthScreen
           onLoginSuccess={handleLoginSuccess}
@@ -194,7 +187,7 @@ function MainApp() {
         color: isDark ? "#F3EFFC" : "#2E2544",
       }}
     >
-      {user && isOnboarded && (
+      {user && isAuthenticated && isOnboarded && (
         <ClaySidebar
           active={active}
           onSelect={handleNavigateScreen}
@@ -204,12 +197,12 @@ function MainApp() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 p-2 sm:p-3 lg:p-3.5 pb-20 lg:pb-3.5 h-screen max-h-screen overflow-hidden justify-between">
-        {user && isOnboarded && <TopBar />}
+        {user && isAuthenticated && isOnboarded && <TopBar />}
 
         <main className="flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col justify-between custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
-              key={user ? (isOnboarded ? active : "onboarding") : "auth"}
+              key={user && isAuthenticated ? (isOnboarded ? active : "onboarding") : "auth"}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -224,7 +217,7 @@ function MainApp() {
       </div>
 
       {/* Mobile & Tablet Bottom Navigation Bar */}
-      {user && isOnboarded && (
+      {user && isAuthenticated && isOnboarded && (
         <ClayBottomNav active={active} onSelect={handleNavigateScreen} />
       )}
 
@@ -237,8 +230,9 @@ function MainApp() {
 export default function App() {
   return (
     <ThemeProvider>
-      <MainApp />
+      <UserProvider>
+        <MainApp />
+      </UserProvider>
     </ThemeProvider>
   );
 }
-

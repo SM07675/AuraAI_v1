@@ -34,7 +34,7 @@ const NAV_ITEMS = [
 ];
 
 export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarProps) {
-  const userName = user?.name || "athavpalekar";
+  const userName = user?.name || "Friend";
   const avatarChar = userName.charAt(0).toUpperCase();
 
   return (

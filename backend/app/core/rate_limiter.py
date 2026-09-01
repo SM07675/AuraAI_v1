@@ -44,28 +44,33 @@ class RateLimiter:
         Raises:
             RateLimitExceededError: If the rate limit is exceeded.
         """
-        redis_key = f"ratelimit:{key}"
+        try:
+            redis_key = f"ratelimit:{key}"
 
-        # Increment counter atomically
-        current = await self._redis.incr(redis_key)
+            # Increment counter atomically
+            current = await self._redis.incr(redis_key)
 
-        if current == 1:
-            # First request in this window — set 60-second TTL
-            await self._redis.expire(redis_key, 60)
+            if current == 1:
+                # First request in this window — set 60-second TTL
+                await self._redis.expire(redis_key, 60)
 
-        if current > self._limit:
-            ttl = await self._redis.ttl(redis_key)
-            logger.warning(
-                "Rate limit exceeded",
-                key=key,
-                current=current,
-                limit=self._limit,
-                retry_after=ttl,
-            )
-            raise RateLimitExceededError(
-                message=f"Rate limit exceeded. Try again in {ttl} seconds.",
-                details={"retry_after_seconds": ttl, "limit": self._limit},
-            )
+            if current > self._limit:
+                ttl = await self._redis.ttl(redis_key)
+                logger.warning(
+                    "Rate limit exceeded",
+                    key=key,
+                    current=current,
+                    limit=self._limit,
+                    retry_after=ttl,
+                )
+                raise RateLimitExceededError(
+                    message=f"Rate limit exceeded. Try again in {ttl} seconds.",
+                    details={"retry_after_seconds": ttl, "limit": self._limit},
+                )
+        except RateLimitExceededError:
+            raise
+        except Exception as exc:
+            logger.debug("Redis rate limiter skipped due to connection issue", error=str(exc))
 
     async def get_remaining(self, key: str) -> int:
         """Get the number of remaining requests for a key.

@@ -184,8 +184,9 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
         self._face_sess: Optional[ort.InferenceSession] = None
         self._onnx_input: Optional[str] = None
         self._onnx_output: Optional[str] = None
-        self._face_cascade: Optional[cv2.CascadeClassifier] = None
-        self._profile_cascade: Optional[cv2.CascadeClassifier] = None
+        self._yunet_detector: Optional[Any] = None
+        self._face_cascade: Optional[Any] = None
+        self._profile_cascade: Optional[Any] = None
         self._backend = "none"
 
         self._try_load()
@@ -210,23 +211,34 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
     def _try_load(self) -> None:
         self._loaded = True
 
-        # 1. Load Face Cascades
-        try:
-            if hasattr(cv2, "CascadeClassifier"):
-                cascade_path = self._find_file("haarcascade_frontalface_default.xml")
-                if cascade_path and cascade_path.exists():
-                    self._face_cascade = cv2.CascadeClassifier(str(cascade_path))
-                elif hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
-                    default_cascade = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
-                    if os.path.exists(default_cascade):
-                        self._face_cascade = cv2.CascadeClassifier(default_cascade)
+        # 1. Load YuNet Face Detector (Modern OpenCV 5)
+        yunet_path = self._find_file("face_detection_yunet_2023mar.onnx")
+        if yunet_path and yunet_path.exists() and hasattr(cv2, "FaceDetectorYN_create"):
+            try:
+                self._yunet_detector = cv2.FaceDetectorYN_create(
+                    str(yunet_path),
+                    "",
+                    (320, 320),
+                    score_threshold=0.6,
+                    nms_threshold=0.3,
+                )
+                logger.info("YuNet Face Detector loaded successfully", path=str(yunet_path))
+            except Exception as ex:
+                logger.warning("Failed to initialize YuNet face detector", error=str(ex))
 
-                if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
-                    profile_path = os.path.join(cv2.data.haarcascades, "haarcascade_profileface.xml")
-                    if os.path.exists(profile_path):
-                        self._profile_cascade = cv2.CascadeClassifier(profile_path)
-        except Exception as cascade_err:
-            logger.warning("Could not initialize Haar cascade classifiers", error=str(cascade_err))
+        # Fallback to legacy Haar Cascades if available (OpenCV 4)
+        if not self._yunet_detector:
+            try:
+                if hasattr(cv2, "CascadeClassifier"):
+                    cascade_path = self._find_file("haarcascade_frontalface_default.xml")
+                    if cascade_path and cascade_path.exists():
+                        self._face_cascade = cv2.CascadeClassifier(str(cascade_path))
+                    elif hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+                        default_cascade = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+                        if os.path.exists(default_cascade):
+                            self._face_cascade = cv2.CascadeClassifier(default_cascade)
+            except Exception as cascade_err:
+                logger.warning("Could not initialize Haar cascade classifiers", error=str(cascade_err))
 
         # 2. Load FERPlus ONNX model
         onnx_file = self._find_file("emotion-ferplus-8.onnx")
@@ -253,15 +265,34 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             return []
 
         ih, iw = img_bgr.shape[:2]
+
+        # 1. Try modern YuNet face detector
+        if self._yunet_detector is not None:
+            try:
+                self._yunet_detector.setInputSize((iw, ih))
+                retval, faces = self._yunet_detector.detect(img_bgr)
+                if faces is not None and len(faces) > 0:
+                    results: List[Tuple[int, int, int, int]] = []
+                    for f in faces:
+                        fx = max(0, int(f[0]))
+                        fy = max(0, int(f[1]))
+                        fw = min(iw - fx, int(f[2]))
+                        fh = min(ih - fy, int(f[3]))
+                        if fw > 16 and fh > 16:
+                            results.append((fx, fy, fw, fh))
+                    if results:
+                        return results
+            except Exception as e:
+                logger.debug("YuNet face detection runtime error", error=str(e))
+
+        # 2. Try legacy Haar cascade if available
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         enhanced = _CLAHE.apply(gray)
-
         min_side = min(ih, iw)
         min_face = max(16, int(min_side * 0.08))
-
         candidates: List[Tuple[int, int, int, int]] = []
 
-        if self._face_cascade and not self._face_cascade.empty():
+        if self._face_cascade and not getattr(self._face_cascade, "empty", lambda: True)():
             faces = self._face_cascade.detectMultiScale(
                 enhanced,
                 scaleFactor=1.06,
@@ -270,30 +301,6 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
                 flags=cv2.CASCADE_SCALE_IMAGE,
             )
             for f in faces:
-                candidates.append((int(f[0]), int(f[1]), int(f[2]), int(f[3])))
-
-        if self._profile_cascade and not self._profile_cascade.empty():
-            p_faces = self._profile_cascade.detectMultiScale(
-                enhanced,
-                scaleFactor=1.08,
-                minNeighbors=3,
-                minSize=(min_face, min_face),
-                flags=cv2.CASCADE_SCALE_IMAGE,
-            )
-            for f in p_faces:
-                candidates.append((int(f[0]), int(f[1]), int(f[2]), int(f[3])))
-
-        # If no face detected with CLAHE, try histogram equalization
-        if not candidates and self._face_cascade and not self._face_cascade.empty():
-            eq_gray = cv2.equalizeHist(gray)
-            faces_eq = self._face_cascade.detectMultiScale(
-                eq_gray,
-                scaleFactor=1.08,
-                minNeighbors=2,
-                minSize=(min_face, min_face),
-                flags=cv2.CASCADE_SCALE_IMAGE,
-            )
-            for f in faces_eq:
                 candidates.append((int(f[0]), int(f[1]), int(f[2]), int(f[3])))
 
         return _nms_boxes(candidates)
@@ -374,8 +381,9 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             return self._no_face_result("no_session")
 
         # Temperature-calibrated softmax to capture genuine emotion expressions
-        temperature = 0.85
+        temperature = 1.75
         scaled_logits = np.asarray(logits, dtype=np.float32) / temperature
+        scaled_logits[0] -= 0.65
         raw_probs = _softmax(scaled_logits)
 
         scores: Dict[str, float] = {}
@@ -503,20 +511,58 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
         probs = (_RAW_BLEND * raw_probs) + ((1.0 - _RAW_BLEND) * smooth_probs)
         probs = probs / (np.sum(probs) + 1e-8)
 
-        # Map to labels
+        # Map to canonical scores
         scores: Dict[str, float] = {}
         for idx, lbl in enumerate(_FERPLUS_CLASSES):
             canonical = _LABEL_MAP.get(lbl, lbl)
             scores[canonical] = round(float(probs[idx]), 4)
 
-        top_idx = int(np.argmax(probs))
-        dominant = _LABEL_MAP.get(_FERPLUS_CLASSES[top_idx], _FERPLUS_CLASSES[top_idx])
-        confidence_pct = round(float(probs[top_idx]) * 100, 1)
+        # Ranked indices
+        sorted_indices = np.argsort(probs)
+        top_idx = int(sorted_indices[-1])
+        second_idx = int(sorted_indices[-2]) if len(sorted_indices) > 1 else top_idx
+
+        top_prob = float(probs[top_idx])
+        second_prob = float(probs[second_idx])
+
+        top_label = _LABEL_MAP.get(_FERPLUS_CLASSES[top_idx], _FERPLUS_CLASSES[top_idx])
+        second_label = _LABEL_MAP.get(_FERPLUS_CLASSES[second_idx], _FERPLUS_CLASSES[second_idx])
+
+        dominant = top_label
+        confidence_pct = round(top_prob * 100, 1)
+        secondary: Optional[str] = second_label if second_prob >= 0.10 else None
+        secondary_conf = round(second_prob * 100, 1) if secondary else 0.0
+
+        # Calibration: If neutral is top, but an active non-neutral emotion (happy, surprised, sad, angry, fearful)
+        # has significant active facial expression (> 0.20), prioritize the active emotional signal
+        if top_label == "neutral" and second_prob >= 0.20 and second_label in {"happy", "surprised", "sad", "angry", "fearful"}:
+            if (top_prob - second_prob) < 0.22:
+                dominant = second_label
+                confidence_pct = round(second_prob * 100, 1)
+                secondary = "calm" if second_label != "happy" else "neutral"
+                secondary_conf = round(top_prob * 100, 1)
 
         # Enforce minimum confidence floor
         if confidence_pct < 25.0:
             dominant = "neutral"
             confidence_pct = 35.0
+
+        # Multi-dimensional Valence (-1.0 to 1.0) & Stress / Tension Assessment
+        happy_score = scores.get("happy", 0.0)
+        surprised_score = scores.get("surprised", 0.0)
+        sad_score = scores.get("sad", 0.0)
+        angry_score = scores.get("angry", 0.0)
+        fearful_score = scores.get("fearful", 0.0)
+        disgusted_score = scores.get("disgusted", 0.0)
+
+        valence = round((happy_score * 1.0 + surprised_score * 0.25) - (sad_score * 0.85 + angry_score * 0.95 + fearful_score * 0.85 + disgusted_score * 0.75), 3)
+
+        tension_score = (angry_score * 1.0 + fearful_score * 0.95 + surprised_score * 0.5) - (scores.get("neutral", 0.0) * 0.35 + happy_score * 0.25)
+        stress = "high" if tension_score > 0.30 or dominant in {"anxious", "fearful", "angry"} else \
+                 "medium" if tension_score > 0.10 or dominant in {"sad", "disgusted", "contempt"} else "low"
+
+        sentiment = "positive" if valence > 0.15 or dominant in POSITIVE_EMOTIONS else \
+                    "negative" if valence < -0.15 or dominant in NEGATIVE_EMOTIONS else "neutral"
 
         state.prev_box = primary_face
         state.missed_frames = 0
@@ -528,7 +574,12 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
         return {
             "emotion": dominant,
             "confidence": confidence_pct,
+            "secondary_emotion": secondary,
+            "secondary_confidence": secondary_conf,
             "scores": scores,
+            "stress": stress,
+            "sentiment": sentiment,
+            "valence": valence,
             "face_box": [int(x), int(y), int(w), int(h)],
             "face_detected": True,
             "tracked": False,
@@ -566,11 +617,8 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
 
         dom = pred["emotion"]
         conf = pred["confidence"]
-
-        stress = "high" if dom in {"anxious", "fearful", "angry"} else \
-                 "medium" if dom in {"sad", "disgusted", "contempt"} else "low"
-        sentiment = "positive" if dom in POSITIVE_EMOTIONS else \
-                    "negative" if dom in NEGATIVE_EMOTIONS else "neutral"
+        stress = pred.get("stress", "low")
+        sentiment = pred.get("sentiment", "neutral")
 
         ih, iw = img_bgr.shape[:2]
         face_box = pred.get("face_box")
@@ -595,4 +643,6 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             stress_level=stress,
             intent="casual",
             is_mock=False,
+            secondary_emotion=pred.get("secondary_emotion"),
+            secondary_confidence=pred.get("secondary_confidence", 0.0),
         )
