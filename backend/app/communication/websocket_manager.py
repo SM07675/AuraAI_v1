@@ -53,6 +53,28 @@ logger = get_logger(__name__)
 _PING_INTERVAL_S = 30
 
 
+async def _analyze_voice_emotion(audio_bytes: bytes) -> dict:
+    """Run voice emotion analysis on raw PCM bytes.
+
+    Returns a result dict or an empty neutral dict on failure.
+    Runs in a background asyncio task so it never blocks the STT path.
+    """
+    try:
+        from app.services.emotion.voice_emotion import VoiceEmotionService
+        svc = VoiceEmotionService.get_instance()
+        result = await svc.analyze(audio_bytes, sample_rate=16_000)
+        return result
+    except Exception as exc:
+        logger.debug("Voice emotion analysis skipped", error=str(exc))
+        return {
+            "modality": "voice",
+            "primary_emotion": "neutral",
+            "confidence": 0.0,
+            "scores": {},
+            "acoustic_features": {},
+        }
+
+
 class VoiceWebSocketManager:
     """Manages a single voice WebSocket connection end-to-end.
 
@@ -346,7 +368,10 @@ class VoiceWebSocketManager:
                         "active": False,
                     })
 
-                    # Transcribe buffered audio
+                    # Capture raw audio bytes BEFORE clearing for parallel emotion analysis
+                    raw_audio_bytes = bytes(session.stt._buffer)
+
+                    # ── Parallel: STT + Voice Emotion ─────────────────────
                     async def on_partial(text: str, confidence: float) -> None:
                         await self._send(websocket, {
                             "type": "partial_transcript",
@@ -354,8 +379,11 @@ class VoiceWebSocketManager:
                             "confidence": round(confidence, 3),
                         })
 
-                    transcript = await session.stt.transcribe_buffer(
-                        on_partial=on_partial
+                    # Launch STT and voice emotion concurrently
+                    transcript, voice_emotion_result = await asyncio.gather(
+                        session.stt.transcribe_buffer(on_partial=on_partial),
+                        _analyze_voice_emotion(raw_audio_bytes),
+                        return_exceptions=False,
                     )
                     session.metrics.end_stt()
 
@@ -368,6 +396,9 @@ class VoiceWebSocketManager:
                         except ValueError:
                             pass
                         continue
+
+                    # Attach voice emotion to transcript for downstream pipeline
+                    transcript.voice_emotion = voice_emotion_result
 
                     # Hand off to conversation manager for AI pipeline
                     asyncio.create_task(

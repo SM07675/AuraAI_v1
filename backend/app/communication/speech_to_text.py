@@ -47,6 +47,8 @@ class TranscriptResult:
     language: str
     is_final: bool
     duration_ms: float
+    # Parallel voice emotion from wav2vec2/acoustic analysis (attached by VAD loop)
+    voice_emotion: dict | None = None
 
 
 PartialCallback = Callable[[str, float], Awaitable[None]]

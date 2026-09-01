@@ -55,12 +55,18 @@ tts_outputs/
 
 # ML Models — large binary files, do not push to GitHub
 model/
+models/
 backend/models/
 *.onnx
 *.tflite
+*.task
 *.h5
 *.bin
 *.safetensors
 *.pt
 *.pth
 *.ckpt
+*checkpoints/
+wav2vec2_checkpoints/
+backend/wav2vec2_checkpoints/
+backend/tests/test_face.jpg

@@ -75,6 +75,7 @@ class ContextObject:
     # ── Structured data ───────────────────────────────────────────
     active_goals: list[dict[str, Any]] = field(default_factory=list)
     long_term_memories: list[dict[str, Any]] = field(default_factory=list)
+    graph_facts: list[str] = field(default_factory=list)
     recent_history: list[dict[str, str]] = field(default_factory=list)
 
     # ── Conversation summary ──────────────────────────────────────
@@ -176,15 +177,23 @@ class ContextBuilder:
 
         # ── Long-term memories, ranked for the current message ───
         memories = []
+        graph_facts = []
         if self._db is not None:
             try:
+                from app.services.knowledge_graph_service import KnowledgeGraphService
                 memories = await MemoryService(self._db).get_relevant_memory_context(
                     user_id=user.id,
                     query=user_message,
                     limit=10,
                 )
+                graph_facts = await KnowledgeGraphService(self._db).format_graph_context_for_prompt(
+                    user_id=user.id,
+                    query=user_message,
+                    limit=8,
+                )
             except Exception:
                 memories = []
+                graph_facts = []
 
         # ── Cross-session continuity ─────────────────────────────
         previous_session_context = await self._load_previous_session_context(
@@ -241,6 +250,7 @@ class ContextBuilder:
             session_id=session.id,
             active_goals=active_goals,
             long_term_memories=memories,
+            graph_facts=graph_facts,
             recent_history=recent_history or [],
             conversation_summary=conversation_summary or session.summary or "",
             previous_session_context=previous_session_context,

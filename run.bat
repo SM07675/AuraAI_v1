@@ -47,23 +47,26 @@ echo  +------------------------------------------+
 echo.
 echo   --- Local (no Docker required) ---
 echo   [S] Setup          -- Create venv + install dependencies
+echo   [M] Models         -- Download AI and Facial Expression models
 echo   [D] Dev            -- Run backend locally (needs PostgreSQL + Redis)
 echo   [T] Test           -- Run pytest locally
 echo.
 echo   --- Docker ---
-echo   [1] Start          -- Build and start all services
+echo   [1] Start          -- Start all services (instant)
 echo   [2] Stop           -- Stop all services
 echo   [3] Restart        -- Restart all services
 echo   [4] Logs           -- Tail live logs
 echo   [5] Status         -- Show container status
 echo   [6] Migrate        -- Apply Alembic migrations
 echo   [7] Shell          -- Open bash in backend container
+echo   [8] Build          -- Rebuild Docker images
 echo   [9] Clean          -- Remove containers + volumes (DANGER)
 echo   [0] Exit
 echo.
 set /p "CHOICE=  Choose an option: "
 
 if /i "%CHOICE%"=="s" goto :cmd_setup
+if /i "%CHOICE%"=="m" goto :cmd_models
 if /i "%CHOICE%"=="d" goto :cmd_dev
 if /i "%CHOICE%"=="t" goto :cmd_test
 if "%CHOICE%"=="1" goto :cmd_start
@@ -73,6 +76,8 @@ if "%CHOICE%"=="4" goto :cmd_logs
 if "%CHOICE%"=="5" goto :cmd_status
 if "%CHOICE%"=="6" goto :cmd_migrate
 if "%CHOICE%"=="7" goto :cmd_shell
+if "%CHOICE%"=="8" goto :cmd_build
+if /i "%CHOICE%"=="b" goto :cmd_build
 if "%CHOICE%"=="9" goto :cmd_clean
 if "%CHOICE%"=="0" exit /b 0
 
@@ -81,27 +86,38 @@ pause >nul
 goto :show_menu
 
 :: ============================================================
+::  MODELS -- Download & verify all AI / Facial models
+:: ============================================================
+:cmd_models
+echo.
+echo  [*] Downloading and verifying all AI and Facial models...
+call "%~dp0download_models.bat"
+goto :done
+
+:: ============================================================
 ::  SETUP -- Create venv and install all Python dependencies
 :: ============================================================
 :cmd_setup
 echo.
 echo  [*] Setting up local Python environment...
 
-:: Find Python 3.11+
+:: Find Python 3.11+ generically (works on any machine)
 set "PYTHON="
-for %%P in ("C:\Users\sarve\AppData\Local\Programs\Python\Python314\python.exe"
-             "C:\Users\sarve\AppData\Local\Programs\Python\Python313\python.exe"
-             "C:\Users\sarve\AppData\Local\Programs\Python\Python312\python.exe"
-             "C:\Users\sarve\AppData\Local\Programs\Python\Python311\python.exe") do (
-    if exist %%P (
-        if "!PYTHON!"=="" set "PYTHON=%%~P"
-    )
+where python >nul 2>&1
+if not errorlevel 1 set "PYTHON=python"
+
+if "!PYTHON!"=="" (
+    where py >nul 2>&1
+    if not errorlevel 1 set "PYTHON=py"
 )
 
-:: Fallback to py launcher
 if "!PYTHON!"=="" (
-    py --version >nul 2>&1
-    if not errorlevel 1 set "PYTHON=py"
+    for %%P in ("%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+                 "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+                 "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+                 "%LOCALAPPDATA%\Programs\Python\Python311\python.exe") do (
+        if exist %%P if "!PYTHON!"=="" set "PYTHON=%%~P"
+    )
 )
 
 if "!PYTHON!"=="" (
@@ -231,10 +247,13 @@ if not exist "!ENV_FILE!" (
     copy "%~dp0.env.example" "!ENV_FILE!" >nul
     echo  [WARN] Fill in your AI API keys in .env before using chat!
 )
+if not exist "%BACKEND_DIR%\.env" (
+    copy "!ENV_FILE!" "%BACKEND_DIR%\.env" >nul
+)
 
 echo  [*] Starting all services...
 echo.
-docker compose -f "!COMPOSE_FILE!" up --build -d
+docker compose -f "!COMPOSE_FILE!" up -d
 
 if errorlevel 1 (
     echo.

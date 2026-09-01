@@ -29,33 +29,22 @@ from app.core.logging_config import get_logger
 logger = get_logger(__name__)
 
 # Sentence boundary pattern: end-of-sentence punctuation followed by whitespace
-# or end-of-string.  Handles: "Hello." / "Ready?" / "Go!\n" / "Wait..."
-_SENTENCE_END = re.compile(r"[.!?…]\s+|[.!?…]$|\n")
+# or end-of-string. Handles: "Hello." / "Ready?" / "Go!\n" / "Wait..."
+_SENTENCE_END = re.compile(r"[.!?…।|]\s+|[.!?…।|]$|\n")
+_CLAUSE_END = re.compile(r"[,;:\-—]\s+|[.!?…।|]\s+|[.!?…।|]$|\n")
 
 TextCallback = Callable[[str], Awaitable[None]]   # called per token
 AudioSpeakCallback = Callable[[str], Awaitable[None]]  # called per sentence chunk
 
 
 class ResponseStreamer:
-    """Streams AI response tokens to text (WebSocket) and TTS simultaneously.
+    """Streams AI response tokens to text (WebSocket) and TTS simultaneously with ultra-low first-audio latency.
 
     Args:
         session_id: Logging context.
         on_text: Async callback invoked immediately for each text token.
         on_speak: Async callback invoked for each sentence-sized TTS chunk.
         sentence_buffer_chars: Max chars to buffer before forcing a TTS flush.
-                               Larger = fewer TTS calls but higher latency.
-
-    Usage::
-
-        streamer = ResponseStreamer(
-            session_id="abc",
-            on_text=send_partial_response,
-            on_speak=tts_engine.speak,
-            sentence_buffer_chars=120,
-        )
-
-        full_text = await streamer.stream(ai_token_iterator, interrupt_event)
     """
 
     def __init__(
@@ -63,13 +52,14 @@ class ResponseStreamer:
         session_id: str,
         on_text: TextCallback,
         on_speak: AudioSpeakCallback,
-        sentence_buffer_chars: int = 120,
+        sentence_buffer_chars: int = 100,
     ) -> None:
         self._session_id = session_id
         self._on_text = on_text
         self._on_speak = on_speak
         self._sentence_buffer_chars = sentence_buffer_chars
         self._sentence_buffer: list[str] = []
+        self._is_first_chunk = True
 
     async def stream(
         self,
@@ -112,14 +102,23 @@ class ResponseStreamer:
                 # Accumulate in sentence buffer
                 self._sentence_buffer.append(token)
 
-                # Check for flush conditions
                 buffered_text = "".join(self._sentence_buffer)
-                should_flush = (
-                    _SENTENCE_END.search(token) is not None
-                    or len(buffered_text) >= self._sentence_buffer_chars
-                )
+
+                # Ultra-fast first phrase chunking for sub-800ms audio start
+                if self._is_first_chunk:
+                    should_flush = (
+                        (len(buffered_text) >= 20 and _CLAUSE_END.search(buffered_text) is not None)
+                        or _SENTENCE_END.search(token) is not None
+                        or len(buffered_text) >= 60
+                    )
+                else:
+                    should_flush = (
+                        _SENTENCE_END.search(token) is not None
+                        or len(buffered_text) >= self._sentence_buffer_chars
+                    )
 
                 if should_flush:
+                    self._is_first_chunk = False
                     await self._flush_tts(buffered_text)
 
         except asyncio.CancelledError:

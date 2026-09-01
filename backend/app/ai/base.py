@@ -16,7 +16,7 @@ from typing import AsyncIterator
 class AIRequest:
     """Unified AI request."""
 
-    prompt: str
+    prompt: str = ""
     system_prompt: str = ""
     max_tokens: int = 500
     temperature: float = 0.7

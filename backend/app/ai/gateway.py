@@ -103,7 +103,12 @@ class AIGateway:
         return [p for p in self._providers if not _breaker.is_open(p.name)]
 
     async def generate(self, request: AIRequest) -> AIResponse:
-        """Generate a response, falling back through providers on error."""
+        """Generate a response, falling back through providers on error.
+
+        RC-19 compliance: Never returns empty content.
+        If provider returns empty, retries once with an explicit hint,
+        then emits a safe fallback message.
+        """
         available = self._available_providers()
         if not available:
             raise AIProviderUnavailableError("All AI providers are unavailable or circuit-broken.")
@@ -113,11 +118,53 @@ class AIGateway:
             try:
                 logger.info("Trying AI provider", provider=provider.name)
                 response = await provider.generate(request)
+
+                # ── Empty content guard ───────────────────────────
+                if not response.content or not response.content.strip():
+                    logger.warning(
+                        "Provider returned empty content — retrying with explicit hint",
+                        provider=provider.name,
+                        finish_reason=response.finish_reason,
+                        raw_response=repr(response),
+                    )
+                    # Retry once: append explicit instruction to the last user message
+                    retry_request = AIRequest(
+                        system_prompt=request.system_prompt,
+                        messages=list(request.messages or []) + [
+                            {"role": "user", "content": "Please respond with a helpful message."}
+                        ] if request.messages else None,
+                        prompt=request.prompt if not request.messages else "",
+                        stream=False,
+                        temperature=0.7,
+                        max_tokens=request.max_tokens,
+                    )
+                    try:
+                        response = await provider.generate(retry_request)
+                    except Exception as retry_exc:
+                        logger.error("Retry also failed", provider=provider.name, error=str(retry_exc))
+                        response = AIResponse(
+                            content="I'm here and listening. Could you tell me a bit more?",
+                            provider=provider.name,
+                            model="fallback",
+                        )
+
+                    if not response.content or not response.content.strip():
+                        logger.error(
+                            "Provider returned empty content on retry — using fallback message",
+                            provider=provider.name,
+                        )
+                        response = AIResponse(
+                            content="I'm here and listening. Could you tell me a bit more?",
+                            provider=provider.name,
+                            model="fallback",
+                        )
+
                 _breaker.record_success(provider.name)
                 logger.info(
                     "AI generation complete",
                     provider=provider.name,
                     tokens=response.completion_tokens,
+                    content_len=len(response.content),
                 )
                 return response
             except Exception as exc:
@@ -147,13 +194,25 @@ class AIGateway:
         for provider in available:
             try:
                 logger.info("Starting stream", provider=provider.name)
-                yielded_any = False
+                yielded_content = False
                 async for chunk in provider.stream(request):
-                    yielded_any = True
+                    if chunk.content:
+                        yielded_content = True
                     yield chunk
 
-                if yielded_any:
+                if yielded_content:
                     _breaker.record_success(provider.name)
+                elif not yielded_content:
+                    # Stream completed but no content tokens were emitted
+                    logger.warning(
+                        "Stream yielded no content tokens — emitting fallback",
+                        provider=provider.name,
+                    )
+                    yield StreamChunk(
+                        content="I'm here and listening. Could you tell me a bit more?",
+                        provider=provider.name,
+                        is_final=True,
+                    )
                 return  # Completed successfully
             except Exception as exc:
                 last_error = exc

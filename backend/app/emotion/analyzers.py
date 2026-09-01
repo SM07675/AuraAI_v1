@@ -480,10 +480,61 @@ class TextEmotionAnalyzer(EmotionAnalyzer):
         self._cache_order.append(key)
 
 
-# ── Voice Emotion Analyzer ────────────────────────────────────────────────────
+# ── Voice Emotion Analyzer (SpeechBrain wav2vec2 IEMOCAP) ─────────────────────
+
+_VOICE_MODEL_DIR = Path("D:/AuraAI_v1/model/voice/wav2vec2-IEMOCAP")
+_VOICE_LABEL_MAP: dict[str, str] = {
+    "neu": "neutral",
+    "neutral": "neutral",
+    "hap": "happy",
+    "happy": "happy",
+    "joy": "happy",
+    "ang": "angry",
+    "angry": "angry",
+    "sad": "sad",
+    "sadness": "sad",
+    "exc": "excited",
+    "fea": "fearful",
+}
+
 
 class VoiceEmotionAnalyzer(EmotionAnalyzer):
-    """Voice emotion analyzer with feature heuristics and stub/model fallback."""
+    """Voice emotion analyzer using SpeechBrain wav2vec2-IEMOCAP model with acoustic fallback."""
+
+    _classifier_instance = None
+    _classifier_loaded = False
+    _classifier_lock = None
+
+    def __init__(self, model_dir: Optional[str] = None) -> None:
+        self._model_dir = Path(model_dir) if model_dir else _VOICE_MODEL_DIR
+        self._device = "cpu"
+        self._load_model()
+
+    def _load_model(self) -> None:
+        if VoiceEmotionAnalyzer._classifier_loaded:
+            return
+        try:
+            import torch
+            from speechbrain.inference.interfaces import foreign_class
+            from speechbrain.utils.fetching import LocalStrategy
+
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            save_dir = str(self._model_dir)
+
+            logger.info("Loading SpeechBrain Voice Emotion model", model_dir=save_dir, device=self._device)
+            VoiceEmotionAnalyzer._classifier_instance = foreign_class(
+                source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
+                pymodule_file="custom_interface.py",
+                classname="CustomEncoderWav2vec2Classifier",
+                savedir=save_dir,
+                local_strategy=LocalStrategy.COPY,
+                run_opts={"device": self._device},
+            )
+            VoiceEmotionAnalyzer._classifier_loaded = True
+            logger.info("SpeechBrain Voice Emotion model loaded successfully")
+        except Exception as exc:
+            logger.warning("Failed to initialize SpeechBrain voice emotion model, using acoustic fallback", error=str(exc))
+            VoiceEmotionAnalyzer._classifier_loaded = False
 
     @property
     def modality(self) -> str:
@@ -493,31 +544,169 @@ class VoiceEmotionAnalyzer(EmotionAnalyzer):
     def is_available(self) -> bool:
         return True
 
+    def is_local_model_loaded(self) -> bool:
+        return VoiceEmotionAnalyzer._classifier_loaded
+
+    def _audio_to_tensor(self, input_data: Any) -> Optional[tuple[Any, dict[str, float]]]:
+        """Convert input PCM bytes, ndarray, or wav data to a 16kHz float32 tensor."""
+        import numpy as np
+        import torch
+
+        audio_arr: Optional[np.ndarray] = None
+        features: dict[str, float] = {}
+
+        if isinstance(input_data, bytes):
+            # Try parsing as WAV header first, otherwise raw int16 PCM
+            if input_data.startswith(b"RIFF"):
+                try:
+                    import io
+                    import soundfile as sf
+                    data, sr = sf.read(io.BytesIO(input_data), dtype="float32")
+                    if len(data.shape) > 1:
+                        data = np.mean(data, axis=1)
+                    audio_arr = data
+                except Exception:
+                    pass
+            if audio_arr is None:
+                # Raw int16 mono PCM
+                try:
+                    raw_int16 = np.frombuffer(input_data, dtype=np.int16)
+                    audio_arr = (raw_int16.astype(np.float32) / 32768.0)
+                except Exception:
+                    pass
+        elif isinstance(input_data, np.ndarray):
+            if input_data.dtype == np.int16:
+                audio_arr = (input_data.astype(np.float32) / 32768.0)
+            else:
+                audio_arr = input_data.astype(np.float32)
+            if len(audio_arr.shape) > 1:
+                audio_arr = np.mean(audio_arr, axis=1)
+        elif isinstance(input_data, torch.Tensor):
+            t = input_data.detach().cpu().float()
+            if t.ndim == 1:
+                t = t.unsqueeze(0)
+            return t, {}
+
+        if audio_arr is None or len(audio_arr) < 800:  # Minimum 50ms at 16kHz
+            return None
+
+        # Compute basic acoustic features
+        rms = float(np.sqrt(np.mean(audio_arr ** 2)))
+        features["rms_energy"] = round(rms, 4)
+        features["zero_crossing_rate"] = round(float(np.mean(np.abs(np.diff(np.sign(audio_arr))))) / 2.0, 4)
+
+        tensor = torch.from_numpy(audio_arr).unsqueeze(0)
+        return tensor, features
+
     async def analyze(self, input_data: Any) -> EmotionResult:
-        if not input_data:
+        if input_data is None:
             return EmotionResult(
                 emotion="neutral", confidence=0.0,
                 scores={"neutral": 1.0}, modality="voice", is_mock=True,
                 sentiment="neutral", stress_level="low", intent="casual",
             )
 
-        # If dictionary payload provided with pre-computed or audio values
+        # If already pre-computed dictionary
         if isinstance(input_data, dict):
-            raw_emotion = input_data.get("emotion") or "neutral"
+            raw_emotion = str(input_data.get("emotion") or input_data.get("primary_emotion") or "neutral").lower()
+            canonical = _VOICE_LABEL_MAP.get(raw_emotion, raw_emotion)
             conf = float(input_data.get("confidence") or 60.0)
-            scores = input_data.get("scores") or {raw_emotion: conf / 100.0}
+            scores = input_data.get("scores") or {canonical: conf / 100.0}
             return EmotionResult(
-                emotion=raw_emotion.lower(),
+                emotion=canonical,
                 confidence=conf,
                 scores=scores,
                 modality="voice",
-                sentiment="positive" if raw_emotion.lower() in POSITIVE_EMOTIONS else "negative" if raw_emotion.lower() in NEGATIVE_EMOTIONS else "neutral",
-                stress_level="low",
+                sentiment="positive" if canonical in POSITIVE_EMOTIONS else "negative" if canonical in NEGATIVE_EMOTIONS else "neutral",
+                stress_level="high" if canonical in {"angry", "fearful", "anxious"} else "low",
                 intent="casual",
             )
 
+        converted = self._audio_to_tensor(input_data)
+        if converted is None:
+            return EmotionResult(
+                emotion="neutral", confidence=40.0,
+                scores={"neutral": 0.4, "calm": 0.3, "happy": 0.15, "sad": 0.15},
+                modality="voice", sentiment="neutral", stress_level="low", intent="casual",
+            )
+
+        tensor_audio, acoustic_features = converted
+
+        # 1. Run SpeechBrain Classifier
+        if VoiceEmotionAnalyzer._classifier_loaded and VoiceEmotionAnalyzer._classifier_instance is not None:
+            try:
+                import torch
+                with torch.no_grad():
+                    classifier = VoiceEmotionAnalyzer._classifier_instance
+                    out_prob, score, index, text_lab = classifier.classify_batch(tensor_audio)
+
+                raw_label = str(text_lab[0]).lower().strip()
+                dominant_emotion = _VOICE_LABEL_MAP.get(raw_label, "neutral")
+                confidence = round(float(score.item()) * 100.0, 1)
+
+                # IEMOCAP classes order typically: neu, ang, hap, sad
+                prob_list = out_prob.squeeze().tolist()
+                if isinstance(prob_list, float):
+                    prob_list = [prob_list]
+
+                scores: dict[str, float] = {
+                    "neutral": round(prob_list[0], 4) if len(prob_list) > 0 else 0.0,
+                    "angry": round(prob_list[1], 4) if len(prob_list) > 1 else 0.0,
+                    "happy": round(prob_list[2], 4) if len(prob_list) > 2 else 0.0,
+                    "sad": round(prob_list[3], 4) if len(prob_list) > 3 else 0.0,
+                }
+                # Ensure all common classes
+                scores.setdefault("anxious", 0.0)
+                scores.setdefault("fearful", 0.0)
+                scores.setdefault("calm", 0.0)
+
+                sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                secondary_emotion = sorted_scores[1][0] if len(sorted_scores) > 1 and sorted_scores[1][1] > 0.1 else None
+
+                stress = "high" if dominant_emotion in {"angry", "fearful", "anxious"} else \
+                         "medium" if dominant_emotion in {"sad"} else "low"
+                sentiment = "positive" if dominant_emotion in POSITIVE_EMOTIONS else \
+                            "negative" if dominant_emotion in NEGATIVE_EMOTIONS else "neutral"
+
+                return EmotionResult(
+                    emotion=dominant_emotion,
+                    confidence=confidence,
+                    scores=scores,
+                    modality="voice",
+                    sentiment=sentiment,
+                    stress_level=stress,
+                    intent="casual",
+                    secondary_emotion=secondary_emotion,
+                    metadata={"acoustic_features": acoustic_features},
+                )
+            except Exception as exc:
+                logger.warning("SpeechBrain voice inference error, falling back to acoustic heuristics", error=str(exc))
+
+        # 2. Acoustic heuristics fallback
+        energy = acoustic_features.get("rms_energy", 0.0)
+        zcr = acoustic_features.get("zero_crossing_rate", 0.0)
+
+        if energy > 0.15 and zcr > 0.15:
+            dom = "angry"
+            conf = 65.0
+        elif energy > 0.10:
+            dom = "happy"
+            conf = 60.0
+        elif energy < 0.02:
+            dom = "sad"
+            conf = 55.0
+        else:
+            dom = "neutral"
+            conf = 50.0
+
+        scores = {dom: conf / 100.0, "neutral": 0.3}
         return EmotionResult(
-            emotion="neutral", confidence=50.0,
-            scores={"neutral": 1.0}, modality="voice",
-            sentiment="neutral", stress_level="low", intent="casual",
+            emotion=dom,
+            confidence=conf,
+            scores=scores,
+            modality="voice",
+            sentiment="positive" if dom in POSITIVE_EMOTIONS else "negative" if dom in NEGATIVE_EMOTIONS else "neutral",
+            stress_level="high" if dom in {"angry", "anxious"} else "low",
+            intent="casual",
+            metadata={"acoustic_features": acoustic_features},
         )

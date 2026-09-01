@@ -24,6 +24,7 @@ async def test_goal_engine_detects_new_goals():
     
     # Mock DB
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     # Mock get existing goals (returns empty)
     mock_db.execute.return_value.scalars.return_value.all.return_value = []
     # Mock count goals (returns 0)

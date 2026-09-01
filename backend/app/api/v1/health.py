@@ -110,3 +110,34 @@ async def health_check_detailed(
         "ai_provider_priority": settings.ai_provider_priority_list,
         "configured_providers": configured_providers,
     }
+
+
+@router.get("/emotion/health", summary="Perception and Local Emotion Models Health Check")
+async def emotion_health_check() -> dict[str, Any]:
+    """Health check for all local emotion and perception models."""
+    from app.services.emotion.text_emotion import TextEmotionService
+    from app.services.emotion.face_emotion import FaceEmotionService
+    from app.services.emotion.face_tracker import FaceTrackerService
+    from app.services.emotion.face_behavior import FaceBehaviorService
+    from app.services.emotion.voice_emotion import VoiceEmotionService
+    from app.services.speech.speech_to_text import SpeechToTextService
+
+    text_svc = TextEmotionService.get_instance()
+    face_svc = FaceEmotionService.get_instance()
+    tracker_svc = FaceTrackerService.get_instance()
+    behavior_svc = FaceBehaviorService.get_instance()
+    voice_svc = VoiceEmotionService.get_instance()
+    stt_svc = SpeechToTextService.get_instance()
+
+    return {
+        "status": "healthy",
+        "models": {
+            "text_emotion": text_svc.health_check(),
+            "face_emotion": face_svc.health_check(),
+            "face_tracker": tracker_svc.health_check(),
+            "face_behavior": behavior_svc.health_check(),
+            "voice_emotion": voice_svc.health_check(),
+            "speech_to_text": stt_svc.health_check(),
+        },
+    }
+

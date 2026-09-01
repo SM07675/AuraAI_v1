@@ -60,21 +60,12 @@ async def lifespan(app: FastAPI):
         environment=settings.environment,
     )
 
-    # Run database migrations on startup
+    # Initialize database schema and fallback
+    from app.db.engine import init_db_schema
     try:
-        import subprocess
-        import sys
-        result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            logger.info("Database migrations applied")
-        else:
-            logger.warning("Migration warning", stderr=result.stderr[:500])
+        await init_db_schema()
     except Exception as exc:
-        logger.warning("Could not run migrations automatically", error=str(exc))
+        logger.warning("Database schema init warning", error=str(exc))
 
     logger.info(
         "Aura AI 2.0 ready",
@@ -109,8 +100,9 @@ def create_app() -> FastAPI:
     # Register middleware (CORS, logging, exception handlers)
     setup_middleware(app)
 
-    # Register API routers under /api/v1 and root health check
+    # Register API routers under /api, /api/v1 and root health check
     app.include_router(health_router)
+    app.include_router(health_router, prefix="/api")
     api_prefix = "/api/v1"
     app.include_router(health_router, prefix=api_prefix)
     app.include_router(auth_router, prefix=api_prefix)

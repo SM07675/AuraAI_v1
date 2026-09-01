@@ -153,6 +153,9 @@ class EmotionResult:
     face_detected: bool | None = None    # None if not face modality
     face_box: list[int] | None = None
     box_norm: dict[str, float] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    valence: float = 0.0
+    arousal: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -170,6 +173,11 @@ class EmotionResult:
             "box_norm": self.box_norm,
             "is_mock": self.is_mock,
         }
+
+    @property
+    def primary_emotion(self) -> str:
+        """Alias for dominant emotion."""
+        return self.emotion
 
 
 # Intent labels for text analysis
@@ -240,6 +248,38 @@ class EmotionContext:
         self._sentiment = sentiment or "neutral"
         self._intent = intent or "casual"
         self._secondary_emotion = secondary_emotion
+        self.facial_state = kwargs.get("facial_state")
+        self._face_behavior_summary = self._generate_face_behavior_summary(self.facial_state)
+
+    def _generate_face_behavior_summary(self, facial_state: Optional[dict[str, Any]]) -> str:
+        if not facial_state or not facial_state.get("face_detected"):
+            return ""
+        cues = []
+        emo = facial_state.get("emotion", {}).get("primary", "")
+        dur = facial_state.get("transitions", {}).get("duration_sec", 0.0)
+        stable = facial_state.get("transitions", {}).get("is_stable", False)
+        gaze = facial_state.get("gaze", {})
+        eye_contact = gaze.get("eye_contact", True)
+        aus = facial_state.get("action_units", {}).get("intensity", {})
+
+        if emo in ("happy", "joy"):
+            cues.append("User is smiling" if aus.get("AU12", 0) > 1.5 else "User displays positive facial demeanor")
+        elif emo in ("sad", "sadness"):
+            cues.append("User displays subdued/downcast expression")
+        elif emo in ("angry", "frustrated"):
+            cues.append("User displays tense/furrowed brow")
+        elif emo == "surprised":
+            cues.append("User displays widened eyes / surprised expression")
+
+        if eye_contact:
+            cues.append("maintaining direct eye contact")
+        else:
+            cues.append("glancing away")
+
+        if stable and dur >= 1.0:
+            cues.append(f"stable for {dur:.1f}s")
+
+        return "; ".join(cues) if cues else ""
 
     def is_crisis(self) -> bool:
         """True if intent is crisis or severe distress."""
@@ -260,6 +300,8 @@ class EmotionContext:
             "conflict": self.conflict,
             "timestamp": self.timestamp,
         }
+        if self._face_behavior_summary:
+            d["face_behavior_summary"] = self._face_behavior_summary
         if self.is_negative():
             d["guidance"] = self.get_guidance()
         return d
