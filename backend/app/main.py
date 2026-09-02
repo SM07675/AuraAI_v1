@@ -35,6 +35,8 @@ from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.music import router as music_router
 from app.api.v1.tts import router as tts_router
+from app.api.v1.behavioral import router as behavioral_router
+from app.api.v1.feedback import router as feedback_router
 
 
 settings = get_settings()
@@ -118,6 +120,8 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router, prefix=api_prefix)
     app.include_router(music_router, prefix=api_prefix)
     app.include_router(tts_router, prefix=api_prefix)
+    app.include_router(behavioral_router, prefix=api_prefix)
+    app.include_router(feedback_router, prefix=api_prefix)
 
     return app
 

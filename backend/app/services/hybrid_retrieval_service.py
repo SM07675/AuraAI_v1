@@ -124,7 +124,20 @@ class HybridRetrievalService:
                 except Exception:
                     pass
 
-                return user_profile, active_goals, memories, graph_facts, summary
+                # Affective cross-session episodic memories
+                affective_context: List[str] = []
+                try:
+                    from app.services.memory_extractor import AffectiveMemoryExtractor
+                    extractor = AffectiveMemoryExtractor()
+                    recents = await extractor.get_recent_affective_memories(db, user_id, limit=3)
+                    affective_context = [
+                        f"{m['time_ago']}: {m['memory_text']} (user felt {m['emotion']})"
+                        for m in recents
+                    ]
+                except Exception as exc:
+                    logger.debug("Affective memory retrieval fallback", error=str(exc))
+
+                return user_profile, active_goals, memories, graph_facts, summary, affective_context
 
         # Run working memory and DB branches in parallel
         wm_task = asyncio.create_task(_fetch_wm())
@@ -132,9 +145,9 @@ class HybridRetrievalService:
 
         wm_state, db_data = await asyncio.gather(wm_task, db_task, return_exceptions=True)
 
-        user_profile, active_goals, memories, graph_facts, summary = (
-            db_data if isinstance(db_data, tuple) else (
-                {"name": user_name, "communication_style": "warm"}, [], [], [], ""
+        user_profile, active_goals, memories, graph_facts, summary, affective_context = (
+            db_data if isinstance(db_data, tuple) and len(db_data) == 6 else (
+                {"name": user_name, "communication_style": "warm"}, [], [], [], "", []
             )
         )
 
@@ -149,6 +162,7 @@ class HybridRetrievalService:
             "graph_facts": graph_facts,
             "recent_history": recent_history,
             "conversation_summary": summary,
+            "previous_session_context": affective_context,
             "retrieval_latency_ms": round((time.perf_counter() - t_start) * 1000.0, 2),
         }
 
@@ -177,7 +191,7 @@ class HybridRetrievalService:
             active_goals=ctx_data.get("active_goals", []),
             recent_history=ctx_data.get("recent_history", []),
             conversation_summary=ctx_data.get("conversation_summary", "") or session.summary or "",
-            previous_session_context=[],
+            previous_session_context=ctx_data.get("previous_session_context", []),
             estimated_total_tokens=0,
         )
 

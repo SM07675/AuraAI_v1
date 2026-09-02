@@ -26,6 +26,7 @@ class TurnDirective:
     offerSolution: bool
     mustAskFollowUp: bool
     nextQuestionSeed: str | None
+    context_dimensions_resolved: int = 0
 
     @classmethod
     def default(cls, phase: str = "explore") -> TurnDirective:
@@ -37,6 +38,7 @@ class TurnDirective:
             offerSolution=False,
             mustAskFollowUp=True,
             nextQuestionSeed=None,
+            context_dimensions_resolved=0,
         )
 
 
@@ -54,12 +56,13 @@ Current Session Phases:
 2. "explore" - Exploring the user's thoughts.
 3. "identify" - Focusing on a specific problem.
 4. "reflect" - Validating the problem.
-5. "offer" - Offering a solution.
+5. "offer" - Offering an actionable solution.
 6. "follow_up" - Checking if the solution landed or moving on.
 7. "wrap_up" - Ending the session.
 
-Disengagement Handling:
-If the user says "I don't want to talk about this", "stop", or shows clear fatigue, set `mustAskFollowUp` to false, and advance phase toward "explore" or "wrap_up".
+Disengagement / Solution Trigger Handling:
+- If the user asks for guidance, advice, or what to do (e.g. "what should I do?", "help me fix this"), advance phase to "offer" and set `offerSolution` to true.
+- If the user says "I don't want to talk about this", "stop", or shows clear fatigue, set `mustAskFollowUp` to false, and advance phase toward "wrap_up".
 
 JSON Output Format:
 {
@@ -73,15 +76,17 @@ JSON Output Format:
 }
 
 Concern Categories:
-"work_stress", "sleep", "relationships", "motivation", "loneliness", "anxiety", "general"
+"work_stress", "career", "study_focus", "wellness", "relationships", "physical", "productivity", "sleep", "motivation", "loneliness", "anxiety", "general"
 
 Only return valid JSON."""
 
     async def classify(self, user_message: str, current_phase: str, turn_count: int) -> TurnDirective:
         """Analyze the turn and return a directive."""
+        msg_lower = user_message.lower().strip()
         
-        if turn_count > 15:
-            # Fatigue cap
+        # Adaptive fatigue / disengagement check
+        is_wrapup_request = any(p in msg_lower for p in ("bye", "goodbye", "leave now", "wrap up", "gotta go", "have to go", "alvida", "chalta hoon", "chalti hoon"))
+        if is_wrapup_request or turn_count > 30:
             return TurnDirective(
                 phase="wrap_up",
                 problemDetected=False,

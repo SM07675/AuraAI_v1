@@ -336,13 +336,25 @@ class EmotionContext:
     def face_emotion(self) -> str | None:
         return getattr(self, "_face_emotion", None)
 
+    @face_emotion.setter
+    def face_emotion(self, val: str | None) -> None:
+        self._face_emotion = val
+
     @property
     def text_emotion(self) -> str | None:
         return getattr(self, "_text_emotion", None)
 
+    @text_emotion.setter
+    def text_emotion(self, val: str | None) -> None:
+        self._text_emotion = val
+
     @property
     def voice_emotion(self) -> str | None:
         return getattr(self, "_voice_emotion", None)
+
+    @voice_emotion.setter
+    def voice_emotion(self, val: str | None) -> None:
+        self._voice_emotion = val
 
     @property
     def stress(self) -> str:

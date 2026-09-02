@@ -40,13 +40,17 @@ export function VoiceScreen() {
   const [sttError, setSttError] = useState<string | null>(null);
 
   const ws = useRef<WebSocket | null>(null);
+  const currentLangRef = useRef(currentLang);
+  currentLangRef.current = currentLang;
+  const selectedVoiceRef = useRef(selectedVoice);
+  selectedVoiceRef.current = selectedVoice;
+  const sessionIdRef = useRef<number | null>(null);
+  const clientTurnIdRef = useRef<number>(0);
 
   // Speak with neural TTS
   const speakText = (textToSpeak: string, voiceId?: string) => {
     setSpeaking(true);
     voiceService.speak(textToSpeak, {
-      // Read from the service so WebSocket callbacks never retain an old voice
-      // after switching between Swara and Madhur in the same language.
       voice: voiceId || voiceService.activeVoice,
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
@@ -81,11 +85,15 @@ export function VoiceScreen() {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === "session_start") {
+            sessionIdRef.current = Number(data.session_id) || sessionIdRef.current;
+            return;
+          }
           if (data.type === "start") {
             setThinking(false);
             setAiResponse("");
             streamingTtsService.startStream({
-              voice: selectedVoice,
+              voice: selectedVoiceRef.current,
               onStart: () => setSpeaking(true),
               onEnd: () => setSpeaking(false),
               onError: () => setSpeaking(false),
@@ -105,11 +113,12 @@ export function VoiceScreen() {
             setThinking(false);
             streamingTtsService.cancel();
             voiceService.stop();
+            duplexManager.notifyTtsStopped();
             setSpeaking(false);
           } else if (data.type === "error") {
             setThinking(false);
             streamingTtsService.cancel();
-            const fallbackMsg = isHindi
+            const fallbackMsg = currentLangRef.current === "hi-IN"
               ? "मैं आपके साथ हूँ और सुन रही हूँ। आज आपके मन में क्या चल रहा है?"
               : "I'm right here with you and listening. What's on your mind today?";
             setAiResponse(fallbackMsg);
@@ -136,19 +145,32 @@ export function VoiceScreen() {
       socket?.close();
       streamingTtsService.cancel();
       voiceService.stop();
+      duplexManager.notifyTtsStopped();
     };
-  }, [isHindi]);
+  }, []);
+
+  // ── Hook Duplex Barge-In Interrupt Event ─────────────────────────────────────
+  useEffect(() => {
+    return duplexManager.onInterrupt(() => {
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(
+          JSON.stringify({ type: "interrupt", reason: "speech_barge_in" })
+        );
+      }
+    });
+  }, []);
 
   // Send message to AI backend
   const sendToAi = (userSpeech: string) => {
-    if (!userSpeech || userSpeech.trim().length === 0) return;
-    if (voiceService.isEcho(userSpeech) || duplexManager.isTextEcho(userSpeech)) return;
+    const clean = userSpeech.trim();
+    if (!clean) return;
 
     if (speaking) {
       voiceService.stop();
       setSpeaking(false);
     }
     streamingTtsService.cancel();
+    duplexManager.notifyTtsStopped();
 
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       try {
@@ -158,29 +180,33 @@ export function VoiceScreen() {
 
     setThinking(true);
     setAiResponse("");
+    duplexManager.transitionTo("PROCESSING", "User utterance sent to AI");
 
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      clientTurnIdRef.current += 1;
       ws.current.send(JSON.stringify({ 
         type: "message", 
-        content: userSpeech, 
+        content: clean,
+        session_id: sessionIdRef.current,
+        client_turn_id: clientTurnIdRef.current,
         mode: "voice",
-        language: currentLang 
+        language: currentLangRef.current 
       }));
     } else {
       // Offline fallback
       setTimeout(() => {
         setThinking(false);
-        const lower = userSpeech.toLowerCase();
-        let reply = isHindi
+        const lower = clean.toLowerCase();
+        let reply = currentLangRef.current === "hi-IN"
           ? "मैं समझ रही हूँ। क्या आप इसके बारे में थोड़ा और बता सकते हैं कि आप कैसा महसूस कर रहे हैं?"
           : "I hear you. Could you share a bit more about how that makes you feel?";
           
         if (lower.includes("stress") || lower.includes("तनाव") || lower.includes("pressure") || lower.includes("exam") || lower.includes("काम")) {
-          reply = isHindi
+          reply = currentLangRef.current === "hi-IN"
             ? "यह काफी भारी लग सकता है। चलिए मिलकर एक गहरी सांस लेते हैं। इस समय सबसे ज्यादा तनाव किस बात से है?"
             : "That sounds like a lot of weight to carry. Let's take a slow breath together. What's the biggest source of pressure right now?";
         } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("नमस्ते") || lower.includes("प्रणाम") || lower.includes("hey")) {
-          reply = isHindi
+          reply = currentLangRef.current === "hi-IN"
             ? "नमस्ते! मैं पूरी तरह से सुन रही हूँ। आज आपका दिन कैसा जा रहा है?"
             : "Hello there! I'm completely tuned in. How are you feeling today?";
         }
@@ -192,20 +218,21 @@ export function VoiceScreen() {
 
   // ── Integrate Dedicated Resilient Speech Recognition Service ───────────────
   useEffect(() => {
+    // Reset audio state and ensure fresh listening mode on mount
+    voiceService.stop();
+    streamingTtsService.cancel();
+    duplexManager.notifyTtsStopped();
+    duplexManager.transitionTo("LISTENING", "VoiceScreen active");
+
     const unsubscribe = speechService.subscribe({
       onInterim: (txt) => {
         const clean = txt.trim();
-        if (!clean || voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          return;
-        }
+        if (!clean) return;
         setInterimTranscript(clean);
       },
       onFinal: (txt) => {
         const clean = txt.trim();
         if (!clean) return;
-        if (voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          return;
-        }
         setTranscript(clean);
         setInterimTranscript("");
         sendToAi(clean);
@@ -218,22 +245,33 @@ export function VoiceScreen() {
       },
     });
 
-    // Start continuous listening by default
-    speechService.start();
+    speechService.start().catch((err) => {
+      console.warn("[VoiceScreen] Speech start error:", err);
+    });
 
     return () => {
       unsubscribe();
       speechService.stop();
       voiceService.stop();
+      streamingTtsService.cancel();
+      duplexManager.notifyTtsStopped();
     };
   }, []);
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (speaking) {
       voiceService.stop();
+      streamingTtsService.cancel();
+      duplexManager.notifyTtsStopped();
       setSpeaking(false);
     }
-    speechService.toggle();
+    if (speechService.isListening) {
+      speechService.stop();
+      setListening(false);
+    } else {
+      await speechService.start();
+      setListening(true);
+    }
   };
 
   const handleResetSession = () => {

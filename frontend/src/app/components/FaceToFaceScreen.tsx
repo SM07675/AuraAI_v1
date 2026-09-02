@@ -36,6 +36,8 @@ import { duplexManager, ConversationState, InterruptionScoreDetails } from "../s
 import { streamingTtsService } from "../services/streamingTtsService";
 import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
 import { FaceDebugPanel } from "./FaceDebugPanel";
+import { apiClient } from "../services/apiClient";
+import { SolutionCard } from "./SolutionCard";
 
 type FaceEmotion = {
   primary_emotion: string;
@@ -78,6 +80,7 @@ type Msg = {
   text: string;
   textEmotion?: string;
   isPrescription?: boolean;
+  solution?: any;
 };
 
 export function FaceToFaceScreen() {
@@ -168,22 +171,23 @@ export function FaceToFaceScreen() {
   const [fusedEmotion, setFusedEmotion] = useState<{ primary?: string; confidence?: number; text?: string; voice?: string; face?: string }>({});
   const [latencyMetrics, setLatencyMetrics] = useState<Record<string, number>>({});
 
+  const formatList = (val: any) => {
+    if (Array.isArray(val)) return val.filter(Boolean).join(" • ");
+    if (typeof val === "string") return val.split(",").map((s) => s.trim()).filter(Boolean).join(" • ");
+    return val || "";
+  };
+
   useEffect(() => {
-    fetch("/api/v1/users/me")
-      .then((r) => r.json())
+    apiClient
+      .get<any>("/api/v1/users/me")
       .then((u) => {
         if (u) {
-          if (u.goals) setActiveGoal(u.goals);
-          if (u.interests) setActiveInterest(u.interests);
-        }
-      })
-      .catch(() => {});
-
-    fetch("/api/v1/goals")
-      .then((r) => r.json())
-      .then((goals) => {
-        if (Array.isArray(goals) && goals.length > 0) {
-          setActiveGoal(goals[0].title || goals[0].goal || "Career & Placement Goals");
+          if (u.goals && (Array.isArray(u.goals) ? u.goals.length : u.goals)) {
+            setActiveGoal(formatList(u.goals));
+          }
+          if (u.interests && (Array.isArray(u.interests) ? u.interests.length : u.interests)) {
+            setActiveInterest(formatList(u.interests));
+          }
         }
       })
       .catch(() => {});
@@ -418,6 +422,12 @@ export function FaceToFaceScreen() {
   // ── 3. Connect Main Chat WebSocket ──────────────────────────────────────────
   const faceEmotionRef = useRef(faceEmotion);
   faceEmotionRef.current = faceEmotion;
+  const actionUnitsRef = useRef(actionUnits);
+  actionUnitsRef.current = actionUnits;
+  const gazeInfoRef = useRef(gazeInfo);
+  gazeInfoRef.current = gazeInfo;
+  const headPoseRef = useRef(headPose);
+  headPoseRef.current = headPose;
   const currentVoiceIdRef = useRef(currentVoiceId);
   currentVoiceIdRef.current = currentVoiceId;
 
@@ -510,6 +520,28 @@ export function FaceToFaceScreen() {
                 ];
               }
             });
+          } else if (data.type === "solution_card") {
+            const solData = data.solution || data.data;
+            if (solData) {
+              setMsgs((prev) => {
+                if (prev.length === 0) {
+                  return [{ id: "aura-sol-" + Date.now(), from: "aura", text: "", solution: solData }];
+                }
+                const lastIdx = prev.length - 1;
+                const lastMsg = prev[lastIdx];
+                if (lastMsg && lastMsg.from === "aura") {
+                  return [
+                    ...prev.slice(0, lastIdx),
+                    { ...lastMsg, solution: solData },
+                  ];
+                } else {
+                  return [
+                    ...prev,
+                    { id: "aura-sol-" + Date.now(), from: "aura", text: "", solution: solData },
+                  ];
+                }
+              });
+            }
           } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
             setTyping(false);
             streamingTtsService.finalizeStream();
@@ -687,6 +719,9 @@ export function FaceToFaceScreen() {
             secondary_emotion: faceEmotionRef.current.secondary_emotion,
             stress: faceEmotionRef.current.stress,
             sentiment: faceEmotionRef.current.sentiment,
+            action_units: actionUnitsRef.current,
+            gaze: gazeInfoRef.current,
+            head_pose: headPoseRef.current,
           },
         })
       );
@@ -736,6 +771,16 @@ export function FaceToFaceScreen() {
                 </span>
                 <Activity size={10} className="opacity-70" />
               </button>
+              {faceEmotion.stress === "High" && (
+                <div
+                  className="px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-400/40 animate-pulse flex items-center gap-1 cursor-pointer"
+                  onClick={() => setShowBreathingPacer(true)}
+                  title="Aura notices your tension. Click to begin a gentle breath reset."
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-ping" />
+                  <span>Gentle Breath Nudge</span>
+                </div>
+              )}
             </div>
             <p className="text-[10px] font-medium text-[#7A748A] dark:text-[#9E98B4] m-0">
               Full-Duplex Architecture (AEC + Multi-Signal Barge-In + Pure Text Engine)
@@ -1214,12 +1259,17 @@ export function FaceToFaceScreen() {
                   className={
                     m.from === "user"
                       ? "clay-bubble-user px-3.5 py-2 rounded-[16px] max-w-[85%]"
-                      : "clay-bubble-aura px-3.5 py-2.5 rounded-[16px] max-w-[88%]"
+                      : "clay-bubble-aura px-3.5 py-2.5 rounded-[16px] max-w-[90%]"
                   }
                 >
-                  <p className="text-[12px] font-medium leading-relaxed m-0 whitespace-pre-wrap">
-                    {m.text}
-                  </p>
+                  {m.text && (
+                    <p className="text-[12px] font-medium leading-relaxed m-0 whitespace-pre-wrap">
+                      {m.text}
+                    </p>
+                  )}
+                  {m.solution && (
+                    <SolutionCard solution={m.solution} sessionId={chatSessionIdRef.current} />
+                  )}
                 </div>
               </motion.div>
             ))}

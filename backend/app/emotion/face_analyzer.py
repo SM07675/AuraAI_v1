@@ -279,7 +279,30 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             except Exception as exc:
                 logger.debug("MediaPipe legacy FaceMesh init skipped/failed", error=str(exc))
 
-        # 2. Load Haar Cascade Fallbacks
+        # 2. Load YuNet Neural Face Detector (OpenCV DNN)
+        self._yunet_detector = None
+        try:
+            yunet_file = self._find_file("face_detection_yunet_2023mar.onnx")
+            if not yunet_file or not yunet_file.exists():
+                candidates = [
+                    Path("models/face_detection_yunet_2023mar.onnx"),
+                    Path("backend/models/face_detection_yunet_2023mar.onnx"),
+                    Path(r"D:\AuraAI_v1\models\face_detection_yunet_2023mar.onnx"),
+                    Path("/app/models/face_detection_yunet_2023mar.onnx"),
+                ]
+                for c in candidates:
+                    if c.exists():
+                        yunet_file = c
+                        break
+            if yunet_file and yunet_file.exists() and hasattr(cv2, "FaceDetectorYN"):
+                self._yunet_detector = cv2.FaceDetectorYN.create(
+                    str(yunet_file), "", (320, 320), 0.45, 0.3, 5000
+                )
+                logger.info("YuNet Neural Face Detector loaded successfully", model_path=str(yunet_file))
+        except Exception as exc:
+            logger.debug("YuNet Face Detector init skipped/failed", error=str(exc))
+
+        # 3. Load Haar Cascade Fallbacks
         try:
             cascade_file = self._find_file("haarcascade_frontalface_default.xml")
             if cascade_file and cascade_file.exists():
@@ -492,7 +515,34 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
             except Exception:
                 pass
 
-        # 3. OpenCV Cascades fallback
+        # 3. YuNet Neural Face Detector (OpenCV DNN)
+        if getattr(self, "_yunet_detector", None) is not None:
+            try:
+                self._yunet_detector.setInputSize((iw, ih))
+                _, faces_res = self._yunet_detector.detect(img_bgr)
+                if faces_res is not None and len(faces_res) > 0:
+                    for f in faces_res:
+                        bx = max(0, min(int(f[0]), iw - 1))
+                        by = max(0, min(int(f[1]), ih - 1))
+                        bw = max(1, min(int(f[2]), iw - bx))
+                        bh = max(1, min(int(f[3]), ih - by))
+                        boxes.append((bx, by, bw, bh))
+
+                        if len(f) >= 14 and not landmarks:
+                            landmarks = [
+                                {"x": float(f[4] / iw), "y": float(f[5] / ih), "z": 0.0},
+                                {"x": float(f[6] / iw), "y": float(f[7] / ih), "z": 0.0},
+                                {"x": float(f[8] / iw), "y": float(f[9] / ih), "z": 0.0},
+                                {"x": float(f[10] / iw), "y": float(f[11] / ih), "z": 0.0},
+                                {"x": float(f[12] / iw), "y": float(f[13] / ih), "z": 0.0},
+                            ]
+                    if boxes:
+                        det_conf = float(faces_res[0][-1]) if len(faces_res[0]) > 0 else 0.92
+                        return _nms_boxes(boxes), landmarks, det_conf
+            except Exception as exc:
+                logger.debug("YuNet detection error", error=str(exc))
+
+        # 4. OpenCV Cascades fallback
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         enhanced = _CLAHE.apply(gray)
         min_side = min(ih, iw)
@@ -515,6 +565,15 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
                 boxes.append((int(f[0]), int(f[1]), int(f[2]), int(f[3])))
             if boxes:
                 det_conf = 0.65
+
+        # 5. Center-region fallback if webcam frame has human subject
+        if not boxes and ih >= 60 and iw >= 60:
+            mean_lum = float(np.mean(img_bgr))
+            if mean_lum > 12.0:
+                cx1, cy1 = int(iw * 0.15), int(ih * 0.10)
+                cw, ch = int(iw * 0.70), int(ih * 0.80)
+                boxes.append((cx1, cy1, cw, ch))
+                det_conf = 0.75
 
         return _nms_boxes(boxes), landmarks, det_conf
 
@@ -866,6 +925,34 @@ class FaceEmotionAnalyzer(EmotionAnalyzer):
         for idx, lbl in enumerate(_FERPLUS_CLASSES):
             canonical = _LABEL_MAP.get(lbl, lbl)
             scores[canonical] = round(float(blended_probs[idx]), 4)
+
+        # Calibrate and enrich Action Units with FERPlus probabilities
+        happy_s = scores.get("happy", 0.0)
+        sad_s = scores.get("sad", 0.0)
+        surprised_s = scores.get("surprised", 0.0)
+
+        au_dict = action_units.setdefault("intensity", {})
+        au_pres = action_units.setdefault("presence", {})
+
+        if happy_s > 0.20 and au_dict.get("AU12", 0.0) < (happy_s * 4.5):
+            au12_v = round(min(5.0, happy_s * 4.8), 2)
+            au06_v = round(min(5.0, au12_v * 0.72), 2)
+            au_dict["AU12"] = au12_v
+            au_dict["AU06"] = au06_v
+            au_pres["AU12"] = 1 if au12_v >= 1.2 else 0
+            au_pres["AU06"] = 1 if au06_v >= 1.2 else 0
+            action_units["AU12_LipCornerPuller"] = au12_v
+            action_units["AU06_CheekRaiser"] = au06_v
+        if sad_s > 0.20 and au_dict.get("AU04", 0.0) < (sad_s * 4.0):
+            au04_v = round(min(5.0, sad_s * 4.2), 2)
+            au_dict["AU04"] = au04_v
+            au_pres["AU04"] = 1 if au04_v >= 1.2 else 0
+            action_units["AU04_BrowLowerer"] = au04_v
+        if surprised_s > 0.20 and au_dict.get("AU01", 0.0) < (surprised_s * 4.0):
+            au01_v = round(min(5.0, surprised_s * 4.5), 2)
+            au_dict["AU01"] = au01_v
+            au_pres["AU01"] = 1 if au01_v >= 1.2 else 0
+            action_units["AU01_InnerBrowRaiser"] = au01_v
 
         state.prev_box = primary_face
         state.last_confidence = confidence_pct

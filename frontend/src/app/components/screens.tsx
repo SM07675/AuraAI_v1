@@ -8,6 +8,7 @@ import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
 import { speechService } from "../services/speechRecognitionService";
 import { getWebSocketUrl } from "../services/wsHelper";
+import { SolutionCard } from "./SolutionCard";
 import {
   ClayChatIcon,
   ClayVoiceWaveBarsIcon,
@@ -655,7 +656,7 @@ export function HomeScreen({
 }
 
 /* ─────────────────────────── CHAT ─────────────────────────── */
-type Msg = { id: string; from: "user" | "aura"; text: string; time?: string; showBeads?: boolean };
+type Msg = { id: string; from: "user" | "aura"; text: string; time?: string; showBeads?: boolean; solution?: any };
 
 export function ChatScreen() {
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -710,6 +711,24 @@ export function ChatScreen() {
               }
               return prev;
             });
+          } else if (data.type === "solution_card") {
+            const solData = data.solution || data.data;
+            if (solData) {
+              setMsgs((prev) => {
+                if (prev.length === 0) {
+                  return [{ id: "aura-sol-" + Date.now(), from: "aura", text: "", solution: solData, time: getCurrentTime() }];
+                }
+                const lastIdx = prev.length - 1;
+                const lastMsg = prev[lastIdx];
+                if (lastMsg && lastMsg.from === "aura") {
+                  return [
+                    ...prev.slice(0, lastIdx),
+                    { ...lastMsg, solution: solData },
+                  ];
+                }
+                return [...prev, { id: "aura-sol-" + Date.now(), from: "aura", text: "", solution: solData, time: getCurrentTime() }];
+              });
+            }
           } else if (data.type === "done") {
             setTyping(false);
             setMsgs((prev) => {
@@ -899,9 +918,17 @@ export function ChatScreen() {
                     className="clay-bubble-aura relative px-5 py-3.5 sm:px-6 sm:py-3.5"
                     style={{ borderRadius: 24 }}
                   >
-                    <span className="text-[14px] leading-relaxed whitespace-pre-wrap font-medium text-[#2E2544] dark:text-[#F3EFFC]">
-                      {m.text}
-                    </span>
+                    {m.text && (
+                      <span className="text-[14px] leading-relaxed whitespace-pre-wrap font-medium text-[#2E2544] dark:text-[#F3EFFC]">
+                        {m.text}
+                      </span>
+                    )}
+
+                    {m.solution && (
+                      <div className="w-full mt-2">
+                        <SolutionCard solution={m.solution} />
+                      </div>
+                    )}
 
                     {/* 3 Pastel Reaction/Status Spheres matching target reference */}
                     {m.showBeads && (

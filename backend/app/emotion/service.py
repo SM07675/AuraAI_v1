@@ -15,7 +15,6 @@ from app.core.logging_config import get_logger
 from app.emotion.analyzers import TextEmotionAnalyzer
 from app.emotion.base import EmotionContext, EmotionResult, POSITIVE_EMOTIONS, NEGATIVE_EMOTIONS
 from app.emotion.face_analyzer import FaceEmotionAnalyzer
-from app.services.emotion.emotion_fusion import EmotionFusionService
 from app.services.emotion.voice_emotion import VoiceEmotionService
 
 logger = get_logger(__name__)
@@ -24,7 +23,7 @@ logger = get_logger(__name__)
 _global_text_analyzer: Optional[TextEmotionAnalyzer] = None
 _global_face_analyzer: Optional[FaceEmotionAnalyzer] = None
 _global_voice_service: Optional[VoiceEmotionService] = None
-_global_fusion_service: Optional[EmotionFusionService] = None
+_global_fusion_service: Any = None
 
 
 def get_text_analyzer() -> TextEmotionAnalyzer:
@@ -58,9 +57,10 @@ def get_emotion_service() -> EmotionService:
     return _global_emotion_service
 
 
-def get_fusion_service() -> EmotionFusionService:
+def get_fusion_service() -> Any:
     global _global_fusion_service
     if _global_fusion_service is None:
+        from app.services.emotion.emotion_fusion import EmotionFusionService
         _global_fusion_service = EmotionFusionService.get_instance()
     return _global_fusion_service
 
@@ -148,6 +148,7 @@ class EmotionService:
         image_data: Any = None,
         audio_data: Any = None,
         voice_result: Dict[str, Any] | None = None,
+        face_result: Dict[str, Any] | None = None,
     ) -> EmotionContext:
         """Run all available analyzers concurrently and fuse into a single EmotionContext.
 
@@ -156,16 +157,16 @@ class EmotionService:
             image_data: Camera frame for face emotion analysis.
             audio_data: Raw PCM audio for voice emotion analysis (if not pre-computed).
             voice_result: Pre-computed voice emotion dict (from parallel VAD analysis).
-                          When provided, overrides audio_data analysis to avoid double inference.
+            face_result: Pre-computed face emotion dict (from real-time webcam WebSocket).
         """
         text_res: Optional[Dict[str, Any]] = None
-        face_res: Optional[Dict[str, Any]] = None
+        face_res: Optional[Dict[str, Any]] = face_result
         voice_res: Optional[Dict[str, Any]] = voice_result  # Use pre-computed if available
 
         tasks = []
         if text and text.strip():
             tasks.append(("text", self._text.analyze(text)))
-        if image_data and self._face.is_available:
+        if image_data and self._face.is_available and face_res is None:
             tasks.append(("face", self._face.analyze(image_data)))
         # Only run voice analysis if not pre-computed AND audio data provided
         if audio_data and voice_res is None:
@@ -242,6 +243,13 @@ class EmotionService:
             conflict_detail=fused.get("conflict_detail", ""),
             facial_state=facial_state_data,
         )
+
+        if face_res:
+            setattr(ctx, "action_units", face_res.get("action_units") or {})
+            setattr(ctx, "gaze", face_res.get("gaze") or {})
+            setattr(ctx, "head_pose", face_res.get("head_pose") or {})
+            if face_res.get("primary_emotion"):
+                ctx.face_emotion = face_res["primary_emotion"]
 
         self.trend_buffer.append({
             "emotion": primary,

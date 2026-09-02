@@ -167,11 +167,11 @@ echo    4. Run tests:    run.bat test
 goto :done
 
 :: ============================================================
-::  DEV -- Run backend locally without Docker
+::  DEV -- Run Backend & Frontend locally without Docker
 :: ============================================================
 :cmd_dev
 echo.
-echo  [*] Starting Aura AI 2.0 backend in LOCAL mode...
+echo  [*] Starting Aura AI 2.0 (Backend + Frontend) in LOCAL mode...
 
 if not exist "!VENV_DIR!\Scripts\activate.bat" (
     echo  [ERROR] Virtual environment not found. Run first:  run.bat setup
@@ -183,22 +183,29 @@ if not exist "!ENV_FILE!" (
     copy "%~dp0.env.example" "!ENV_FILE!" >nul
 )
 
+:: 1. Launch Vite Frontend in a new terminal window
+echo  [*] Launching Frontend (Vite) at http://localhost:5173 ...
+start "Aura AI Frontend (Vite)" cmd /k "cd /d %~dp0frontend && npm run dev"
+
+:: 2. Launch FastAPI Backend
+echo  [*] Launching Backend (FastAPI) at http://localhost:8000 ...
 call "!VENV_DIR!\Scripts\activate.bat"
 
-:: Override postgres/redis hosts to localhost for local dev
 set "POSTGRES_HOST=localhost"
 set "REDIS_HOST=localhost"
 
-echo  [*] Running migrations...
 cd /d "!BACKEND_DIR!"
-python -m alembic upgrade head 2>nul
-if errorlevel 1 echo  [WARN] Migration skipped (DB may not be available yet)
 
 echo.
-echo  [*] Starting uvicorn at http://localhost:8000
-echo      Swagger: http://localhost:8000/docs
-echo      Press Ctrl+C to stop.
+echo  +-----------------------------------------------+
+echo  ^|            AURA AI 2.0 LOCAL DEV              ^|
+echo  ^|                                               ^|
+echo  ^|  Frontend :  http://localhost:5173            ^|
+echo  ^|  Backend  :  http://localhost:8000            ^|
+echo  ^|  Swagger  :  http://localhost:8000/docs       ^|
+echo  +-----------------------------------------------+
 echo.
+
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
 
 goto :done

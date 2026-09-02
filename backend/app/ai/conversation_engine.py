@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.base import AIRequest, AIResponse, StreamChunk
 from app.ai.builders.context_builder import ContextBuilder, ContextObject
 from app.ai.builders.context_ranker import ContextRanker, RankedContextBundle
+from app.ai.context_tracker import ContextTracker
 from app.ai.builders.interest_builder import InterestBuilder
 from app.ai.builders.memory_builder import MemoryBuilder
 from app.ai.builders.question_builder import QuestionBuilder
@@ -50,6 +51,8 @@ from app.services.hybrid_retrieval_service import HybridRetrievalService
 from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.services.solution_library import SolutionLibrary
 from app.services.working_memory_service import WorkingMemoryService
+from app.ai.context_tracker import ContextSufficiencyTracker
+from app.ai.solution_engine import SolutionEngine, SolutionCardPayload
 
 logger = get_logger(__name__)
 
@@ -77,6 +80,8 @@ class ConversationEngine:
         self._turn_directive = TurnDirectiveClassifier(self._gateway)
         self._solution_library = SolutionLibrary()
         self._working_memory = WorkingMemoryService()
+        self._context_tracker = ContextSufficiencyTracker()
+        self._solution_engine = SolutionEngine(self._gateway)
 
         # Analytics & Observability
         self._analytics: AnalyticsService | None = None
@@ -215,14 +220,85 @@ class ConversationEngine:
         # Advance session phase
         session.phase = turn_directive.phase
 
-        # Solution retrieval
+        # ── 4b. Context Sufficiency Evaluation (APCE) ──────────────
+        profile_dict = {
+            "goals": user.goals or "",
+            "interests": user.interests or "",
+        }
+        sufficiency = self._context_tracker.evaluate(
+            turn_directive=turn_directive,
+            emotion_context=emotion_context,
+            user_profile=profile_dict,
+            recent_history=recent_history,
+            turn_count=turn,
+            user_message=user_message,
+        )
+
+        turn_directive_dict = (
+            turn_directive.__dict__.copy()
+            if hasattr(turn_directive, "__dict__")
+            else dict(turn_directive or {})
+        )
+
+        # ── 4. Solution Engine & Session Closing Check ────────────
+        msg_lower = (user_message or "").lower().strip()
+        is_closing = any(phrase in msg_lower for phrase in ContextTracker.SESSION_CLOSING_PHRASES)
+
+        # Track if an interactive solution card was already offered in this session
+        already_offered_solution = session.phase in ("offer", "follow_up", "wrap_up")
+        explicit_solution_req = any(p in msg_lower for p in ContextTracker.SOLUTION_TRIGGER_PHRASES)
+
+        should_offer_solution = (
+            not is_closing
+            and (
+                (not already_offered_solution and (sufficiency.should_deliver_solution or turn_directive.offerSolution))
+                or explicit_solution_req
+            )
+        )
+
         retrieved_solution = None
-        if turn_directive.offerSolution and turn_directive.problemDetected:
-            retrieved_solution = await self._solution_library.get_solution(turn_directive.concernCategory)
+        structured_solution: SolutionCardPayload | None = None
+
+        if is_closing:
+            session.phase = "wrap_up"
+            turn_directive_dict["phase"] = "wrap_up"
+            turn_directive_dict["offerSolution"] = False
+            turn_directive_dict["mustAskFollowUp"] = False
+            turn_directive_dict["nextQuestionSeed"] = None
+            turn_directive_dict["is_closing"] = True
+        elif should_offer_solution:
+            turn_directive_dict["offerSolution"] = True
+            turn_directive_dict["phase"] = "offer"
+            session.phase = "offer"
+
+            dom = sufficiency.dominant_domain or turn_directive.concernCategory or "wellness"
+            structured_solution = await self._solution_engine.generate_solution(
+                domain=dom,
+                user_message=user_message,
+                primary_emotion=emotion_context.primary_emotion if emotion_context else "neutral",
+                stress=getattr(emotion_context, "stress", "low") if emotion_context else "low",
+                user_name=user.name.split()[0] if user.name else "Friend",
+                user_goals=user.goals or "",
+                user_interests=user.interests or "",
+                preferred_language=preferred_language or "en",
+            )
+            retrieved_solution = structured_solution.description
+            if debug_out is not None:
+                debug_out["solution_card"] = structured_solution.to_dict()
+                debug_out["sufficiency_score"] = sufficiency.score
+                debug_out["dimensions_resolved"] = sufficiency.dimensions_resolved
+        elif already_offered_solution:
+            session.phase = "follow_up"
+            turn_directive_dict["phase"] = "follow_up"
+            turn_directive_dict["offerSolution"] = False
 
         # ── 5. Question Builder (Knowledge Graph & Memory Aware) ───
         targeted_question = None
-        if not (route_decision.is_fast_path and route_decision.reason == "exact_fast_phrase"):
+        if (
+            not is_closing
+            and not should_offer_solution
+            and not (route_decision.is_fast_path and route_decision.reason == "exact_fast_phrase")
+        ):
             history_str = "\n".join(f"{m['role']}: {m['content']}" for m in (recent_history or ranked_bundle.recent_history)[-6:])
             targeted_question = await self._question_builder.build(
                 user=user,
@@ -236,14 +312,12 @@ class ConversationEngine:
                 conversation_summary=session.summary or ranked_bundle.conversation_summary,
             )
 
-        turn_directive_dict = (
-            turn_directive.__dict__.copy()
-            if hasattr(turn_directive, "__dict__")
-            else dict(turn_directive or {})
-        )
-        if targeted_question:
+        if targeted_question and not should_offer_solution and not is_closing:
             turn_directive_dict["mustAskFollowUp"] = True
             turn_directive_dict["nextQuestionSeed"] = targeted_question
+        else:
+            turn_directive_dict["mustAskFollowUp"] = False
+            turn_directive_dict["nextQuestionSeed"] = None
 
         # ── 6. Assemble Prompt ─────────────────────────────────────
         t3_prompt_start = time.perf_counter()

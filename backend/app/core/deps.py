@@ -138,6 +138,44 @@ class InMemoryRedis:
             self._sets[name].add(str(v))
         return len(self._sets[name]) - old_len
 
+    def pipeline(self, transaction: bool = True) -> "InMemoryRedisPipeline":
+        return InMemoryRedisPipeline(self)
+
+
+class InMemoryRedisPipeline:
+    """Mock pipeline for InMemoryRedis."""
+
+    def __init__(self, redis: InMemoryRedis) -> None:
+        self._redis = redis
+        self._commands: list[Any] = []
+
+    def set(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
+        self._commands.append(lambda: self._redis.set(*args, **kwargs))
+        return self
+
+    def expire(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
+        self._commands.append(lambda: self._redis.expire(*args, **kwargs))
+        return self
+
+    def delete(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
+        self._commands.append(lambda: self._redis.delete(*args, **kwargs))
+        return self
+
+    def hset(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
+        self._commands.append(lambda: self._redis.hset(*args, **kwargs))
+        return self
+
+    def sadd(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
+        self._commands.append(lambda: self._redis.sadd(*args, **kwargs))
+        return self
+
+    async def execute(self) -> list[Any]:
+        results = []
+        for cmd in self._commands:
+            res = await cmd()
+            results.append(res)
+        return results
+
     async def sismember(self, name: str, value: Any) -> bool:
         if self._is_expired(name):
             return False
@@ -247,3 +285,21 @@ async def get_optional_user_id(
         return await get_current_user_id(authorization, redis)
     except AuthenticationError:
         return None
+
+
+async def get_current_user(
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Retrieve full User object for current authenticated request with dev fallback."""
+    from sqlalchemy import select
+    from app.models.user import User
+    try:
+        stmt = select(User).where(User.id == user_id)
+        res = await db.execute(stmt)
+        user = res.scalar_one_or_none()
+        if user:
+            return user
+    except Exception:
+        pass
+    return User(id=user_id, name="Friend", email="user@aura.ai", goals="Improve Focus, Reduce Anxiety", interests="AI, Mindfulness")

@@ -19,6 +19,8 @@ from app.models.risk_events import RiskEvent
 from app.models.graph import GraphEntity, GraphRelationship
 from app.models.latency_metric import LatencyMetric
 from app.models.conversation_summary import ConversationSummary
+from app.models.affective_memory import AffectiveMemory
+from app.models.feedback import SolutionFeedback
 
 __all__ = [
     "User",
@@ -40,4 +42,6 @@ __all__ = [
     "GraphRelationship",
     "LatencyMetric",
     "ConversationSummary",
+    "AffectiveMemory",
+    "SolutionFeedback",
 ]

@@ -115,6 +115,9 @@ class PromptBuilder:
                 "sources": list(emotion_data.sources or []),
                 "conversation_trend": emotion_data.conversation_trend,
                 "guidance": emotion_data.guidance or emotion_data.get_guidance(),
+                "action_units": getattr(emotion_data, "action_units", None) or (emotion_data.details.get("action_units") if hasattr(emotion_data, "details") and isinstance(emotion_data.details, dict) else None) or {},
+                "gaze": getattr(emotion_data, "gaze", None) or {},
+                "head_pose": getattr(emotion_data, "head_pose", None) or {},
             }
         elif isinstance(emotion_data, dict):
             emotion = emotion_data or {}
@@ -164,14 +167,28 @@ class PromptBuilder:
             )
         )
 
-        if not emotion_conflict and text_emo and text_emo.lower() in positive_emotions:
-            for modality, emo in [("voice", voice_emo), ("face", face_emo)]:
-                if emo and emo.lower() not in positive_emotions:
-                    emotion_conflict = True
-                    conflict_modality = modality
-                    conflict_emotion = emo
-                    conflict_detail = f"Discrepancy detected between {modality} emotion ({emo}) and text ({text_emo})"
-                    break
+        au = emotion.get("action_units") or {}
+        au12 = float(au.get("AU12") or au.get("AU12_LipCornerPuller") or 0.0)
+        au04 = float(au.get("AU04") or au.get("AU04_BrowLowerer") or 0.0)
+        user_msg_lower = (user_message or "").lower()
+
+        if not emotion_conflict:
+            text_is_pos = (text_emo.lower() in positive_emotions and text_emo.lower() not in ("neutral", "calm")) or any(w in user_msg_lower for w in ["happy", "great", "awesome", "good", "fine", "fantastic"])
+            text_is_neg = (text_emo.lower() not in positive_emotions and text_emo != "") or any(w in user_msg_lower for w in ["sad", "depressed", "hurting", "pain", "unhappy", "down", "crying"])
+
+            face_is_pos = (face_emo.lower() in ("happy", "joy", "excited")) or (au12 >= 1.8)
+            face_is_neg = (face_emo.lower() in ("sad", "fearful", "angry")) or (face_emo.lower() in ("neutral", "calm") and (au12 < 2.0 or au04 > 0.8))
+
+            if text_is_neg and face_is_pos:
+                emotion_conflict = True
+                conflict_modality = "face"
+                conflict_emotion = face_emo or "happy"
+                conflict_detail = f"Smiling distress / Incongruous affect: User verbally expresses sadness, but live facial tracking shows an active smile (AU12: {au12:.1f}/5.0)"
+            elif text_is_pos and face_is_neg:
+                emotion_conflict = True
+                conflict_modality = "face"
+                conflict_emotion = face_emo or "neutral"
+                conflict_detail = f"Non-verbal incongruence: User verbally claims happiness, but face is solemn/neutral (AU12: {au12:.1f}/5.0, AU04: {au04:.1f}/5.0)"
 
         if emotion_conflict and not conflict_detail:
             conflict_detail = "Discrepancy detected across emotional modalities"
@@ -261,21 +278,63 @@ class PromptBuilder:
                 guidance={},
             ))
 
+        # 5b. Multimodal Biometric Telemetry (Webcam / Action Units / Oculomotor)
+        face_emo_val = face_emo or emotion.get("face_emotion")
+        if face_emo_val or emotion.get("action_units") or emotion.get("gaze"):
+            system_parts.append(render_template(
+                "biometric_context.md",
+                face_emotion=face_emo_val or "neutral",
+                confidence=confidence,
+                action_units=emotion.get("action_units") or {},
+                gaze=emotion.get("gaze") or {},
+                head_pose=emotion.get("head_pose") or {},
+                emotion_conflict=emotion.get("emotion_conflict", False) or emotion.get("conflict", False),
+                conflict_detail=emotion.get("conflict_detail", ""),
+                text_emotion=emotion.get("text_emotion", ""),
+            ))
+
+        # 5c. Clinical Phase Directives (CBT, Motivational Interviewing, SFBT)
+        current_phase = (turn_directive or {}).get("phase", "explore")
+        offer_sol = bool((turn_directive or {}).get("offerSolution", False))
+        system_parts.append(render_template(
+            "clinical_phase_directives.md",
+            phase=current_phase,
+            offer_solution=offer_sol,
+            user_goals=", ".join(goals) if goals else "Wellbeing & personal clarity",
+            user_interests=", ".join(interests) if interests else "Learning & growth",
+        ))
+
         if crisis_context:
             system_parts.append(f"## CRISIS RESPONSE OVERRIDE\n\n{crisis_context}")
 
-        if turn_directive or targeted_question:
+        is_closing = bool((turn_directive or {}).get("is_closing", False))
+        if not is_closing and user_message:
+            msg_lower = user_message.lower()
+            from app.ai.context_tracker import ContextTracker
+            is_closing = any(p in msg_lower for p in ContextTracker.SESSION_CLOSING_PHRASES)
+
+        if turn_directive or targeted_question or is_closing:
             td = turn_directive or {}
             q_seed = targeted_question or td.get("nextQuestionSeed") or ""
             system_parts.append(render_template(
                 "turn_directive.md",
-                phase=td.get("phase", "explore"),
+                phase=td.get("phase", "wrap_up" if is_closing else "explore"),
                 must_reflect=td.get("mustReflectFirst", True),
-                offer_solution=bool(td.get("offerSolution", False) and retrieved_solution),
+                offer_solution=bool(td.get("offerSolution", False) and retrieved_solution and not is_closing),
                 solution=retrieved_solution or "",
-                must_ask_follow_up=True,
-                next_question_seed=q_seed,
+                must_ask_follow_up=not offer_sol and not is_closing,
+                next_question_seed="" if is_closing else q_seed,
+                is_closing=is_closing,
             ))
+
+        if is_closing:
+            first_name = user_name.split()[0] if user_name else "there"
+            system_parts.append(
+                f"## 🛑 SESSION CLOSING DIRECTIVE (MANDATORY OVERRIDE)\n"
+                f"- {first_name} has explicitly stated they are feeling alright and want to close or wrap up today's session.\n"
+                f"- Acknowledge their balanced state and progress warmly, wish them well, and provide a comforting, supportive farewell.\n"
+                f"- CRITICAL OVERRIDE: DO NOT ASK ANY QUESTIONS. Do NOT ask about scheduling next sessions. Do NOT ask if there is anything else to discuss. Conclude with a warm period."
+            )
 
         # ── Dynamic Per-Turn Language Directive ───────────────────
         if _is_hindi_turn(user_message):
@@ -294,7 +353,7 @@ class PromptBuilder:
                 "Do NOT reply in Hindi."
             )
 
-        if targeted_question:
+        if targeted_question and not is_closing:
             system_parts.append(
                 "## CONTEXTUAL FOLLOW-UP\n"
                 "End this response with the following question, woven in naturally. "
@@ -309,6 +368,61 @@ class PromptBuilder:
                 "Keep your sentences SHORT, conversational, and easy to hear. "
                 "Do NOT use markdown lists, bold text, or overly structured paragraphs. "
                 "Speak as naturally as a human on a voice call."
+            )
+
+        if emotion_conflict and not is_closing:
+            first_name = user_name.split()[0] if user_name else "there"
+            text_is_neg = (text_emo.lower() not in positive_emotions and text_emo != "") or any(w in user_msg_lower for w in ["sad", "depressed", "hurting", "pain", "unhappy", "down", "crying"])
+            face_has_smile = (face_emo.lower() in ("happy", "joy", "excited")) or (au12 >= 1.8)
+
+            text_is_pos = (text_emo.lower() in ("happy", "joy", "excited")) or any(w in user_msg_lower for w in ["happy", "great", "awesome", "good", "fine", "fantastic"])
+            face_is_solemn = (face_emo.lower() in ("sad", "fearful", "angry", "neutral", "calm")) and (au12 < 2.0)
+
+            if text_is_neg and face_has_smile:
+                system_parts.append(
+                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
+                    f"- {first_name} just said: \"{user_message}\"\n"
+                    f"- Discrepancy Detail: Smiling distress / Incongruous affect: {first_name} verbally claims sadness, but live facial tracking shows an active smile (AU12: {au12:.1f}/5.0, Face Affect: {face_emo.capitalize() if face_emo else 'Happy'}).\n\n"
+                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
+                    f"1. In your VERY FIRST sentence, address {first_name} directly with warmth and compassionate care:\n"
+                    f"   \"{first_name}, I hear you saying you feel sad today, but looking at you right now, I couldn't help noticing you have a smile on your face.\"\n"
+                    f"2. Ask {first_name} what is happening behind that smile - is he putting on a brave face, smiling through heavy feelings, or is something else going on?\n"
+                    f"3. DO NOT validate his sadness with generic cheer or calming exercises while ignoring the smile. Speak to him directly in second-person (\"you/your\").\n"
+                    f"Keep it warm, conversational, and caring (2-3 sentences)."
+                )
+            elif text_is_pos and face_is_solemn:
+                system_parts.append(
+                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
+                    f"- {first_name} just said: \"{user_message}\"\n"
+                    f"- Discrepancy Detail: Non-verbal incongruence: {first_name} verbally claims happiness, but live facial tracking shows a solemn, flat, or sad expression with no smile (AU12: {au12:.1f}/5.0, AU04: {au04:.1f}/5.0, Face Affect: {face_emo.capitalize() if face_emo else 'Neutral'}).\n\n"
+                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
+                    f"1. In your VERY FIRST sentence, address {first_name} directly with warmth and compassionate care:\n"
+                    f"   \"{first_name}, I hear you saying you're really happy today, but looking at you right now, I couldn't help noticing that your facial expression looks quite solemn and quiet.\"\n"
+                    f"2. Ask {first_name} how he is truly feeling beneath those words - is he feeling okay, or carrying something heavy?\n"
+                    f"3. DO NOT simply validate his happiness with \"That is wonderful to hear!\" or cheerfulness while ignoring his solemn face. Speak to him directly in second-person (\"you/your\").\n"
+                    f"Keep it warm, conversational, and caring (2-3 sentences)."
+                )
+            else:
+                system_parts.append(
+                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
+                    f"- {first_name} just said: \"{user_message}\"\n"
+                    f"- Discrepancy Detail: {conflict_detail}\n"
+                    f"- Facial biometrics: Face={face_emo or 'neutral'}, Smile AU12={au12:.1f}/5.0, Brow AU04={au04:.1f}/5.0\n\n"
+                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
+                    f"1. In your VERY FIRST sentence, tenderly and warmly address the contrast between {first_name}'s spoken words and their live facial expression.\n"
+                    f"2. Ask what is truly behind that contrast with empathetic, non-judgmental curiosity.\n"
+                    f"3. DO NOT ignore the facial biometrics. Address the discrepancy directly in 2-3 caring sentences."
+                )
+
+        if is_closing:
+            first_name = user_name.split()[0] if user_name else "there"
+            system_parts.append(
+                f"## 🛑 SESSION CLOSING DIRECTIVE (MANDATORY OVERRIDE)\n"
+                f"- {first_name} has explicitly stated: \"{user_message}\". They are feeling alright and want to conclude/close today's session.\n"
+                f"- CLINICAL INSTRUCTION:\n"
+                f"  1. Warmly affirm their progress and congratulate them on feeling grounded and balanced.\n"
+                f"  2. Give a comforting, uplifting farewell and encourage them to carry this calm into their day.\n"
+                f"  3. CRITICAL: DO NOT ASK ANY QUESTIONS. Do NOT ask about scheduling next sessions. Do NOT ask 'how are you doing' or 'is there anything else'. Conclude with a warm period, not a question mark."
             )
 
         system_prompt = "\n\n---\n\n".join(part for part in system_parts if part.strip())
