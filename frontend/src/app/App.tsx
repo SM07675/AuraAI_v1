@@ -381,6 +381,7 @@ function MainApp() {
               setInitialChatQuery(query);
               setActive("Chat");
             }}
+            onAvatarClick={() => setActive("Settings")}
           />
         )}
 

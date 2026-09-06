@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { LogOut } from "lucide-react";
+import { LogOut, ChevronLeft, ChevronRight } from "lucide-react";
 import {
-  ClayAuraFlowerIcon,
+  ClayAuraTorusIcon,
   ClayHomeIcon,
   ClayChatSidebarIcon,
   ClayVoiceSidebarIcon,
@@ -10,7 +10,6 @@ import {
   ClayHeartSidebarIcon,
   ClaySmileySidebarIcon,
   ClayAnalyticsSidebarIcon,
-  ClayStarSidebarIcon,
   ClaySettingsSidebarIcon,
 } from "./clay-icons";
 
@@ -23,20 +22,24 @@ interface ClaySidebarProps {
 }
 
 const BASE_NAV_ITEMS = [
-  { id: "Dashboard", label: "Dashboard", IconComponent: ClayHomeIcon },
+  { id: "Dashboard", label: "Home", IconComponent: ClayHomeIcon },
   { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
-  { id: "Voice Mode", label: "Voice Mode", IconComponent: ClayVoiceSidebarIcon },
-  { id: "Face-to-Face", label: "Face-to-Face", IconComponent: ClayCameraSidebarIcon },
+  { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
-  { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
-  { id: "Analytics", label: "Analytics", IconComponent: ClayAnalyticsSidebarIcon },
-  { id: "Interests", label: "Interests", IconComponent: ClayStarSidebarIcon },
+  { id: "Analytics", label: "Insights", IconComponent: ClayAnalyticsSidebarIcon },
   { id: "Settings", label: "Settings", IconComponent: ClaySettingsSidebarIcon },
 ];
 
 export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = true }: ClaySidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
+  const [isPinned, setIsPinned] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aura_sidebar_pinned");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
 
   const isExpanded = isHovered || isPinned;
   const userName = user?.name || "Friend";
@@ -45,7 +48,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
   return (
     <motion.aside
       className="clay-sidebar hidden lg:flex flex-col justify-between shrink-0 select-none overflow-hidden z-20"
-      initial={{ width: 68 }}
+      initial={{ width: isExpanded ? 220 : 68 }}
       animate={{ width: isExpanded ? 220 : 68 }}
       transition={{ type: "spring", stiffness: 320, damping: 26, mass: 0.8 }}
       onMouseEnter={() => setIsHovered(true)}
@@ -61,32 +64,38 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
       {/* ── Top: Branding ── */}
       <div className="flex flex-col min-h-0 flex-1">
         <div
-          className={`flex items-center ${isExpanded ? "gap-2.5 px-2" : "justify-center px-0"} mb-3.5 cursor-pointer shrink-0 transition-all`}
+          className={`flex items-center ${isExpanded ? "gap-2.5 px-1.5" : "justify-center px-0"} mb-4 cursor-pointer shrink-0 transition-all`}
           onClick={() => {
-            setIsPinned(!isPinned);
             onSelect("Dashboard");
           }}
-          title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
+          title="Aura AI"
         >
           <motion.div
-            whileHover={{ rotate: 20, scale: 1.08 }}
+            whileHover={{ rotate: 15, scale: 1.08 }}
             whileTap={{ scale: 0.92 }}
             className="shrink-0 flex items-center justify-center"
           >
-            <ClayAuraFlowerIcon size={34} />
+            <ClayAuraTorusIcon size={32} />
           </motion.div>
           <AnimatePresence>
             {isExpanded && (
-              <motion.span
+              <motion.div
                 initial={{ opacity: 0, x: -8, width: 0 }}
                 animate={{ opacity: 1, x: 0, width: "auto" }}
                 exit={{ opacity: 0, x: -8, width: 0 }}
                 transition={{ duration: 0.18 }}
-                className="text-[20px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] whitespace-nowrap overflow-hidden"
-                style={{ letterSpacing: "-0.5px" }}
+                className="flex flex-col whitespace-nowrap overflow-hidden leading-tight"
               >
-                Aura
-              </motion.span>
+                <span
+                  className="text-[17px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]"
+                  style={{ letterSpacing: "-0.4px" }}
+                >
+                  Aura AI
+                </span>
+                <span className="text-[10.5px] font-semibold text-[#8E88A4] dark:text-[#9E98B4]">
+                  A more human AI
+                </span>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
@@ -152,12 +161,22 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
         </nav>
       </div>
 
-      {/* ── Bottom: User Profile ── */}
-      <div className="mt-3 pt-3 border-t border-white/60 dark:border-white/10 shrink-0">
-        <div className={`flex items-center ${isExpanded ? "gap-2.5 px-1 mb-3" : "justify-center mb-2"}`}>
+      {/* ── Bottom: Tagline, Profile & Collapse Toggle ── */}
+      <div className="mt-2 pt-2.5 border-t border-white/60 dark:border-white/10 shrink-0 flex flex-col gap-2">
+        {/* Tagline from reference image */}
+        {isExpanded && (
+          <div className="px-1 text-left">
+            <p className="text-[11px] font-medium text-[#8E88A4] dark:text-[#9E98B4] leading-tight m-0">
+              A kinder AI for brighter tomorrows.
+            </p>
+          </div>
+        )}
+
+        {/* User Profile */}
+        <div className={`flex items-center ${isExpanded ? "gap-2.5 px-1" : "justify-center"}`}>
           <motion.div
             whileHover={{ scale: 1.06 }}
-            className="w-8.5 h-8.5 rounded-xl flex items-center justify-center shrink-0 cursor-pointer"
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 cursor-pointer"
             style={{
               background: "linear-gradient(135deg, #7B56DB, #5B30C9)",
               color: "#FFFFFF",
@@ -167,6 +186,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
               border: "1.5px solid rgba(255,255,255,0.3)",
             }}
             title={userName}
+            onClick={() => onSelect("Settings")}
           >
             {avatarChar}
           </motion.div>
@@ -213,37 +233,67 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
         </div>
 
         {isExpanded && (
-          <div className="mb-2 text-center flex flex-col gap-1">
+          <div className="text-center flex flex-col gap-0.5">
             <button
               onClick={() => onSelect("Landing")}
-              className="text-[10px] text-[#8E88A4] hover:text-[#7C3AED] dark:hover:text-[#C7B5F3] font-bold bg-transparent border-none cursor-pointer flex items-center justify-center gap-1"
+              className="text-[9.5px] text-[#8E88A4] hover:text-[#7C3AED] dark:hover:text-[#C7B5F3] font-bold bg-transparent border-none cursor-pointer flex items-center justify-center gap-1"
             >
               <span>✨ Platform Overview</span>
             </button>
             <button
               onClick={() => onSelect("Privacy")}
-              className="text-[10px] text-[#8E88A4] hover:text-[#7C3AED] dark:hover:text-[#C7B5F3] font-medium bg-transparent border-none cursor-pointer underline"
+              className="text-[9.5px] text-[#8E88A4] hover:text-[#7C3AED] dark:hover:text-[#C7B5F3] font-medium bg-transparent border-none cursor-pointer underline"
             >
-              Privacy & DPDP Notice
+              Privacy Notice
             </button>
           </div>
         )}
 
         {onLogout && (
           <motion.button
-            whileHover={{ scale: 1.03, y: -1 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.96 }}
             onClick={onLogout}
             title="Logout"
             className={`clay-logout-btn w-full flex items-center ${
-              isExpanded ? "justify-center gap-2 px-3.5" : "justify-center px-0"
-            } py-2 cursor-pointer border-none outline-none rounded-2xl text-[11.5px] font-bold`}
+              isExpanded ? "justify-center gap-2 px-3" : "justify-center px-0"
+            } py-1.5 cursor-pointer border-none outline-none rounded-xl text-[11px] font-bold`}
             style={{ letterSpacing: "-0.1px" }}
           >
-            <LogOut style={{ width: 14, height: 14 }} />
+            <LogOut style={{ width: 13, height: 13 }} />
             {isExpanded && <span>Logout</span>}
           </motion.button>
         )}
+
+        {/* Tactile Horizontal Pill Collapse / Pin Toggle Button */}
+        <div className="pt-1 flex items-center justify-center">
+          <button
+            onClick={() => {
+              const next = !isPinned;
+              setIsPinned(next);
+              try {
+                localStorage.setItem("aura_sidebar_pinned", String(next));
+              } catch {}
+            }}
+            title={isPinned ? "Collapse sidebar" : "Pin sidebar open"}
+            className="group w-full flex items-center justify-center gap-2 py-1.5 px-2 rounded-xl border border-black/5 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-all cursor-pointer outline-none bg-transparent"
+          >
+            <div className="w-8 h-4 rounded-full bg-[#E5DFD7] dark:bg-[#252033] p-0.5 flex items-center shadow-inner relative transition-colors">
+              <motion.div
+                className="w-3 h-3 rounded-full bg-[#7C3AED] shadow-sm flex items-center justify-center text-white"
+                animate={{ x: isExpanded ? 16 : 0 }}
+                transition={{ type: "spring", stiffness: 500, damping: 32 }}
+              >
+                {isExpanded ? <ChevronLeft size={8} /> : <ChevronRight size={8} />}
+              </motion.div>
+            </div>
+            {isExpanded && (
+              <span className="text-[10px] font-bold text-[#8E88A4] dark:text-[#9E98B4] group-hover:text-[#7C3AED] dark:group-hover:text-[#C7B5F3] transition-colors">
+                {isPinned ? "Collapse" : "Expand"}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
     </motion.aside>
   );

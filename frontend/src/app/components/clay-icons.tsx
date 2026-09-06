@@ -52,6 +52,78 @@ export function ClayAuraFlowerIcon({ size = 38, className = "", style = {} }: Cl
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   0.1 BRAND LOGO — 3D Glossy Violet Torus / Donut Ring (Reference Image Branding)
+   ───────────────────────────────────────────────────────────────────────────── */
+export function ClayAuraTorusIcon({ size = 36, className = "", style = {} }: ClayIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ filter: "drop-shadow(0 4px 10px rgba(124, 58, 237, 0.45))", ...style }}
+    >
+      <defs>
+        <radialGradient id="torusOuterGrad" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#C084FC" />
+          <stop offset="35%" stopColor="#8B5CF6" />
+          <stop offset="80%" stopColor="#6D28D9" />
+          <stop offset="100%" stopColor="#4C1D95" />
+        </radialGradient>
+        <linearGradient id="torusInnerHoleGrad" x1="18" y1="18" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#240E54" />
+          <stop offset="100%" stopColor="#3B1278" />
+        </linearGradient>
+        <filter id="torusHighlightBlur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="0.8" />
+        </filter>
+      </defs>
+
+      {/* Main 3D Torus Body */}
+      <circle
+        cx="24"
+        cy="24"
+        r="18"
+        fill="url(#torusOuterGrad)"
+        stroke="rgba(255, 255, 255, 0.45)"
+        strokeWidth="1.2"
+      />
+      {/* Torus Hole */}
+      <circle
+        cx="24"
+        cy="24"
+        r="7.5"
+        fill="url(#torusInnerHoleGrad)"
+        stroke="rgba(255, 255, 255, 0.25)"
+        strokeWidth="1"
+      />
+
+      {/* Top Glossy Highlight Arc */}
+      <path
+        d="M13 18C15 12 21 9 27 10C31 10.7 34 12.5 36 15"
+        stroke="#FFFFFF"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        strokeOpacity="0.85"
+        filter="url(#torusHighlightBlur)"
+      />
+      <circle cx="15" cy="16" r="1.5" fill="#FFFFFF" fillOpacity="0.9" />
+
+      {/* Subtle Inner Hole Rim Light */}
+      <path
+        d="M21 28C22 30 25 31 28 30"
+        stroke="#FFFFFF"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeOpacity="0.4"
+      />
+    </svg>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    SIDEBAR ICONS (9 Items) — Handcrafted 3D Tactile Clay SVGs
    ───────────────────────────────────────────────────────────────────────────── */
 

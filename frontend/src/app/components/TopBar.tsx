@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { ClaySunIcon, ClaySearchIcon } from "./clay-icons";
 import { useTheme } from "../context/ThemeContext";
@@ -8,11 +8,13 @@ interface TopBarProps {
   userName?: string;
   isConnected?: boolean;
   onSearch?: (query: string) => void;
+  onAvatarClick?: () => void;
 }
 
-export function TopBar({ userName, isConnected = true, onSearch }: TopBarProps) {
+export function TopBar({ userName, isConnected = true, onSearch, onAvatarClick }: TopBarProps) {
   const { isDark, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -21,7 +23,20 @@ export function TopBar({ userName, isConnected = true, onSearch }: TopBarProps) 
     return "Good evening";
   };
 
-  const displayName = userName ? userName.split(" ")[0] : "Friend";
+  const displayName = userName ? userName.split(" ")[0] : "Atharv";
+  const avatarChar = displayName.charAt(0).toUpperCase();
+
+  // Cmd+K / Ctrl+K keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,8 +77,40 @@ export function TopBar({ userName, isConnected = true, onSearch }: TopBarProps) 
         </span>
       </div>
 
-      {/* Right Utilities: Theme Toggle & Conversational Search */}
+      {/* Right Utilities: Search Pill, Theme Toggle & Avatar Circle */}
       <div className="flex items-center gap-2.5">
+        {/* Soft Clay Search Pill with ⌘ K badge */}
+        <form
+          onSubmit={handleSearchSubmit}
+          className="clay-pill flex items-center gap-2 px-3.5 py-1.5 w-48 sm:w-60 transition-all focus-within:w-60 sm:focus-within:w-72 focus-within:ring-2 focus-within:ring-[#7C3AED]/30"
+          style={{ borderRadius: 999 }}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Ask Aura anything..."
+            className="bg-transparent border-none outline-none text-[12px] text-[#2E2544] dark:text-[#E8E4F2] placeholder-[#9E98AA] dark:placeholder-[#6E6882] w-full font-medium"
+            style={{ letterSpacing: "-0.1px" }}
+          />
+          <div
+            className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold text-[#8E88A4] dark:text-[#9E98B4] bg-black/5 dark:bg-white/10 shrink-0 select-none pointer-events-none"
+            title="Press ⌘ K to search"
+          >
+            ⌘ K
+          </div>
+          <motion.button
+            type="submit"
+            whileHover={{ scale: 1.12 }}
+            whileTap={{ scale: 0.9 }}
+            className="bg-transparent border-none outline-none p-0 cursor-pointer flex items-center justify-center shrink-0 text-[#7C3AED] dark:text-[#C7B5F3]"
+            title="Ask Aura"
+          >
+            <ClaySearchIcon size={16} />
+          </motion.button>
+        </form>
+
         {/* Soft 3D Clay Theme Toggle Button */}
         <motion.button
           whileHover={{ scale: 1.08, rotate: 15 }}
@@ -73,36 +120,27 @@ export function TopBar({ userName, isConnected = true, onSearch }: TopBarProps) 
           className="clay-theme-toggle border-none outline-none cursor-pointer"
         >
           {isDark ? (
-            <ClaySunIcon size={20} />
+            <ClaySunIcon size={19} />
           ) : (
-            <Sun size={19} className="text-amber-500" />
+            <Sun size={18} className="text-amber-500" />
           )}
         </motion.button>
 
-        {/* Soft Clay Search Pill with Quick-Ask */}
-        <form
-          onSubmit={handleSearchSubmit}
-          className="clay-pill flex items-center gap-2 px-3.5 py-1.5 w-52 sm:w-64 transition-all focus-within:w-64 sm:focus-within:w-76 focus-within:ring-2 focus-within:ring-[#7C3AED]/30"
-          style={{ borderRadius: 999 }}
+        {/* User Initial Circle Avatar (Reference Image Header) */}
+        <motion.div
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onAvatarClick}
+          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer text-white font-bold text-[12px] select-none"
+          style={{
+            background: "linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)",
+            boxShadow: "0 2px 8px rgba(124, 58, 237, 0.35)",
+            border: "1.5px solid rgba(255, 255, 255, 0.3)",
+          }}
+          title={displayName}
         >
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Ask Aura anything..."
-            className="bg-transparent border-none outline-none text-[12px] text-[#2E2544] dark:text-[#E8E4F2] placeholder-[#9E98AA] dark:placeholder-[#6E6882] w-full font-medium"
-            style={{ letterSpacing: "-0.1px" }}
-          />
-          <motion.button
-            type="submit"
-            whileHover={{ scale: 1.12 }}
-            whileTap={{ scale: 0.9 }}
-            className="bg-transparent border-none outline-none p-0 cursor-pointer flex items-center justify-center shrink-0"
-            title="Ask Aura"
-          >
-            <ClaySearchIcon size={17} />
-          </motion.button>
-        </form>
+          {avatarChar}
+        </motion.div>
       </div>
     </div>
   );
