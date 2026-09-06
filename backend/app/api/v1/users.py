@@ -31,16 +31,37 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+def _user_to_response(user: Any) -> UserProfileResponse:
+    """Convert SQLAlchemy User or dict to UserProfileResponse."""
+    raw_interests = getattr(user, "interests", "") or ""
+    raw_goals = getattr(user, "goals", "") or ""
+    interests = [i.strip() for i in raw_interests.split(",") if i.strip()] if isinstance(raw_interests, str) else list(raw_interests)
+    goals = [g.strip() for g in raw_goals.split(",") if g.strip()] if isinstance(raw_goals, str) else list(raw_goals)
+    return UserProfileResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        is_admin=getattr(user, "is_admin", False) or False,
+        avatar_url=getattr(user, "avatar_url", None),
+        auth_provider=getattr(user, "auth_provider", "email") or "email",
+        preferred_language=getattr(user, "preferred_language", "en") or "en",
+        timezone=getattr(user, "timezone", "UTC") or "UTC",
+        communication_style=getattr(user, "communication_style", "balanced") or "balanced",
+        interests=interests,
+        goals=goals,
+    )
+
+
 _dev_user_profiles: dict[int, dict] = {
     1: {
         "id": 1,
-        "name": "User",
-        "email": "user@aura.ai",
+        "name": "atharvpalekar",
+        "email": "atharv@aura.ai",
         "preferred_language": "en",
         "timezone": "UTC",
         "communication_style": "balanced",
-        "interests": ["Mindfulness", "Focus", "Music"],
-        "goals": ["Improve Focus", "Reduce Anxiety"],
+        "interests": [],
+        "goals": ["Boost Teamwork Momentum"],
     }
 }
 
@@ -49,13 +70,13 @@ def _get_dev_user(user_id: int) -> UserProfileResponse:
     if user_id not in _dev_user_profiles:
         _dev_user_profiles[user_id] = {
             "id": user_id,
-            "name": "User",
-            "email": f"user{user_id}@aura.ai",
+            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
+            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "interests": [],
+            "goals": ["Boost Teamwork Momentum"],
         }
     data = _dev_user_profiles[user_id]
     return UserProfileResponse(**data)
@@ -95,13 +116,13 @@ async def update_profile(
     except Exception:
         u = _dev_user_profiles.setdefault(user_id, {
             "id": user_id,
-            "name": "User",
-            "email": "user@aura.ai",
+            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
+            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "interests": [],
+            "goals": ["Boost Teamwork Momentum"],
         })
         if body.name is not None:
             u["name"] = body.name
@@ -128,13 +149,13 @@ async def update_interests(
     except Exception:
         u = _dev_user_profiles.setdefault(user_id, {
             "id": user_id,
-            "name": "User",
-            "email": "user@aura.ai",
+            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
+            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
             "interests": [],
-            "goals": ["Improve Focus", "Reduce Anxiety"],
+            "goals": ["Boost Teamwork Momentum"],
         })
         u["interests"] = body.interests
         return UserProfileResponse(**u)
@@ -154,17 +175,16 @@ async def update_goals(
     except Exception:
         u = _dev_user_profiles.setdefault(user_id, {
             "id": user_id,
-            "name": "User",
-            "email": "user@aura.ai",
+            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
+            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
-            "interests": ["Mindfulness", "Focus", "Music"],
-            "goals": [],
+            "interests": [],
+            "goals": ["Boost Teamwork Momentum"],
         })
         u["goals"] = body.goals
         return UserProfileResponse(**u)
-    return _user_to_response(user)
 
 
 @router.get("/me/preferences", summary="Get all preferences")

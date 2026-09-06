@@ -247,25 +247,42 @@ class ConversationEngine:
         # Track if an interactive solution card was already offered in this session
         already_offered_solution = session.phase in ("offer", "follow_up", "wrap_up")
         explicit_solution_req = any(p in msg_lower for p in ContextTracker.SOLUTION_TRIGGER_PHRASES)
+        is_acute_panic = any(p in msg_lower for p in getattr(ContextTracker, "ACUTE_PANIC_PHRASES", ()))
+
+        # Unsolicited structured solutions require substantial context:
+        # 1. At least 3 turns into the conversation
+        # 2. Sufficiency tracker confirms should_deliver_solution
+        # 3. Critical anchor dimensions resolved (domain and blockers known)
+        has_substantial_context = (
+            turn >= 3
+            and sufficiency.should_deliver_solution
+            and sufficiency.dimensions_resolved.get("blockers_known", False)
+            and sufficiency.dimensions_resolved.get("problem_domain", False)
+        )
 
         should_offer_solution = (
             not is_closing
-            and (
-                (not already_offered_solution and (sufficiency.should_deliver_solution or turn_directive.offerSolution))
-                or explicit_solution_req
-            )
+            and not already_offered_solution
+            and (explicit_solution_req or is_acute_panic or has_substantial_context)
         )
 
         retrieved_solution = None
         structured_solution: SolutionCardPayload | None = None
 
-        if is_closing:
+        if debug_out is not None:
+            debug_out["sufficiency_score"] = sufficiency.score
+            debug_out["dimensions_resolved"] = sufficiency.dimensions_resolved
+
+        if is_closing or getattr(turn_directive, "phase", "") == "wrap_up":
+            is_closing = True
             session.phase = "wrap_up"
             turn_directive_dict["phase"] = "wrap_up"
             turn_directive_dict["offerSolution"] = False
             turn_directive_dict["mustAskFollowUp"] = False
             turn_directive_dict["nextQuestionSeed"] = None
             turn_directive_dict["is_closing"] = True
+            if debug_out is not None:
+                debug_out["is_closing"] = True
         elif should_offer_solution:
             turn_directive_dict["offerSolution"] = True
             turn_directive_dict["phase"] = "offer"
@@ -285,12 +302,15 @@ class ConversationEngine:
             retrieved_solution = structured_solution.description
             if debug_out is not None:
                 debug_out["solution_card"] = structured_solution.to_dict()
-                debug_out["sufficiency_score"] = sufficiency.score
-                debug_out["dimensions_resolved"] = sufficiency.dimensions_resolved
         elif already_offered_solution:
             session.phase = "follow_up"
             turn_directive_dict["phase"] = "follow_up"
             turn_directive_dict["offerSolution"] = False
+        else:
+            turn_directive_dict["offerSolution"] = False
+            if session.phase == "offer":
+                session.phase = "identify" if turn >= 2 else "explore"
+            turn_directive_dict["phase"] = session.phase
 
         # ── 5. Question Builder (Knowledge Graph & Memory Aware) ───
         targeted_question = None

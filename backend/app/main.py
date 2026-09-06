@@ -22,6 +22,7 @@ from app.db.engine import dispose_engine
 # API routers
 # API routers
 from app.api.v1.auth import router as auth_router
+from app.api.v1.oauth import router as oauth_router
 from app.api.v1.users import router as users_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.ws import router as ws_router
@@ -33,7 +34,6 @@ from app.api.v1.debug import router as debug_router
 from app.api.v1.emotion_ws import router as emotion_ws_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.analytics import router as analytics_router
-from app.api.v1.music import router as music_router
 from app.api.v1.tts import router as tts_router
 from app.api.v1.behavioral import router as behavioral_router
 from app.api.v1.feedback import router as feedback_router
@@ -85,6 +85,9 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # In production or if disabled, hide OpenAPI documentation
+    docs_enabled = settings.expose_api_docs and settings.environment != "production"
+
     app = FastAPI(
         title="Aura AI 2.0",
         description=(
@@ -93,9 +96,9 @@ def create_app() -> FastAPI:
             "emotion analysis, memory system, and session management."
         ),
         version=settings.app_version,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
         lifespan=lifespan,
     )
 
@@ -108,6 +111,7 @@ def create_app() -> FastAPI:
     api_prefix = "/api/v1"
     app.include_router(health_router, prefix=api_prefix)
     app.include_router(auth_router, prefix=api_prefix)
+    app.include_router(oauth_router, prefix=api_prefix)
     app.include_router(users_router, prefix=api_prefix)
     app.include_router(chat_router, prefix=api_prefix)
     app.include_router(ws_router, prefix=api_prefix)
@@ -118,7 +122,6 @@ def create_app() -> FastAPI:
     app.include_router(emotion_ws_router, prefix=api_prefix)
     app.include_router(dashboard_router, prefix=api_prefix)
     app.include_router(analytics_router, prefix=api_prefix)
-    app.include_router(music_router, prefix=api_prefix)
     app.include_router(tts_router, prefix=api_prefix)
     app.include_router(behavioral_router, prefix=api_prefix)
     app.include_router(feedback_router, prefix=api_prefix)

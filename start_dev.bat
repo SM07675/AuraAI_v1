@@ -21,7 +21,7 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 )
 
 :: 1. Start Frontend in a new window
-echo  [*] Starting Frontend (Vite) on http://localhost:5173 ...
+echo  [*] Starting Frontend (Vite) on http://localhost:3000 ...
 start "Aura AI — Frontend (Vite)" cmd /k "cd /d %FRONTEND_DIR% && npm run dev"
 
 :: 2. Start Backend in current window
@@ -34,7 +34,7 @@ set "REDIS_HOST=localhost"
 
 echo.
 echo  +----------------------------------------------------+
-echo  ^|  Frontend : http://localhost:5173                 ^|
+echo  ^|  Frontend : http://localhost:3000                 ^|
 echo  ^|  Backend  : http://localhost:8000                 ^|
 echo  ^|  Swagger  : http://localhost:8000/docs            ^|
 echo  +----------------------------------------------------+

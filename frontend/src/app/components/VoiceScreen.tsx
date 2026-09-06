@@ -4,7 +4,7 @@ import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play
 import { AuraMascot3D } from "./aura-robot";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
-import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
+import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage, SESSION_CLOSING_PHRASES } from "../services/speechRecognitionService";
 import { getWebSocketUrl } from "../services/wsHelper";
 import { streamingTtsService } from "../services/streamingTtsService";
 import { duplexManager, ConversationState } from "../services/duplexManager";
@@ -12,7 +12,7 @@ import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
 
 export function VoiceScreen() {
   const { isDark } = useTheme();
-  const [listening, setListening] = useState(speechService.isListening);
+  const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -102,9 +102,16 @@ export function VoiceScreen() {
             setThinking(false);
             setAiResponse((prev) => prev + data.content);
             streamingTtsService.pushChunk(data.content);
+          } else if (data.type === "session_closing") {
+            speechService.stop();
+            setListening(false);
           } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
             setThinking(false);
             streamingTtsService.finalizeStream();
+            if (data.is_closing || data.phase === "wrap_up") {
+              speechService.stop();
+              setListening(false);
+            }
             const fullReply = data.response || data.content || data.text;
             if (fullReply) {
               setAiResponse(fullReply);
@@ -164,6 +171,13 @@ export function VoiceScreen() {
   const sendToAi = (userSpeech: string) => {
     const clean = userSpeech.trim();
     if (!clean) return;
+
+    const lower = clean.toLowerCase();
+    const isClosing = SESSION_CLOSING_PHRASES.some((phrase) => lower.includes(phrase));
+    if (isClosing) {
+      speechService.stop();
+      setListening(false);
+    }
 
     if (speaking) {
       voiceService.stop();
@@ -245,9 +259,7 @@ export function VoiceScreen() {
       },
     });
 
-    speechService.start().catch((err) => {
-      console.warn("[VoiceScreen] Speech start error:", err);
-    });
+    // Mic starts only when user taps orb or clicks "Start Listening"
 
     return () => {
       unsubscribe();

@@ -30,7 +30,7 @@ import { AuraMascot3D } from "./aura-robot";
 import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead, ClaySmileyBeadIcon } from "./clay-icons";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService } from "../services/voiceService";
-import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
+import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage, SESSION_CLOSING_PHRASES } from "../services/speechRecognitionService";
 import { getWebSocketUrl } from "../services/wsHelper";
 import { duplexManager, ConversationState, InterruptionScoreDetails } from "../services/duplexManager";
 import { streamingTtsService } from "../services/streamingTtsService";
@@ -89,6 +89,7 @@ export function FaceToFaceScreen() {
   // ── Camera State ─────────────────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [camFps, setCamFps] = useState(30);
   const [lighting, setLighting] = useState<"Good" | "Low" | "Bright">("Good");
@@ -132,7 +133,7 @@ export function FaceToFaceScreen() {
   ]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
-  const [micActive, setMicActive] = useState(speechService.isListening);
+  const [micActive, setMicActive] = useState(false);
   const [currentLang, setCurrentLang] = useState<SupportedLanguage>(speechService.currentLanguage);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [currentVoiceId, setCurrentVoiceId] = useState(voiceService.getActiveVoice());
@@ -140,6 +141,7 @@ export function FaceToFaceScreen() {
   const voiceList = voiceService.getVoiceList();
   const [showBreathingPacer, setShowBreathingPacer] = useState(false);
   const [breathPhase, setBreathPhase] = useState<"Inhale" | "Hold" | "Exhale">("Inhale");
+  const [isSessionClosed, setIsSessionClosed] = useState(false);
 
   // ── Full-Duplex Engine State & Telemetry ────────────────────────────────────
   const [duplexState, setDuplexState] = useState<ConversationState>(duplexManager.getState());
@@ -160,6 +162,7 @@ export function FaceToFaceScreen() {
   const chatSessionIdRef = useRef<number | null>(null);
   const serverGenerationRef = useRef(0);
   const clientTurnIdRef = useRef(0);
+  const [isWsReconnecting, setIsWsReconnecting] = useState<boolean>(false);
 
   // ── Memory, Behavioral & Dynamic Context State ───────────────────────────
   const [activeGoal, setActiveGoal] = useState<string>("Career & Interview Preparation");
@@ -213,6 +216,7 @@ export function FaceToFaceScreen() {
 
   // ── 1. Camera & Mic Permissions ─────────────────────────────────────────────
   const startCamera = async () => {
+    setIsSessionClosed(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
@@ -228,17 +232,20 @@ export function FaceToFaceScreen() {
       // Free audio tracks immediately so SpeechRecognition has dedicated device access
       audioTracks.forEach((t) => t.stop());
 
-      if (videoRef.current && videoTracks.length > 0) {
+      if (videoTracks.length > 0) {
         const videoStream = new MediaStream(videoTracks);
-        videoRef.current.srcObject = videoStream;
-        videoRef.current.setAttribute("autoplay", "true");
-        videoRef.current.setAttribute("playsinline", "true");
-        videoRef.current.setAttribute("muted", "true");
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch((e) => console.warn("Video play error:", e));
-          setCameraActive(true);
-          setCameraError(null);
-        };
+        mediaStreamRef.current = videoStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = videoStream;
+          videoRef.current.setAttribute("autoplay", "true");
+          videoRef.current.setAttribute("playsinline", "true");
+          videoRef.current.setAttribute("muted", "true");
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch((e) => console.warn("Video play error:", e));
+            setCameraActive(true);
+            setCameraError(null);
+          };
+        }
       }
     } catch (err: any) {
       console.warn("Combined media access attempt failed, trying video only:", err);
@@ -247,6 +254,7 @@ export function FaceToFaceScreen() {
           video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
           audio: false,
         });
+        mediaStreamRef.current = videoStream;
         if (videoRef.current) {
           videoRef.current.srcObject = videoStream;
           videoRef.current.play().catch(() => {});
@@ -269,9 +277,26 @@ export function FaceToFaceScreen() {
   };
 
   const stopCamera = () => {
+    // 1. Terminate all hardware tracks on saved media stream reference
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn("Error stopping media track:", e);
+        }
+      });
+      mediaStreamRef.current = null;
+    }
+
+    // 2. Terminate all tracks on video DOM element if still attached
     if (videoRef.current?.srcObject) {
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-      tracks.forEach((t) => t.stop());
+      tracks.forEach((t) => {
+        try {
+          t.stop();
+        } catch (e) {}
+      });
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
@@ -280,18 +305,36 @@ export function FaceToFaceScreen() {
     setTrackingQuality(0.0);
   };
 
+  const handleSessionClose = () => {
+    setIsSessionClosed(true);
+    speechService.stop();
+    setMicActive(false);
+    stopCamera();
+  };
+
   const toggleCamera = () => {
     if (cameraActive) {
       stopCamera();
     } else {
+      setIsSessionClosed(false);
       startCamera();
+    }
+  };
+  const handleStartConsultation = async () => {
+    setIsSessionClosed(false);
+    await startCamera();
+    try {
+      await speechService.start();
+      setMicActive(true);
+    } catch (e) {
+      console.warn("Speech recognition activation error:", e);
     }
   };
 
   useEffect(() => {
     let fpsInterval: any;
 
-    startCamera();
+    // Camera and mic remain in standby until the user initiates the consultation
 
     fpsInterval = setInterval(() => {
       if (videoRef.current && videoRef.current.srcObject) {
@@ -306,6 +349,10 @@ export function FaceToFaceScreen() {
 
     return () => {
       stopCamera();
+      speechService.stop();
+      voiceService.stop();
+      duplexManager.stop();
+      streamingTtsService.cancel();
       clearInterval(fpsInterval);
     };
   }, []);
@@ -446,6 +493,7 @@ export function FaceToFaceScreen() {
 
       socket.onopen = () => {
         reconnectAttempt = 0;
+        setIsWsReconnecting(false);
       };
 
       socket.onmessage = (evt) => {
@@ -542,9 +590,14 @@ export function FaceToFaceScreen() {
                 }
               });
             }
+          } else if (data.type === "session_closing") {
+            handleSessionClose();
           } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
             setTyping(false);
             streamingTtsService.finalizeStream();
+            if (data.is_closing || data.phase === "wrap_up") {
+              handleSessionClose();
+            }
             const reply = data.response || data.content || data.text;
             if (reply) {
               setMsgs((prev) => {
@@ -570,6 +623,7 @@ export function FaceToFaceScreen() {
 
       socket.onclose = () => {
         if (!isUnmounted) {
+          setIsWsReconnecting(true);
           reconnectAttempt += 1;
           const backoff = Math.min(10000, 500 * 2 ** Math.min(reconnectAttempt, 4));
           const jitter = Math.floor(Math.random() * 250);
@@ -643,7 +697,7 @@ export function FaceToFaceScreen() {
       },
     });
 
-    speechService.start();
+    // Mic remains in standby until consultation is started
 
     return () => {
       unsubscribe();
@@ -658,6 +712,7 @@ export function FaceToFaceScreen() {
     if (speechService.isListening) {
       speechService.stop();
     } else {
+      setIsSessionClosed(false);
       await speechService.start();
     }
   };
@@ -683,6 +738,12 @@ export function FaceToFaceScreen() {
   const sendMsg = (customText?: string) => {
     const t = (customText !== undefined ? customText : text).trim();
     if (!t) return;
+
+    const tLower = t.toLowerCase();
+    const isClosing = SESSION_CLOSING_PHRASES.some((phrase) => tLower.includes(phrase));
+    if (isClosing) {
+      handleSessionClose();
+    }
 
     if (isAuraSpeaking) {
       voiceService.stop();
@@ -1044,6 +1105,32 @@ export function FaceToFaceScreen() {
         errors={faceErrors}
       />
 
+      {/* Session Concluded Notification Banner */}
+      <AnimatePresence>
+        {isSessionClosed && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="bg-purple-500/15 border border-purple-500/30 rounded-[18px] p-2.5 mb-2 flex items-center justify-between text-purple-200 text-xs shadow-lg"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+              <span className="font-semibold text-[11.5px]">
+                Session concluded. Camera and microphone have been automatically closed for your privacy. Click &quot;Start Camera&quot; or the microphone button below to resume anytime.
+              </span>
+            </div>
+            <button
+              onClick={() => setIsSessionClosed(false)}
+              className="w-5 h-5 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 flex items-center justify-center cursor-pointer border-none ml-2 shrink-0"
+              title="Dismiss"
+            >
+              <X size={11} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-h-0">
         <div className="lg:col-span-4 flex flex-col gap-2.5 h-full min-h-0 justify-between">
           <div className="clay-card p-3 rounded-[24px] flex-1 flex flex-col justify-between min-h-0">
@@ -1088,11 +1175,24 @@ export function FaceToFaceScreen() {
               <canvas ref={canvasRef} className="hidden" />
 
               {!cameraActive && (
-                <div className="flex flex-col items-center gap-1.5 text-slate-400 p-4 text-center">
-                  <VideoOff size={28} className="opacity-60" />
-                  <span className="text-[11px] font-semibold">Camera feed offline</span>
-                  <button onClick={startCamera} className="mt-1 px-3 py-1 bg-purple-600 text-white rounded-full text-[10px] font-bold cursor-pointer border-none">
-                    Start Camera
+                <div className="flex flex-col items-center justify-center gap-2 text-slate-400 p-5 text-center max-w-xs">
+                  <div className="w-11 h-11 rounded-full bg-purple-900/40 flex items-center justify-center text-purple-300 mb-0.5 shadow-inner">
+                    <VideoOff size={22} />
+                  </div>
+                  <span className="text-[12.5px] font-bold text-white leading-tight">
+                    {isSessionClosed ? "Session Concluded" : "Camera & Microphone Standby"}
+                  </span>
+                  <p className="text-[10.5px] text-slate-400 m-0 leading-relaxed font-medium">
+                    {isSessionClosed
+                      ? "Hardware devices have been disconnected. Click below to start a new consultation whenever you're ready."
+                      : "Monitoring is paused. When you are ready to begin, click below to start your consultation with Dr. Aura."}
+                  </p>
+                  <button
+                    onClick={handleStartConsultation}
+                    className="mt-1.5 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-full text-[11px] font-bold cursor-pointer border-none shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Camera size={13} />
+                    <span>{isSessionClosed ? "Start New Consultation" : "Start Consultation"}</span>
                   </button>
                 </div>
               )}
@@ -1242,6 +1342,21 @@ export function FaceToFaceScreen() {
             </div>
           </div>
 
+          {isWsReconnecting && (
+            <div className="clay-card-flat px-3 py-1.5 rounded-xl text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 flex items-center justify-between gap-2 shrink-0 animate-pulse mb-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                Reconnecting with Aura server...
+              </span>
+              <button
+                onClick={() => window.location.reload()}
+                className="underline bg-transparent border-none text-[9.5px] cursor-pointer text-amber-700 dark:text-amber-300 font-bold"
+              >
+                Reload
+              </button>
+            </div>
+          )}
+
           <div className="flex-1 flex flex-col gap-2.5 my-2 overflow-y-auto pr-1 min-h-0">
             {msgs.map((m) => (
               <motion.div
@@ -1314,6 +1429,8 @@ export function FaceToFaceScreen() {
                 className={`text-[10px] font-extrabold ${
                   isAuraSpeaking
                     ? "text-[#7C3AED] dark:text-[#A78BFA]"
+                    : isSessionClosed && !micActive
+                    ? "text-purple-600 dark:text-purple-300"
                     : micActive
                     ? "text-[#059669] dark:text-[#34D399]"
                     : "text-[#DC2626] dark:text-[#F87171]"
@@ -1321,6 +1438,8 @@ export function FaceToFaceScreen() {
               >
                 {isAuraSpeaking
                   ? "Dr. Aura is Speaking (Click to interrupt)..."
+                  : isSessionClosed && !micActive
+                  ? "Session Concluded • Microphone Off (Click to Resume)"
                   : micActive
                   ? "Continuous Listening Active • Speak now"
                   : "Microphone Paused • Click to Start Listening"}

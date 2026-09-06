@@ -60,6 +60,11 @@ Current Session Phases:
 6. "follow_up" - Checking if the solution landed or moving on.
 7. "wrap_up" - Ending the session.
 
+Phase Progression Guidelines:
+- Early Exploration (Turns 1-2): Prioritize empathy, active listening, and exploratory inquiry. Keep phase in "check_in" or "explore". Do NOT advance to "offer" and do NOT set `offerSolution` to true unless the user explicitly asks for advice/solutions or is in acute panic.
+- Problem Identification & Reflection: Move to "identify" or "reflect" as the user shares specific obstacles or reasons.
+- Actionable Solution (Turn 3+): Transition to "offer" and set `offerSolution` to true only after the problem domain and blockers are clearly established, or upon explicit request.
+
 Disengagement / Solution Trigger Handling:
 - If the user asks for guidance, advice, or what to do (e.g. "what should I do?", "help me fix this"), advance phase to "offer" and set `offerSolution` to true.
 - If the user says "I don't want to talk about this", "stop", or shows clear fatigue, set `mustAskFollowUp` to false, and advance phase toward "wrap_up".
@@ -97,7 +102,7 @@ Only return valid JSON."""
                 nextQuestionSeed="Would you like to wrap up our session for today?"
             )
             
-        prompt = f"Current Phase: {current_phase}\nUser Message: {user_message}"
+        prompt = f"Current Turn: {turn_count}\nCurrent Phase: {current_phase}\nUser Message: {user_message}"
         
         req = AIRequest(
             system_prompt=self._system_prompt,
@@ -119,12 +124,28 @@ Only return valid JSON."""
                 
             data = json.loads(content)
             
+            phase = data.get("phase", current_phase)
+            offer_sol = bool(data.get("offerSolution", False))
+
+            # Early-turn guardrail: Never allow unsolicited solution offering on Turn 1 or 2
+            explicit_req = any(p in msg_lower for p in (
+                "what should i do", "what can i do", "help me fix", "give me advice",
+                "suggest something", "solution", "any tips", "kya karun", "kya karoon"
+            ))
+            panic_req = any(p in msg_lower for p in (
+                "panic attack", "cannot breathe", "can't breathe", "hyperventilat"
+            ))
+            if turn_count < 3 and not (explicit_req or panic_req):
+                offer_sol = False
+                if phase == "offer":
+                    phase = "explore" if turn_count <= 1 else "identify"
+
             return TurnDirective(
-                phase=data.get("phase", current_phase),
+                phase=phase,
                 problemDetected=data.get("problemDetected", False),
                 concernCategory=data.get("concernCategory"),
                 mustReflectFirst=data.get("mustReflectFirst", True),
-                offerSolution=data.get("offerSolution", False),
+                offerSolution=offer_sol,
                 mustAskFollowUp=data.get("mustAskFollowUp", True),
                 nextQuestionSeed=data.get("nextQuestionSeed")
             )

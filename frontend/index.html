@@ -1,25 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aura AI — Your Emotion-Aware Companion</title>
+    <meta
+      name="description"
+      content="Aura AI is an intelligent emotion-aware companion. Real-time FACS facial tracking, voice consultation, and long-term memory for personal wellbeing."
+    />
+    <meta name="keywords" content="Aura AI, emotional wellbeing, mental health companion, FACS, facial tracking, affective computing, voice AI" />
+    <meta name="author" content="Aura AI Team" />
+    <meta name="theme-color" content="#7B59DC" />
+    <link rel="canonical" href="http://localhost:3000/" />
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Aura AI — Your Emotion-Aware Companion</title>
-      <meta name="description" content="Aura AI is your personal emotion-aware companion. Understand, track, and improve your emotional well-being." />
-      <link rel="icon" type="image/png" href="/aura-mascot-3d.png" />
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-      <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
-      
-    </head>
+    <!-- Favicon & PWA Icons -->
+    <link rel="icon" type="image/png" href="/aura-mascot-3d.png" />
+    <link rel="apple-touch-icon" href="/aura-mascot-3d.png" />
+    <link rel="manifest" href="/manifest.json" />
 
-    <body>
-      
-      <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
-      
-    </body>
-  </html>
-  
+    <!-- Open Graph (WhatsApp, LinkedIn, Slack, Facebook) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="http://localhost:3000/" />
+    <meta property="og:title" content="Aura AI — Your Emotion-Aware Companion" />
+    <meta
+      property="og:description"
+      content="Understand, track, and elevate your emotional wellbeing with real-time FACS facial analysis, voice consultation, and cognitive memory."
+    />
+    <meta property="og:image" content="/aura-mascot-3d.png" />
+
+    <!-- Twitter / X Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Aura AI — Emotion-Aware Wellbeing Companion" />
+    <meta
+      name="twitter:description"
+      content="Intelligent multimodal affective companion with real-time FACS facial tracking and long-term cognitive memory."
+    />
+    <meta name="twitter:image" content="/aura-mascot-3d.png" />
+
+    <!-- Typography Fonts Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      html, body { height: 100%; margin: 0; }
+      #root { height: 100%; }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

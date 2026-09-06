@@ -54,6 +54,77 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   },
 ];
 
+export const SESSION_CLOSING_PHRASES = [
+  "close today's session",
+  "close the session",
+  "close session",
+  "end today's session",
+  "end the session",
+  "end session",
+  "end this session",
+  "end the conversation",
+  "end conversation",
+  "end this conversation",
+  "close the conversation",
+  "close conversation",
+  "close this conversation",
+  "stop the conversation",
+  "stop conversation",
+  "finish the conversation",
+  "finish conversation",
+  "wrap up the conversation",
+  "wrap up the session",
+  "wrap up today's session",
+  "wrap up",
+  "wrap it up",
+  "goodbye",
+  "bye",
+  "bye bye",
+  "that's all for today",
+  "thats all for today",
+  "that is all for today",
+  "that's it for today",
+  "thats it for today",
+  "that is it for today",
+  "that will be all for today",
+  "that'll be all for today",
+  "that will be all",
+  "that'll be all",
+  "nothing more for today",
+  "nothing else for today",
+  "no more for today",
+  "nothing more",
+  "feeling alright now we can close",
+  "feeling alright now",
+  "feeling better now",
+  "feeling good now",
+  "we can stop here",
+  "we can end here",
+  "we can wrap up here",
+  "talk to you later",
+  "see you later",
+  "see you next time",
+  "done for today",
+  "done for now",
+  "stop today",
+  "all good for now",
+  "i have to go",
+  "gotta go",
+  "need to go",
+  "sign off",
+  "session close",
+  "session end",
+  "end chat",
+  "close chat",
+  "stop chat",
+  "alvida",
+  "chalta hoon",
+  "chalti hoon",
+  "aaj ke liye itna hi",
+  "aaj ke liye bas",
+  "bas aaj ke liye",
+];
+
 class SpeechRecognitionEngine {
   private recognition: any = null;
   private isListeningDesired = false;
@@ -160,6 +231,7 @@ class SpeechRecognitionEngine {
     }
 
     this.isRecognizing = false;
+    audioEngine.stopMicrophonePipeline();
     this.notifyListeningChange(false);
   }
 

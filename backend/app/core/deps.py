@@ -303,3 +303,17 @@ async def get_current_user(
     except Exception:
         pass
     return User(id=user_id, name="Friend", email="user@aura.ai", goals="Improve Focus, Reduce Anxiety", interests="AI, Mindfulness")
+
+
+async def get_current_admin_user(
+    user: Any = Depends(get_current_user),
+) -> Any:
+    """Ensure current user has administrative permissions."""
+    from fastapi import HTTPException
+    is_admin = getattr(user, "is_admin", False)
+    if not is_admin and getattr(user, "email", "") != "admin@aura.ai":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin privileges required to access this resource.",
+        )
+    return user

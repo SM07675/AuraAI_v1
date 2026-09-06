@@ -230,6 +230,13 @@ export class FullDuplexManager {
     }
   }
 
+  public stop(): void {
+    this.playbackState.isSpeaking = false;
+    this.playbackState.currentAudioId = null;
+    this.clearPendingInterrupt();
+    this.transitionTo("IDLE", "Duplex manager stopped");
+  }
+
   public getPlaybackState(): PlaybackMetadata {
     return { ...this.playbackState };
   }

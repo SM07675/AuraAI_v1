@@ -61,7 +61,14 @@ async def register(
     )
 
     return {
-        "user": UserInToken(id=user.id, name=user.name, email=user.email),
+        "user": UserInToken(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            is_admin=getattr(user, "is_admin", False) or False,
+            avatar_url=getattr(user, "avatar_url", None),
+            auth_provider=getattr(user, "auth_provider", "email") or "email",
+        ),
         "tokens": tokens,
         "access_token": tokens.access_token,
         "token": tokens.access_token,
@@ -83,7 +90,14 @@ async def login(
     user, tokens = await service.login(email=body.email, password=body.password)
 
     return {
-        "user": UserInToken(id=user.id, name=user.name, email=user.email),
+        "user": UserInToken(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            is_admin=getattr(user, "is_admin", False) or False,
+            avatar_url=getattr(user, "avatar_url", None),
+            auth_provider=getattr(user, "auth_provider", "email") or "email",
+        ),
         "tokens": tokens,
         "access_token": tokens.access_token,
         "token": tokens.access_token,

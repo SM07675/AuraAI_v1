@@ -1,16 +1,15 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Activity, History as HistoryIcon, FileText, Wind, Heart, Plus, ChevronRight, Music } from "lucide-react";
+import { Mic, Activity, History as HistoryIcon, FileText, Wind, Heart, Plus, ChevronRight } from "lucide-react";
 
 const QUICK_ACTIONS = [
-  { label: "Play Music", icon: Music, action: "music", screen: "Music" },
-  { label: "Talk", icon: Mic, action: "navigate", screen: "Face-to-Face" },
-  { label: "Analyze Emotion", icon: Activity, action: "navigate", screen: "Emotion" },
+  { label: "Talk", icon: Mic, action: "navigate", screen: "Voice Mode" },
+  { label: "Face Scan", icon: Activity, action: "navigate", screen: "Face-to-Face" },
+  { label: "Breathing", icon: Wind, action: "navigate", screen: "Face-to-Face" },
+  { label: "Meditation", icon: Heart, action: "navigate", screen: "Voice Mode" },
   { label: "History", icon: HistoryIcon, action: "navigate", screen: "Chat" },
   { label: "Reports", icon: FileText, action: "navigate", screen: "Analytics" },
-  { label: "Breathing", icon: Wind, action: "navigate", screen: "Voice Mode" },
-  { label: "Meditation", icon: Heart, action: "navigate", screen: "Memory" },
 ];
 
 export function QuickActionsFAB({ onNavigate }: { onNavigate?: (screen: string) => void }) {
@@ -75,9 +74,7 @@ export function QuickActionsFAB({ onNavigate }: { onNavigate?: (screen: string) 
                   transition={{ type: "spring", stiffness: 480, damping: 24, delay: i * 0.035 }}
                   onClick={() => {
                     setActionsOpen(false);
-                    if (a.action === "music") {
-                      window.dispatchEvent(new CustomEvent("aura-toggle-music", { detail: { play: true } }));
-                    } else if (onNavigate) {
+                    if (onNavigate) {
                       onNavigate(a.screen);
                     }
                   }}
@@ -88,8 +85,8 @@ export function QuickActionsFAB({ onNavigate }: { onNavigate?: (screen: string) 
                     style={{
                       width: 26,
                       height: 26,
-                      background: a.action === "music" ? "#E2D5FC" : "#D0F6EC",
-                      color: a.action === "music" ? "#7B59DC" : "#0D9488",
+                      background: "#D0F6EC",
+                      color: "#0D9488",
                     }}
                   >
                     <Icon size={14} />

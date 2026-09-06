@@ -13,32 +13,32 @@ class TestTextEmotionAnalyzer:
 
     @pytest.mark.asyncio
     async def test_sad_keywords(self):
-        analyzer = TextEmotionAnalyzer()
+        analyzer = TextEmotionAnalyzer(use_llm=False)
         result = await analyzer.analyze("I'm feeling really sad and depressed today")
         assert result.emotion == "sad"
         assert result.confidence > 50
 
     @pytest.mark.asyncio
     async def test_anxious_keywords(self):
-        analyzer = TextEmotionAnalyzer()
+        analyzer = TextEmotionAnalyzer(use_llm=False)
         result = await analyzer.analyze("I'm so anxious about my exams, feeling stressed")
         assert result.emotion == "anxious"
 
     @pytest.mark.asyncio
     async def test_happy_keywords(self):
-        analyzer = TextEmotionAnalyzer()
+        analyzer = TextEmotionAnalyzer(use_llm=False)
         result = await analyzer.analyze("I'm so happy and excited about this!")
         assert result.emotion == "happy"
 
     @pytest.mark.asyncio
     async def test_neutral_default(self):
-        analyzer = TextEmotionAnalyzer()
+        analyzer = TextEmotionAnalyzer(use_llm=False)
         result = await analyzer.analyze("The weather is nice today.")
         assert result.emotion == "neutral"
 
     @pytest.mark.asyncio
     async def test_empty_input(self):
-        analyzer = TextEmotionAnalyzer()
+        analyzer = TextEmotionAnalyzer(use_llm=False)
         result = await analyzer.analyze("")
         assert result.emotion == "neutral"
         assert result.is_mock is True

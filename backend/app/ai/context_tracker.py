@@ -79,6 +79,19 @@ class ContextSufficiencyTracker:
         "end the session",
         "end session",
         "end this session",
+        "end the conversation",
+        "end conversation",
+        "end this conversation",
+        "close the conversation",
+        "close conversation",
+        "close this conversation",
+        "stop the conversation",
+        "stop conversation",
+        "finish the conversation",
+        "finish conversation",
+        "wrap up the conversation",
+        "wrap up the session",
+        "wrap up today's session",
         "wrap up",
         "wrap it up",
         "goodbye",
@@ -87,12 +100,24 @@ class ContextSufficiencyTracker:
         "that's all for today",
         "thats all for today",
         "that is all for today",
+        "that's it for today",
+        "thats it for today",
+        "that is it for today",
+        "that will be all for today",
+        "that'll be all for today",
+        "that will be all",
+        "that'll be all",
+        "nothing more for today",
+        "nothing else for today",
+        "no more for today",
+        "nothing more",
         "feeling alright now we can close",
         "feeling alright now",
         "feeling better now",
         "feeling good now",
         "we can stop here",
         "we can end here",
+        "we can wrap up here",
         "talk to you later",
         "see you later",
         "see you next time",
@@ -106,6 +131,24 @@ class ContextSufficiencyTracker:
         "sign off",
         "session close",
         "session end",
+        "end chat",
+        "close chat",
+        "stop chat",
+        "alvida",
+        "chalta hoon",
+        "chalti hoon",
+        "aaj ke liye itna hi",
+        "aaj ke liye bas",
+        "bas aaj ke liye",
+    )
+
+    ACUTE_PANIC_PHRASES = (
+        "panic attack",
+        "can't breathe",
+        "cannot breathe",
+        "hyperventilat",
+        "having a panic",
+        "dizzy and panicking",
     )
 
     def evaluate(
@@ -136,6 +179,7 @@ class ContextSufficiencyTracker:
             )
 
         explicit_solution_request = any(phrase in msg_lower for phrase in self.SOLUTION_TRIGGER_PHRASES)
+        is_acute_panic = any(phrase in msg_lower for phrase in self.ACUTE_PANIC_PHRASES)
 
         resolved: dict[str, bool] = {dim: False for dim in self.DIMENSIONS}
 
@@ -143,49 +187,98 @@ class ContextSufficiencyTracker:
         if emotion_context is not None:
             emo = getattr(emotion_context, "primary_emotion", None) or getattr(emotion_context, "fused_emotion", None)
             conf = getattr(emotion_context, "confidence", 0.0)
-            if emo and (str(emo).lower() not in ("unknown", "") or conf >= 0.40):
+            if emo and (str(emo).lower() not in ("unknown", "", "neutral") or conf >= 0.40):
                 resolved["emotion_state"] = True
 
         # 2. Problem Domain dimension
         domain = getattr(turn_directive, "concernCategory", None) or getattr(turn_directive, "domain", None)
-        if domain and str(domain).lower() in self.DOMAINS and str(domain).lower() != "general":
+        domain_str = str(domain).lower() if domain else ""
+        specific_domains = {d for d in self.DOMAINS if d not in ("general", "wellness")}
+
+        has_domain_keywords = any(k in msg_lower for k in (
+            "interview", "job", "career", "exam", "study", "focus", "sleep", "insomnia",
+            "friend", "relationship", "breakup", "partner", "anxious", "panic", "burnout",
+            "procrastinat", "deadline", "overwork", "lonely", "isolated", "tired", "fatigue"
+        ))
+
+        # Check history for domain keywords as well
+        if not has_domain_keywords and history:
+            history_user_text = " ".join(m.get("content", "").lower() for m in history if m.get("role") == "user")
+            has_domain_keywords = any(k in history_user_text for k in (
+                "interview", "job", "career", "exam", "study", "focus", "sleep", "insomnia",
+                "friend", "relationship", "breakup", "partner", "anxious", "panic", "burnout",
+                "procrastinat", "deadline", "overwork", "lonely", "isolated"
+            ))
+
+        if domain_str in specific_domains:
             resolved["problem_domain"] = True
-        elif any(k in msg_lower for k in ("interview", "job", "career", "exam", "study", "focus", "sleep", "friend", "relationship", "anxious", "panic", "burnout", "procrastinat")):
+        elif has_domain_keywords:
             resolved["problem_domain"] = True
             domain = domain or "wellness"
 
         # 3. Severity Level dimension
         stress = getattr(emotion_context, "stress", "low") if emotion_context else "low"
         sentiment = getattr(emotion_context, "sentiment", "neutral") if emotion_context else "neutral"
-        if stress in ("medium", "high", "critical") or sentiment in ("negative", "very_negative") or len(msg_lower) > 35:
+        if stress in ("high", "critical") or is_acute_panic:
+            resolved["severity_level"] = True
+        elif (stress == "medium" or sentiment in ("negative", "very_negative")) and (turn_count >= 2 or len(msg_lower) > 30):
             resolved["severity_level"] = True
 
-        # 4. User Goal dimension
-        goals = profile.get("goals")
-        if goals and ((isinstance(goals, list) and len(goals) > 0) or (isinstance(goals, str) and len(goals.strip()) > 3)):
+        # 4. User Goal dimension (Must be active in conversation, not merely a static DB field on Turn 1)
+        history_user_all = " ".join(m.get("content", "").lower() for m in history if m.get("role") == "user") + " " + msg_lower
+        has_active_goal_phrase = any(phrase in history_user_all for phrase in (
+            "i want to", "my goal is", "i need to", "trying to", "hoping to", "aiming to", "i wish i could", "looking to"
+        ))
+
+        profile_goals = profile.get("goals")
+        has_profile_goals = bool(profile_goals and (
+            (isinstance(profile_goals, list) and len(profile_goals) > 0) or
+            (isinstance(profile_goals, str) and len(profile_goals.strip()) > 3)
+        ))
+
+        if has_active_goal_phrase:
             resolved["user_goal"] = True
-        elif turn_count >= 2:
+        elif turn_count >= 3 and has_profile_goals and resolved["problem_domain"]:
             resolved["user_goal"] = True
 
         # 5. Desired Outcome dimension
-        if explicit_solution_request:
+        if explicit_solution_request or is_acute_panic:
             resolved["desired_outcome"] = True
-        elif turn_count >= 2 and resolved["problem_domain"]:
+        elif turn_count >= 3 and resolved["problem_domain"]:
             resolved["desired_outcome"] = True
 
-        # 6. Blockers Known dimension
-        if len(history) >= 2 or len(msg_lower) > 50:
+        # 6. Blockers Known dimension (Must articulate the obstacle/cause/situation)
+        blocker_indicators = (
+            "because", "due to", "my boss", "my job", "my work", "deadline", "project",
+            "exam", "test", "presentation", "fight", "broke up", "breakup", "arguing",
+            "conflict", "overwhelmed by", "stressed about", "struggling with", "pressure",
+            "can't stop thinking", "keeps happening", "happened today", "failed", "rejected", "cannot focus"
+        )
+        has_blocker_keywords = any(k in history_user_all for k in blocker_indicators)
+        has_multi_turn_depth = (turn_count >= 3 and len(history) >= 4 and len(history_user_all.split()) > 20)
+
+        if has_blocker_keywords or has_multi_turn_depth:
             resolved["blockers_known"] = True
 
         resolved_count = sum(1 for v in resolved.values() if v)
         total = len(self.DIMENSIONS)
         score = round(resolved_count / total, 2)
 
+        # Substantial context gate for unsolicited solution delivery:
+        # 1. Turn count >= 3 (never offer unsolicited solutions on Turn 1 or 2 exploration)
+        # 2. Key anchor dimensions resolved: problem_domain and blockers_known
+        # 3. High sufficiency score (>= 0.65, at least 4 of 6 dimensions resolved)
+        substantial_context_met = (
+            turn_count >= 3
+            and resolved["problem_domain"]
+            and resolved["blockers_known"]
+            and score >= 0.65
+        )
+
         should_deliver = (
             explicit_solution_request
-            or score >= 0.50
-            or (turn_count >= 3 and resolved["problem_domain"])
-            or bool(getattr(turn_directive, "offerSolution", False))
+            or is_acute_panic
+            or substantial_context_met
         )
 
         recommendation = (
@@ -199,6 +292,7 @@ class ContextSufficiencyTracker:
             score=score,
             resolved_count=resolved_count,
             should_deliver=should_deliver,
+            substantial_context_met=substantial_context_met,
             domain=domain,
             turn=turn_count,
         )

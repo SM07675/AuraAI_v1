@@ -729,34 +729,7 @@ export function ClayFocusIcon({ size = 28, className = "", style = {} }: ClayIco
   );
 }
 
-export function ClayMusicIcon({ size = 28, className = "", style = {} }: ClayIconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      style={{ filter: "drop-shadow(0 3px 6px rgba(210, 70, 90, 0.28)) drop-shadow(0 0 2px rgba(255,255,255,0.6))", ...style }}
-    >
-      <defs>
-        <linearGradient id="music3DGrad" x1="10" y1="8" x2="38" y2="40" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FADBD8" />
-          <stop offset="35%" stopColor="#F1948A" />
-          <stop offset="100%" stopColor="#C0392B" />
-        </linearGradient>
-      </defs>
-      <path d="M16 15L34 10V17L16 22V15Z" fill="url(#music3DGrad)" />
-      <rect x="15" y="15" width="4.5" height="19" rx="2.25" fill="url(#music3DGrad)" />
-      <rect x="33" y="10" width="4.5" height="19" rx="2.25" fill="url(#music3DGrad)" />
-      <ellipse cx="13.5" cy="33.5" rx="6" ry="4.8" transform="rotate(-20 13.5 33.5)" fill="url(#music3DGrad)" />
-      <ellipse cx="31.5" cy="28.5" rx="6" ry="4.8" transform="rotate(-20 31.5 28.5)" fill="url(#music3DGrad)" />
-      <ellipse cx="11.5" cy="32" rx="2" ry="1.2" fill="#FFFFFF" fillOpacity="0.85" />
-      <ellipse cx="29.5" cy="27" rx="2" ry="1.2" fill="#FFFFFF" fillOpacity="0.85" />
-    </svg>
-  );
-}
+
 
 /* ─────────────────────────────────────────────────────────────────────────────
    CHAT INTERFACE SPECIFIC 3D CLAY ELEMENTS (Matching TARGET Image)
@@ -844,45 +817,7 @@ export function ClayAuraAvatar({ size = 38, className = "", style = {} }: ClayIc
 export const ClayAuraAvatarBead = ClayAuraAvatar;
 
 
-// 2. 3D Purple Music Tile Icon (For Bottom Music Bar)
-export function ClayMusicTileIcon({ size = 44, className = "", style = {} }: ClayIconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      style={{ filter: "drop-shadow(0 4px 10px rgba(160, 135, 225, 0.35))", flexShrink: 0, ...style }}
-    >
-      <defs>
-        <linearGradient id="musicTileGrad" x1="8" y1="4" x2="40" y2="44" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#D8CBFA" />
-          <stop offset="40%" stopColor="#C4B0F3" />
-          <stop offset="100%" stopColor="#9E7EE6" />
-        </linearGradient>
-      </defs>
 
-      {/* Rounded Purple Clay Cushion */}
-      <rect x="3" y="3" width="42" height="42" rx="16" fill="url(#musicTileGrad)" stroke="#FFFFFF" strokeWidth="1.5" />
-
-      {/* Top Specular Glint */}
-      <ellipse cx="18" cy="9" rx="10" ry="3.5" transform="rotate(-15 18 9)" fill="#FFFFFF" fillOpacity="0.75" />
-
-      {/* 3D White Musical Notes */}
-      <path
-        d="M17 18L33 13.5V21L17 25.5V18Z"
-        fill="#FFFFFF"
-        filter="drop-shadow(0 1.5px 2px rgba(90, 60, 150, 0.3))"
-      />
-      <rect x="16.5" y="18" width="3.5" height="15" rx="1.75" fill="#FFFFFF" />
-      <rect x="30.5" y="13.5" width="3.5" height="15" rx="1.75" fill="#FFFFFF" />
-      <ellipse cx="15.5" cy="32.5" rx="4.5" ry="3.5" transform="rotate(-20 15.5 32.5)" fill="#FFFFFF" filter="drop-shadow(0 2px 4px rgba(90, 60, 150, 0.25))" />
-      <ellipse cx="29.5" cy="28" rx="4.5" ry="3.5" transform="rotate(-20 29.5 28)" fill="#FFFFFF" filter="drop-shadow(0 2px 4px rgba(90, 60, 150, 0.25))" />
-    </svg>
-  );
-}
 
 // 3. Double Checkmarks for User Messages (10:31 AM ✓✓)
 export function ClayDoubleCheckIcon({ size = 13, color = "#8F87A0", className = "" }: { size?: number; color?: string; className?: string }) {

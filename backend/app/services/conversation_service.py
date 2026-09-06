@@ -482,6 +482,14 @@ class ConversationService:
                 if debug_out.get("is_crisis"):
                     yield {"type": "crisis", "metadata": {"crisis": True}}
 
+                # Emit session_closing event if session is closing/wrapping up
+                if debug_out.get("is_closing") or session.phase == "wrap_up":
+                    yield {
+                        "type": "session_closing",
+                        "session_id": session.id,
+                        "phase": "wrap_up",
+                    }
+
             seq = 0
             t_first_chunk = None
             async for chunk in stream_gen:
@@ -563,4 +571,6 @@ class ConversationService:
             "emotion": emotion_dict,
             "total_chunks": seq,
             "metrics": metrics,
+            "is_closing": bool(debug_out.get("is_closing", False) or session.phase == "wrap_up"),
+            "phase": session.phase,
         }

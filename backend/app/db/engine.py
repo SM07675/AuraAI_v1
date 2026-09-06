@@ -107,6 +107,17 @@ async def init_db_schema() -> None:
     try:
         async with _engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # Ensure new columns exist on users table
+            for col_name, col_type in [
+                ("auth_provider", "VARCHAR(50) DEFAULT 'email'"),
+                ("google_sub", "VARCHAR(255)"),
+                ("avatar_url", "VARCHAR(1024)"),
+                ("is_admin", "BOOLEAN DEFAULT FALSE"),
+            ]:
+                try:
+                    await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                except Exception:
+                    pass  # Column already exists
         logger.info("Database schema initialized and verified", is_sqlite=_is_sqlite_fallback)
     except Exception as exc:
         logger.warning("Database schema auto-creation warning", error=str(exc))

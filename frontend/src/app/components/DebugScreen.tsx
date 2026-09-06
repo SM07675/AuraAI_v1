@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { getWebSocketUrl } from "../services/wsHelper";
+import { authService } from "../services/authService";
 
 interface LatencySummary {
   p50_ms: number;
@@ -73,21 +74,24 @@ export function DebugScreen() {
     setLoading(true);
 
     // 1. Status
-    fetch("/api/v1/debug/status")
-      .then((r) => r.json())
-      .then((d) => setStatusData(d))
+    authService
+      .authFetch("/api/v1/debug/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStatusData(d))
       .catch(() => {});
 
     // 2. Latency metrics & traces
-    fetch("/api/v1/debug/latency?limit=25")
-      .then((r) => r.json())
-      .then((d) => setLatencyData(d))
+    authService
+      .authFetch("/api/v1/debug/latency?limit=25")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setLatencyData(d))
       .catch(() => {});
 
     // 3. Knowledge graph
-    fetch("/api/v1/debug/graph?user_id=1")
-      .then((r) => r.json())
-      .then((d) => setGraphData(d))
+    authService
+      .authFetch("/api/v1/debug/graph?user_id=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setGraphData(d))
       .catch(() => {})
       .finally(() => setLoading(false));
   };

@@ -160,6 +160,38 @@ class WebAudioEngine {
     }
   }
 
+  /**
+   * Completely release microphone hardware stream and Web Audio source nodes.
+   */
+  public stopMicrophonePipeline(): void {
+    if (this.analysisInterval) {
+      clearInterval(this.analysisInterval);
+      this.analysisInterval = null;
+    }
+    if (this.micSourceNode) {
+      try {
+        this.micSourceNode.disconnect();
+      } catch (e) {}
+      this.micSourceNode = null;
+    }
+    if (this.micAnalyser) {
+      try {
+        this.micAnalyser.disconnect();
+      } catch (e) {}
+      this.micAnalyser = null;
+    }
+    if (this.micStream) {
+      try {
+        this.micStream.getTracks().forEach((track) => track.stop());
+      } catch (e) {}
+      this.micStream = null;
+    }
+    this.hardwareAecActive = false;
+    this.isInitialized = false;
+    this.currentTelemetry.micRms = 0;
+    this.currentTelemetry.hardwareAecActive = false;
+  }
+
   // ── Real-Time Acoustic Echo & Energy Correlator ─────────────────────────────
 
   private startAnalysisLoop() {
