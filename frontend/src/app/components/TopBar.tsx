@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
-import { ClaySunIcon, ClaySearchIcon } from "./clay-icons";
+import { Search, Sun, Moon, Sparkles, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
-import { Sun } from "lucide-react";
 
 interface TopBarProps {
   userName?: string;
@@ -24,29 +23,36 @@ export function TopBar({ userName, isConnected: connectedProp, onSearch, onAvata
     return "Good evening";
   };
 
-  const displayName = userName ? userName.split(" ")[0] : "Atharv";
+  const displayName = userName ? userName.split(" ")[0] : "Friend";
   const avatarChar = displayName.charAt(0).toUpperCase();
 
+  // True connection state probe
   useEffect(() => {
     if (connectedProp !== undefined) {
       setConnection(connectedProp ? "connected" : "offline");
       return;
     }
     let cancelled = false;
-    const check = async () => {
+    const checkHealth = async () => {
       try {
         const response = await fetch("/api/v1/health", { cache: "no-store" });
-        if (!cancelled) setConnection(response.ok ? "connected" : "offline");
-      } catch { if (!cancelled) setConnection("offline"); }
+        if (!cancelled) {
+          setConnection(response.ok ? "connected" : "offline");
+        }
+      } catch {
+        if (!cancelled) setConnection("offline");
+      }
     };
-    check();
-    const timer = window.setInterval(check, 30000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+
+    checkHealth();
+    const timer = window.setInterval(checkHealth, 25000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [connectedProp]);
 
-  const isConnected = connection === "connected";
-
-  // Cmd+K / Ctrl+K keyboard shortcut
+  // Keyboard shortcut Cmd+K / Ctrl+K for search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -67,101 +73,105 @@ export function TopBar({ userName, isConnected: connectedProp, onSearch, onAvata
   };
 
   return (
-    <div className="flex items-center justify-between w-full mb-3 pt-1 px-1 select-none gap-2">
-      {/* Left: Greeting & Status Pill */}
-      <div className="flex items-center gap-2.5">
+    <header className="liquid-glass-elevated rounded-[22px] px-4 py-2.5 mb-3 flex items-center justify-between select-none z-20">
+      {/* ── Left: Greeting & Real Connection Indicator ── */}
+      <div className="flex items-center gap-3">
+        {/* Real Connection Status Pill */}
         <div
-          className="clay-pill px-3.5 py-1.5 inline-flex items-center gap-2 text-[12px] font-bold text-[#2E2544] dark:text-[#E8E4F2]"
-          style={{ borderRadius: 999 }}
+          className={`liquid-pill px-3 py-1 gap-2 text-[12px] font-semibold transition-colors ${
+            connection === "connected"
+              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+              : connection === "offline"
+              ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
+              : "text-amber-400 bg-amber-500/10 border-amber-500/20"
+          }`}
+          title={
+            connection === "connected"
+              ? "Backend API and WebSocket healthy"
+              : connection === "offline"
+              ? "Cannot connect to Aura backend"
+              : "Verifying backend health..."
+          }
         >
-          <span className="relative flex h-2.5 w-2.5">
+          <span className="relative flex h-2 w-2">
             {connection === "connected" ? (
               <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10B981]"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </>
             ) : connection === "offline" ? (
-              <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-[0_0_8px_#F59E0B]"></span>
-              </>
-            ) : <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-400" />}
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+            ) : (
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 animate-pulse" />
+            )}
           </span>
-          <span style={{ letterSpacing: "-0.1px" }}>
-            {connection === "connected" ? "Aura connected" : connection === "offline" ? "Aura offline" : "Checking connection"}
+          <span>
+            {connection === "connected"
+              ? "Aura online"
+              : connection === "offline"
+              ? "Offline"
+              : "Connecting..."}
           </span>
         </div>
 
-        <span className="hidden md:inline-block text-[12.5px] font-extrabold text-[#777287] dark:text-[#A39EB2]">
-          {getGreeting()}, <span className="text-[#7C3AED] dark:text-[#C7B5F3]">{displayName}</span> 🌱
+        {/* Calm Human Greeting */}
+        <span className="hidden md:inline-block text-[13px] font-medium text-slate-600 dark:text-slate-300">
+          {getGreeting()},{" "}
+          <span className="font-semibold text-violet-600 dark:text-violet-300">
+            {displayName}
+          </span>
         </span>
       </div>
 
-      {/* Right Utilities: Search Pill, Theme Toggle & Avatar Circle */}
+      {/* ── Right Utilities: Search, Theme Toggle & Avatar ── */}
       <div className="flex items-center gap-2.5">
-        {/* Soft Clay Search Pill with ⌘ K badge */}
+        {/* Search Input Bar */}
         <form
           onSubmit={handleSearchSubmit}
-          className="clay-pill flex items-center gap-2 px-3.5 py-1.5 w-48 sm:w-60 transition-all focus-within:w-60 sm:focus-within:w-72 focus-within:ring-2 focus-within:ring-[#7C3AED]/30"
-          style={{ borderRadius: 999 }}
+          className="liquid-input flex items-center gap-2 px-3 py-1.5 w-44 sm:w-64 transition-all"
         >
+          <Search size={15} className="text-slate-400 shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Ask Aura anything..."
-            className="bg-transparent border-none outline-none text-[12px] text-[#2E2544] dark:text-[#E8E4F2] placeholder-[#9E98AA] dark:placeholder-[#6E6882] w-full font-medium"
-            style={{ letterSpacing: "-0.1px" }}
+            placeholder="Search or ask anything..."
+            className="bg-transparent border-none outline-none text-[12.5px] text-slate-800 dark:text-white placeholder:text-slate-400 w-full font-medium"
           />
-          <div
-            className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold text-[#8E88A4] dark:text-[#9E98B4] bg-black/5 dark:bg-white/10 shrink-0 select-none pointer-events-none"
-            title="Press ⌘ K to search"
-          >
-            ⌘ K
-          </div>
-          <motion.button
-            type="submit"
-            whileHover={{ scale: 1.12 }}
-            whileTap={{ scale: 0.9 }}
-            className="bg-transparent border-none outline-none p-0 cursor-pointer flex items-center justify-center shrink-0 text-[#7C3AED] dark:text-[#C7B5F3]"
-            title="Ask Aura"
-          >
-            <ClaySearchIcon size={16} />
-          </motion.button>
+          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-slate-400 bg-white/10 dark:bg-white/5 border border-white/10 shrink-0">
+            ⌘K
+          </kbd>
         </form>
 
-        {/* Soft 3D Clay Theme Toggle Button */}
-        <motion.button
-          whileHover={{ scale: 1.08, rotate: 15 }}
-          whileTap={{ scale: 0.92 }}
+        {/* Theme Toggle Button */}
+        <button
           onClick={toggleTheme}
+          className="liquid-button w-8 h-8 rounded-full text-slate-400 hover:text-amber-400 dark:text-slate-300 dark:hover:text-amber-300"
           title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          className="clay-theme-toggle border-none outline-none cursor-pointer"
+          aria-label={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
         >
           {isDark ? (
-            <ClaySunIcon size={19} />
+            <Sun size={16} className="text-amber-300" />
           ) : (
-            <Sun size={18} className="text-amber-500" />
+            <Moon size={16} className="text-indigo-600" />
           )}
-        </motion.button>
+        </button>
 
-        {/* User Initial Circle Avatar (Reference Image Header) */}
-        <motion.div
-          whileHover={{ scale: 1.06 }}
-          whileTap={{ scale: 0.95 }}
+        {/* Avatar / Profile Control */}
+        <div
           onClick={onAvatarClick}
-          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer text-white font-bold text-[12px] select-none"
+          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer text-white font-bold text-xs select-none transition-transform hover:scale-105 active:scale-95"
           style={{
-            background: "linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)",
-            boxShadow: "0 2px 8px rgba(124, 58, 237, 0.35)",
+            background: "linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%)",
+            boxShadow: "0 2px 8px rgba(124, 58, 237, 0.4)",
             border: "1.5px solid rgba(255, 255, 255, 0.3)",
           }}
-          title={displayName}
+          title={`Profile: ${displayName}`}
         >
           {avatarChar}
-        </motion.div>
+        </div>
       </div>
-    </div>
+    </header>
   );
 }

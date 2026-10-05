@@ -1,8 +1,25 @@
-import { useState, useEffect } from "react";
-import { motion } from "motion/react";
-import { User as UserIcon, Save, Sparkles, Target, Compass, MessageSquare, Check, LogOut, ShieldAlert } from "lucide-react";
-import { GlassCard } from "./glass-card";
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  User as UserIcon,
+  Sun,
+  Moon,
+  Laptop,
+  Volume2,
+  Globe,
+  Save,
+  Check,
+  LogOut,
+  Shield,
+  Play,
+  Square,
+  Sparkles,
+  Sliders,
+} from "lucide-react";
 import { useUser } from "../context/UserContext";
+import { useTheme } from "../context/ThemeContext";
+import { voiceService, CURATED_VOICES } from "../services/voiceService";
+import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
 import { apiClient } from "../services/apiClient";
 
 interface ProfileScreenProps {
@@ -11,70 +28,39 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) {
-  const { user: authUser, updateUserLocally, refreshUser } = useUser();
+  const { user: authUser, updateUserLocally } = useUser();
+  const { isDark, toggleTheme } = useTheme();
   const effectiveUser = authUser || propUser;
-  const [loading, setLoading] = useState(false);
 
-  const [name, setName] = useState(() => {
-    if (effectiveUser?.name && effectiveUser.name !== "User") return effectiveUser.name;
-    try {
-      const u = localStorage.getItem("aura_user");
-      const parsed = u ? JSON.parse(u) : null;
-      if (parsed?.name && parsed.name !== "User") return parsed.name;
-    } catch {}
-    return "atharvpalekar";
-  });
+  const [activeTab, setActiveTab] = useState<"profile" | "appearance" | "voice" | "language" | "account">("profile");
 
-  const [email, setEmail] = useState(() => {
-    if (effectiveUser?.email && effectiveUser.email !== "user@aura.ai") return effectiveUser.email;
-    try {
-      const u = localStorage.getItem("aura_user");
-      const parsed = u ? JSON.parse(u) : null;
-      if (parsed?.email && parsed.email !== "user@aura.ai") return parsed.email;
-    } catch {}
-    return "atharv@aura.ai";
-  });
-
-  const [commStyle, setCommStyle] = useState(() => (authUser as any)?.communication_style || "balanced");
-  const [interestsStr, setInterestsStr] = useState(() => (authUser?.interests && authUser.interests.length > 0 ? authUser.interests.join(", ") : ""));
-  const [goalsStr, setGoalsStr] = useState(() => (authUser?.goals && authUser.goals.length > 0 ? authUser.goals.join(", ") : "Boost Teamwork Momentum"));
+  // Profile Form State
+  const [name, setName] = useState(() => effectiveUser?.name || "Friend");
+  const [email, setEmail] = useState(() => effectiveUser?.email || "friend@aura.local");
+  const [commStyle, setCommStyle] = useState(() => (authUser as any)?.communication_style || "empathetic");
+  const [interestsStr, setInterestsStr] = useState(() =>
+    authUser?.interests && authUser.interests.length > 0 ? authUser.interests.join(", ") : "Mindfulness, Focus"
+  );
+  const [goalsStr, setGoalsStr] = useState(() =>
+    authUser?.goals && authUser.goals.length > 0 ? authUser.goals.join(", ") : "Cultivate daily calm"
+  );
   const [saved, setSaved] = useState(false);
 
+  // Voice Persona State
+  const [activeVoice, setActiveVoice] = useState(voiceService.activeVoice);
+  const [isPlayingPreview, setIsPlayingPreview] = useState<string | null>(null);
+
+  // Language State
+  const [activeLang, setActiveLang] = useState<SupportedLanguage>(speechService.currentLanguage);
+
   useEffect(() => {
-    const activeU = authUser || propUser;
-    if (activeU) {
-      if (activeU.name && activeU.name !== "User") setName(activeU.name);
-      if (activeU.email && activeU.email !== "user@aura.ai") setEmail(activeU.email);
-      if ("communication_style" in activeU && (activeU as any).communication_style) {
-        setCommStyle((activeU as any).communication_style);
-      }
-      if ("interests" in activeU && Array.isArray((activeU as any).interests) && (activeU as any).interests.length > 0) {
-        setInterestsStr((activeU as any).interests.join(", "));
-      }
-      if ("goals" in activeU && Array.isArray((activeU as any).goals) && (activeU as any).goals.length > 0) {
-        setGoalsStr((activeU as any).goals.join(", "));
-      }
+    if (effectiveUser) {
+      if (effectiveUser.name) setName(effectiveUser.name);
+      if (effectiveUser.email) setEmail(effectiveUser.email);
     }
+  }, [effectiveUser]);
 
-    apiClient.get<any>("/api/v1/users/me")
-      .then((data) => {
-        if (data) {
-          if (data.name && data.name !== "User") setName(data.name);
-          if (data.email && data.email !== "user@aura.ai") setEmail(data.email);
-          if (data.communication_style) setCommStyle(data.communication_style);
-          if (Array.isArray(data.interests) && data.interests.length > 0) {
-            setInterestsStr(data.interests.join(", "));
-          }
-          if (Array.isArray(data.goals) && data.goals.length > 0) {
-            setGoalsStr(data.goals.join(", "));
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [authUser]);
-
-  const handleSave = async () => {
+  const handleSaveProfile = async () => {
     const interests = interestsStr.split(",").map((i) => i.trim()).filter(Boolean);
     const goals = goalsStr.split(",").map((g) => g.trim()).filter(Boolean);
 
@@ -83,154 +69,387 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
       await apiClient.put("/api/v1/users/me/interests", { interests });
       await apiClient.put("/api/v1/users/me/goals", { goals });
     } catch (e) {
-      console.warn("Could not sync profile with backend:", e);
+      console.warn("Profile sync warning:", e);
     }
 
-    // Update local state and storage
     updateUserLocally({ name, email, communication_style: commStyle, interests, goals });
     try {
       const savedUser = localStorage.getItem("aura_user");
       const updated = savedUser ? { ...JSON.parse(savedUser), name, email } : { name, email };
       localStorage.setItem("aura_user", JSON.stringify(updated));
-      localStorage.setItem("aura_user_interests", JSON.stringify(interests));
-      localStorage.setItem("aura_user_goals", JSON.stringify(goals));
-      localStorage.setItem("aura_user_style", commStyle);
-    } catch (e) {}
+    } catch {}
 
     setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setTimeout(() => setSaved(false), 2400);
   };
 
+  const handlePreviewVoice = (vId: string, name: string) => {
+    if (isPlayingPreview === vId) {
+      voiceService.stop();
+      setIsPlayingPreview(null);
+    } else {
+      setIsPlayingPreview(vId);
+      voiceService.setVoice(vId);
+      setActiveVoice(vId);
+      voiceService.speak(`Hello! I am Aura, speaking with my ${name} voice persona.`);
+      setTimeout(() => setIsPlayingPreview(null), 3500);
+    }
+  };
+
+  const handleSelectLanguage = (code: SupportedLanguage) => {
+    setActiveLang(code);
+    speechService.setLanguage(code);
+  };
+
+  const avatarChar = (name || "F").charAt(0).toUpperCase();
+
   return (
-    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
-      <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between mb-2">
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-3 sm:px-6 py-4 pb-28">
+      <div className="max-w-[880px] mx-auto flex flex-col gap-6">
+        {/* ── Top Header ── */}
         <div>
-          <h2 className="text-[28px] font-extrabold tracking-tight m-0 text-[#2D2D42] dark:text-[#FFFFFF]">User Profile</h2>
-          <p className="text-[14px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1">
-            Personalize your identity, communication style, and active goals for Aura.
+          <h1 className="text-[26px] font-extrabold text-slate-900 dark:text-white m-0 tracking-tight">
+            Settings & Preferences
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 m-0">
+            Personalize your Aura companion profile, voice, and system behavior
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.04, y: -1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleSave}
-          className="clay-button flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-[#7B59DC] cursor-pointer"
-          style={{ borderRadius: 9999 }}
-        >
-          {saved ? <Check size={16} /> : <Save size={16} />}
-          {saved ? "Saved!" : "Save Profile"}
-        </motion.button>
-      </div>
 
-      <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-        {/* Basic Info */}
-        <div className="clay-card p-6 rounded-[32px]">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-2xl bg-[#DDD2FC] dark:bg-[#372B5E] grid place-items-center text-[#7B59DC] dark:text-[#C7B5F3] shadow-sm">
-              <UserIcon size={18} />
-            </div>
-            <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base">Identity & Style</h3>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            <div>
-              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Full Name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="clay-input w-full p-3 text-xs font-semibold text-[#2D2D42] dark:text-[#E8E4F2]"
-                style={{ borderRadius: 16 }}
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Email</label>
-              <input
-                value={email}
-                disabled
-                className="clay-input w-full p-3 text-xs font-medium text-[#7A748A] dark:text-[#6E6882] opacity-80"
-                style={{ borderRadius: 16 }}
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Communication Style</label>
-              <select
-                value={commStyle}
-                onChange={(e) => setCommStyle(e.target.value)}
-                className="clay-input w-full p-3 text-xs font-semibold text-[#2D2D42] dark:text-[#E8E4F2]"
-                style={{ borderRadius: 16 }}
+        {/* ── Liquid Glass Tab Bar ── */}
+        <div className="liquid-glass p-1 rounded-2xl flex flex-wrap gap-1">
+          {[
+            { id: "profile", label: "Profile", icon: UserIcon },
+            { id: "appearance", label: "Appearance", icon: Sun },
+            { id: "voice", label: "Voice", icon: Volume2 },
+            { id: "language", label: "Language", icon: Globe },
+            { id: "account", label: "Account", icon: Shield },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border-none outline-none flex items-center gap-2 transition-all ${
+                  isActive
+                    ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                    : "text-slate-400 hover:text-white bg-transparent"
+                }`}
               >
-                <option value="balanced" className="bg-[#171424] text-[#E8E4F2]">Balanced & Empathetic</option>
-                <option value="direct" className="bg-[#171424] text-[#E8E4F2]">Direct & Solution-Focused</option>
-                <option value="gentle" className="bg-[#171424] text-[#E8E4F2]">Gentle & Supportive</option>
-              </select>
-            </div>
-          </div>
+                <Icon size={14} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Goals & Interests */}
-        <div className="clay-card p-6 rounded-[32px]">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-2xl bg-[#D0F6EC] dark:bg-[#1A453F] grid place-items-center text-[#0D9488] dark:text-[#34D399] shadow-sm">
-              <Target size={18} />
-            </div>
-            <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base">Goals & Hobbies</h3>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            <div>
-              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Active Goals (comma-separated)</label>
-              <textarea
-                value={goalsStr}
-                onChange={(e) => setGoalsStr(e.target.value)}
-                rows={3}
-                className="clay-input w-full p-3 text-xs font-medium text-[#2D2D42] dark:text-[#E8E4F2] resize-none"
-                style={{ borderRadius: 16 }}
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-[#4B4B60] dark:text-[#D8D2E8] block mb-1">Interests & Hobbies (comma-separated)</label>
-              <textarea
-                value={interestsStr}
-                onChange={(e) => setInterestsStr(e.target.value)}
-                rows={3}
-                className="clay-input w-full p-3 text-xs font-medium text-[#2D2D42] dark:text-[#E8E4F2] resize-none"
-                style={{ borderRadius: 16 }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Account Security & Sign Out Section */}
-      {onLogout && (
-        <div className="clay-card p-6 rounded-[32px]">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#FEE0E0] dark:bg-[#592323] grid place-items-center text-[#D65548] dark:text-[#F87171] shadow-sm">
-                <ShieldAlert size={18} />
+        {/* ── Tab Content Panels ── */}
+        <div className="liquid-card-opaque p-6 sm:p-8">
+          {/* 1. Profile Tab */}
+          {activeTab === "profile" && (
+            <div className="flex flex-col gap-5">
+              {/* User Avatar & Identity Header */}
+              <div className="flex items-center gap-4 pb-5 border-b border-white/10 dark:border-white/5">
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg"
+                  style={{
+                    background: "linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%)",
+                    border: "2px solid rgba(255, 255, 255, 0.4)",
+                  }}
+                >
+                  {avatarChar}
+                </div>
+                <div>
+                  <h3 className="text-[17px] font-bold text-slate-900 dark:text-white m-0">
+                    {name}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 m-0">{email}</p>
+                </div>
               </div>
+
+              {/* Form Fields */}
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                    Your Name
+                  </label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="liquid-input w-full px-3.5 py-2.5 text-xs text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                    Email Address
+                  </label>
+                  <input
+                    value={email}
+                    disabled
+                    className="liquid-input w-full px-3.5 py-2.5 text-xs text-slate-500 dark:text-slate-400 outline-none opacity-70 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
               <div>
-                <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-sm">Account Session & Authentication</h3>
-                <p className="text-xs text-[#7A748A] dark:text-[#9E98B4] font-medium mt-0.5">Sign out of your active session and return to the Sign In screen.</p>
+                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                  Communication Style
+                </label>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  {[
+                    { id: "empathetic", label: "Warm & Empathetic", desc: "Compassionate, reflective" },
+                    { id: "direct", label: "Direct & Analytical", desc: "Concise, clarity-focused" },
+                    { id: "reflective", label: "Calm & Reflective", desc: "Mindful, exploratory" },
+                  ].map((style) => (
+                    <button
+                      key={style.id}
+                      onClick={() => setCommStyle(style.id)}
+                      className={`liquid-card-subtle p-3.5 text-left border cursor-pointer transition-all ${
+                        commStyle === style.id
+                          ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                          : "border-transparent text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <span className="text-xs font-bold block text-slate-900 dark:text-white">
+                        {style.label}
+                      </span>
+                      <span className="text-[10.5px] mt-0.5 block opacity-75">{style.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                  Personal Wellbeing Goals (comma-separated)
+                </label>
+                <input
+                  value={goalsStr}
+                  onChange={(e) => setGoalsStr(e.target.value)}
+                  className="liquid-input w-full px-3.5 py-2.5 text-xs text-slate-900 dark:text-white outline-none"
+                  placeholder="e.g. Cultivate peace, Better sleep, Focus"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                  Focus Areas & Interests (comma-separated)
+                </label>
+                <input
+                  value={interestsStr}
+                  onChange={(e) => setInterestsStr(e.target.value)}
+                  className="liquid-input w-full px-3.5 py-2.5 text-xs text-slate-900 dark:text-white outline-none"
+                  placeholder="e.g. Mindfulness, Anxiety relief, Journaling"
+                />
+              </div>
+
+              {/* Save Button */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10 dark:border-white/5">
+                {saved && (
+                  <span className="text-xs text-emerald-400 flex items-center gap-1 font-semibold">
+                    <Check size={14} />
+                    <span>Saved successfully!</span>
+                  </span>
+                )}
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleSaveProfile}
+                  className="liquid-button-primary px-6 py-2.5 text-xs gap-1.5"
+                >
+                  <Save size={14} />
+                  <span>Save Preferences</span>
+                </motion.button>
               </div>
             </div>
+          )}
 
-            <motion.button
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={onLogout}
-              className="clay-logout-btn px-6 py-2.5 rounded-full font-bold text-xs cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
-            >
-              <LogOut size={15} />
-              <span>Log Out of Aura</span>
-            </motion.button>
-          </div>
+          {/* 2. Appearance Tab */}
+          {activeTab === "appearance" && (
+            <div className="flex flex-col gap-6">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                  Theme Palette
+                </h3>
+                <p className="text-xs text-slate-400 mb-3">
+                  Choose between the dark indigo atmosphere or soft warm morning light
+                </p>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <button
+                    onClick={toggleTheme}
+                    className={`liquid-card p-4 text-left border cursor-pointer transition-all ${
+                      !isDark
+                        ? "border-violet-500 bg-violet-500/10"
+                        : "border-transparent opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sun size={18} className="text-amber-500" />
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        Light Theme
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 m-0">
+                      Soft warm white, pale lavender, mist blue, translucent glass
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={toggleTheme}
+                    className={`liquid-card p-4 text-left border cursor-pointer transition-all ${
+                      isDark
+                        ? "border-violet-500 bg-violet-500/10"
+                        : "border-transparent opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Moon size={18} className="text-violet-400" />
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        Dark Theme
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 m-0">
+                      Deep indigo #070914, electric violet, luminous blue light sources
+                    </p>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Voice Tab */}
+          {activeTab === "voice" && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                  Neural Voice Personas
+                </h3>
+                <p className="text-xs text-slate-400 mb-3">
+                  Select and preview the natural neural voice used by Aura in Voice and Face-to-Face consultations
+                </p>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                {CURATED_VOICES.map((v) => (
+                  <div
+                    key={v.id}
+                    className={`liquid-card p-4 flex items-center justify-between border ${
+                      activeVoice === v.id
+                        ? "border-violet-500 bg-violet-500/10"
+                        : "border-transparent"
+                    }`}
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                        {v.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        {v.gender} • {v.accent}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handlePreviewVoice(v.id, v.name)}
+                        className="w-8 h-8 rounded-full liquid-button text-violet-400"
+                        title="Preview voice"
+                      >
+                        {isPlayingPreview === v.id ? <Square size={13} /> : <Play size={13} />}
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          voiceService.setVoice(v.id);
+                          setActiveVoice(v.id);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold cursor-pointer border-none ${
+                          activeVoice === v.id
+                            ? "bg-violet-600 text-white"
+                            : "liquid-button text-slate-400"
+                        }`}
+                      >
+                        {activeVoice === v.id ? "Active" : "Select"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4. Language Tab */}
+          {activeTab === "language" && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                  Spoken Language
+                </h3>
+                <p className="text-xs text-slate-400 mb-3">
+                  Select the primary language for voice recognition and natural conversation
+                </p>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                {SUPPORTED_LANGUAGES.map((l) => (
+                  <button
+                    key={l.code}
+                    onClick={() => handleSelectLanguage(l.code)}
+                    className={`liquid-card p-3.5 text-left flex items-center justify-between border cursor-pointer transition-all ${
+                      activeLang === l.code
+                        ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                        : "border-transparent text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-lg">{l.flag}</span>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        {l.name}
+                      </span>
+                    </div>
+                    {activeLang === l.code && <Check size={15} className="text-violet-400" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. Account & Privacy Tab */}
+          {activeTab === "account" && (
+            <div className="flex flex-col gap-5">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                  Account & Privacy Guard
+                </h3>
+                <p className="text-xs text-slate-400 mb-3">
+                  Your emotional and wellbeing data is confidential and stored securely in local database records.
+                </p>
+              </div>
+
+              <div className="liquid-card-subtle p-4 text-xs text-slate-300 leading-relaxed">
+                <div className="flex items-center gap-2 font-bold text-violet-300 mb-1.5">
+                  <Shield size={16} />
+                  <span>Privacy First Guarantee</span>
+                </div>
+                Your conversations are never sold or used for public advertising. You retain full control over your cognitive memories and can delete them at any time from the Memory tab.
+              </div>
+
+              {onLogout && (
+                <div className="pt-4 border-t border-white/10 dark:border-white/5 flex justify-end">
+                  <button
+                    onClick={onLogout}
+                    className="liquid-button px-5 py-2.5 text-xs text-rose-400 border-rose-500/30 hover:bg-rose-500/15 gap-2"
+                  >
+                    <LogOut size={14} />
+                    <span>Sign Out of Aura</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
       </div>
     </div>
   );

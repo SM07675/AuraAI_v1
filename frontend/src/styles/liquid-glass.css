@@ -1,0 +1,407 @@
+/* ==========================================================================
+   Aura AI — Premium Liquid Glass + Holographic Aura Design System
+   ========================================================================== */
+
+:root {
+  /* ── Light Mode Palette (Soft warm white, pale lavender, mist blue, subtle peach) ── */
+  --bg-primary: #F8F9FD;
+  --bg-secondary: #F2EFFB;
+  --bg-tertiary: #EDF4FB;
+  --bg-peach: #FAF3F0;
+  
+  --text-primary: #191B2E;
+  --text-secondary: #585C77;
+  --text-tertiary: #898EAA;
+  
+  /* Luminous Source Accents */
+  --aura-violet: #7C3AED;
+  --aura-indigo: #6366F1;
+  --aura-blue: #0284C7;
+  --aura-cyan: #06B6D4;
+  --aura-pink: #EC4899;
+  
+  /* Liquid Glass — Light Mode */
+  --glass-bg: rgba(255, 255, 255, 0.68);
+  --glass-bg-elevated: rgba(255, 255, 255, 0.82);
+  --glass-bg-subtle: rgba(255, 255, 255, 0.45);
+  --glass-bg-opaque: rgba(255, 255, 255, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.9);
+  --glass-border-subtle: rgba(215, 220, 240, 0.6);
+  --glass-highlight: inset 0 1px 1px 0 rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 12px 36px -6px rgba(35, 40, 75, 0.08), 0 2px 8px -2px rgba(35, 40, 75, 0.04);
+  --glass-shadow-elevated: 0 20px 48px -10px rgba(35, 40, 75, 0.14), 0 4px 12px -2px rgba(35, 40, 75, 0.06);
+  --glass-blur: blur(24px) saturate(180%);
+}
+
+.dark {
+  /* ── Dark Mode Palette (Base: #070914, #0B1020, #11152B) ── */
+  --bg-primary: #070914;
+  --bg-secondary: #0B1020;
+  --bg-tertiary: #11152B;
+  
+  --text-primary: #F4F6FF;
+  --text-secondary: #A3A9C5;
+  --text-tertiary: #6E7494;
+  
+  /* Luminous Source Accents (Light sources, not flat neon) */
+  --aura-violet: #8B5CF6;
+  --aura-indigo: #6366F1;
+  --aura-blue: #38BDF8;
+  --aura-cyan: #22D3EE;
+  --aura-pink: #F472B6;
+  
+  /* Liquid Glass — Dark Mode */
+  --glass-bg: rgba(13, 17, 36, 0.62);
+  --glass-bg-elevated: rgba(17, 23, 48, 0.76);
+  --glass-bg-subtle: rgba(11, 16, 32, 0.45);
+  --glass-bg-opaque: rgba(12, 17, 35, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-subtle: rgba(255, 255, 255, 0.06);
+  --glass-highlight: inset 0 1px 1px 0 rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 14px 40px -8px rgba(0, 0, 0, 0.45), 0 2px 10px 0 rgba(0, 0, 0, 0.25);
+  --glass-shadow-elevated: 0 24px 54px -10px rgba(0, 0, 0, 0.65), 0 4px 16px 0 rgba(0, 0, 0, 0.35);
+  --glass-blur: blur(28px) saturate(190%);
+}
+
+/* ==========================================================================
+   Liquid Glass Primitives
+   ========================================================================== */
+
+/* Standard Liquid Glass */
+.liquid-glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  position: relative;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Elevated Liquid Glass (Nav, TopBar, Overlays, Floating Controls) */
+.liquid-glass-elevated {
+  background: var(--glass-bg-elevated);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-elevated), var(--glass-highlight);
+  position: relative;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Specular Top Edge Highlight */
+.liquid-glass::before,
+.liquid-glass-elevated::before,
+.liquid-card::before,
+.liquid-card-large::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0) 0%, 
+    rgba(255, 255, 255, 0.32) 25%, 
+    rgba(255, 255, 255, 0.48) 50%, 
+    rgba(255, 255, 255, 0.32) 75%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Slightly More Opaque Card for Dense Information (Memory, Analytics) */
+.liquid-card-opaque {
+  background: var(--glass-bg-opaque);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border-subtle);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  border-radius: 24px;
+}
+
+/* Large Hero Card (28-32px radius) */
+.liquid-card-large {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  border-radius: 30px;
+  position: relative;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Secondary Card (20-24px radius) */
+.liquid-card {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  border-radius: 22px;
+  position: relative;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Card Subtle / Flat */
+.liquid-card-subtle {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 18px;
+}
+
+/* Liquid Interactive Button (14-18px radius) */
+.liquid-button {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.12), var(--glass-highlight);
+  border-radius: 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-button:hover {
+  background: var(--glass-bg-elevated);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 20px -2px rgba(124, 58, 237, 0.2), var(--glass-highlight);
+  transform: translateY(-1px);
+}
+
+.liquid-button:active {
+  transform: scale(0.97) translateY(0);
+}
+
+/* Primary Luminous Action Button */
+.liquid-button-primary {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.88) 0%, rgba(99, 102, 241, 0.88) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 24px -4px rgba(124, 58, 237, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+  color: #FFFFFF;
+  border-radius: 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-button-primary:hover {
+  background: linear-gradient(135deg, rgba(147, 103, 247, 0.95) 0%, rgba(110, 114, 243, 0.95) 100%);
+  box-shadow: 0 8px 30px -4px rgba(124, 58, 237, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+.liquid-button-primary:active {
+  transform: scale(0.97) translateY(0);
+}
+
+/* Liquid Pill (Fully Rounded) */
+.liquid-pill {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), var(--glass-highlight);
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-pill-active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.22) 0%, rgba(56, 189, 248, 0.14) 100%);
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.25), var(--glass-highlight);
+}
+
+/* Liquid Input / Composer */
+.liquid-input {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1), var(--glass-highlight);
+  border-radius: 20px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-input:focus-within {
+  border-color: rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 24px -2px rgba(139, 92, 246, 0.3), inset 0 1px 2px rgba(0, 0, 0, 0.15), var(--glass-highlight);
+  background: var(--glass-bg);
+}
+
+/* ==========================================================================
+   Ambient Moving Background & Light Clouds
+   ========================================================================== */
+
+.aura-ambient-container {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.aura-ambient-dark {
+  background: radial-gradient(circle at 50% 20%, #11152B 0%, #0B1020 45%, #070914 100%);
+}
+
+.aura-ambient-light {
+  background: radial-gradient(circle at 50% 15%, #FAF3F0 0%, #EDF4FB 40%, #F8F9FD 100%);
+}
+
+/* Light source clouds */
+.ambient-glow-cloud {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.45;
+  will-change: transform, opacity;
+  animation: cloud-float 22s ease-in-out infinite alternate;
+}
+
+.dark .ambient-glow-cloud {
+  opacity: 0.38;
+  filter: blur(110px);
+}
+
+@keyframes cloud-float {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(30px, -40px, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-35px, 25px, 0) scale(0.95);
+  }
+}
+
+/* ==========================================================================
+   Chat Liquid Bubbles
+   ========================================================================== */
+
+.liquid-bubble-aura {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  border-radius: 24px 24px 24px 8px;
+  position: relative;
+}
+
+.liquid-bubble-user {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.85) 0%, rgba(99, 102, 241, 0.85) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 10px 28px -4px rgba(124, 58, 237, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+  border-radius: 24px 24px 8px 24px;
+  color: #FFFFFF;
+}
+
+/* ==========================================================================
+   Hologram Ring & Energy Accents
+   ========================================================================== */
+
+@keyframes holo-ring-pulse {
+  0% {
+    transform: rotateX(75deg) rotateZ(0deg) scale(0.96);
+    opacity: 0.6;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.4), inset 0 0 15px rgba(139, 92, 246, 0.4);
+  }
+  50% {
+    transform: rotateX(75deg) rotateZ(180deg) scale(1.04);
+    opacity: 0.9;
+    box-shadow: 0 0 35px rgba(56, 189, 248, 0.7), inset 0 0 25px rgba(139, 92, 246, 0.7);
+  }
+  100% {
+    transform: rotateX(75deg) rotateZ(360deg) scale(0.96);
+    opacity: 0.6;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.4), inset 0 0 15px rgba(139, 92, 246, 0.4);
+  }
+}
+
+.hologram-floor-ring {
+  animation: holo-ring-pulse 8s linear infinite;
+}
+
+/* ==========================================================================
+   Custom Glass Scrollbars
+   ========================================================================== */
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 190, 0.22);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 150, 190, 0.4);
+}
+
+/* Compatibility aliases so existing components don't break during transition */
+.clay-card {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  border-radius: 24px;
+}
+
+.clay-card-flat {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 18px;
+}
+
+.clay-pill {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 9999px;
+}
+
+.clay-button {
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.clay-button:active {
+  transform: scale(0.97);
+}

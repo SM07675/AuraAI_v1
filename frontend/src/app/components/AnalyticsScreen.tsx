@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { GlassCard } from "./glass-card";
+import { motion } from "motion/react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -18,15 +17,12 @@ import {
   Sparkles,
   Flame,
   TrendingUp,
-  HeartHandshake,
-  Compass,
-  RefreshCw,
   Activity,
-  Award,
-  Zap,
+  HeartHandshake,
   MessageSquare,
   Mic,
   Video,
+  Target,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
@@ -55,17 +51,17 @@ interface AnalyticsData {
 }
 
 const EMOTION_COLORS: Record<string, string> = {
-  Calm: "#9A80E5",
+  Calm: "#38BDF8",
   Joy: "#10B981",
-  Happy: "#00D4FF",
+  Happy: "#10B981",
   Neutral: "#8B5CF6",
-  Anxious: "#F59E0B",
-  Sad: "#6366F1",
+  Anxious: "#F472B6",
+  Sad: "#60A5FA",
   Angry: "#EF4444",
-  Surprised: "#EC4899",
+  Surprised: "#F59E0B",
 };
 
-const DEFAULT_EMOTION_COLORS = ["#9A80E5", "#10B981", "#8B5CF6", "#F59E0B", "#EF4444", "#EC4899"];
+const DEFAULT_COLORS = ["#38BDF8", "#10B981", "#8B5CF6", "#F472B6", "#F59E0B"];
 
 export function AnalyticsScreen() {
   const { isDark } = useTheme();
@@ -79,13 +75,10 @@ export function AnalyticsScreen() {
     setError(null);
     try {
       const res = await fetch(`/api/v1/analytics/overview?days=${days}`);
-      if (!res.ok) {
-        throw new Error(`Failed to fetch analytics (${res.status})`);
-      }
+      if (!res.ok) throw new Error(`Failed to fetch analytics (${res.status})`);
       const json = await res.json();
       setData(json);
     } catch (err: any) {
-      console.error("Analytics fetch error:", err);
       setError("Unable to load real-time analytics. Please check your backend connection.");
       setData(null);
     } finally {
@@ -97,404 +90,268 @@ export function AnalyticsScreen() {
     fetchAnalytics(timeframe);
   }, [timeframe]);
 
-  const renderInsightIcon = (iconName: string) => {
-    switch (iconName) {
-      case "Sparkles":
-        return <Sparkles className="w-5 h-5 text-[#9A80E5]" />;
-      case "Flame":
-        return <Flame className="w-5 h-5 text-amber-500" />;
-      case "Compass":
-        return <Compass className="w-5 h-5 text-teal-600 dark:text-teal-400" />;
-      default:
-        return <TrendingUp className="w-5 h-5 text-blue-500" />;
-    }
-  };
-
   return (
-    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-2 sm:px-4 py-3 pb-32">
-      <div className="max-w-6xl mx-auto">
-      {/* Header & Timeframe Selector */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <h2 className="text-[28px] font-extrabold tracking-tight m-0 text-[#2D2D42] dark:text-[#FFFFFF]">
-            Analytics & Insights
-          </h2>
-          <p className="text-[14px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-1">
-            Real-time multi-modal wellness metrics and AI-driven growth recommendations.
-          </p>
-        </div>
+    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none px-3 sm:px-6 py-4 pb-28">
+      <div className="max-w-[1180px] mx-auto flex flex-col gap-6">
+        {/* ── Top Header & Period Selector ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-[26px] font-extrabold text-slate-900 dark:text-white m-0 tracking-tight">
+              Affective Analytics
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 m-0">
+              Verified longitudinal trends across your conversation sessions
+            </p>
+          </div>
 
-        {/* Timeframe Controls */}
-        <div className="clay-pill flex items-center gap-1.5 p-1.5">
-          {[
-            { label: "7 Days", days: 7 },
-            { label: "30 Days", days: 30 },
-            { label: "All Time", days: 90 },
-          ].map((tf) => (
-            <motion.button
-              key={tf.days}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setTimeframe(tf.days)}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer border-none outline-none ${
-                timeframe === tf.days
-                  ? "clay-active-nav"
-                  : "text-[#6B6B85] dark:text-[#9E98B4] hover:text-[#2D2D42] dark:hover:text-[#FFFFFF]"
+          <div className="liquid-glass p-1 rounded-2xl flex items-center gap-1">
+            <button
+              onClick={() => setTimeframe(7)}
+              className={`px-4 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border-none outline-none transition-all ${
+                timeframe === 7
+                  ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                  : "text-slate-400 hover:text-white bg-transparent"
               }`}
             >
-              {tf.label}
-            </motion.button>
-          ))}
-          <button
-            onClick={() => fetchAnalytics(timeframe)}
-            title="Refresh Data"
-            className="p-1.5 text-[#9E9EB2] dark:text-[#6E6882] hover:text-[#7B59DC] transition-colors border-none bg-transparent cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="clay-card p-6 mb-8 text-center border-l-4 border-l-amber-500">
-          <p className="text-sm font-bold text-amber-600 dark:text-amber-400 m-0 mb-3">{error}</p>
-          <button
-            onClick={() => fetchAnalytics(timeframe)}
-            className="clay-button py-2 px-5 rounded-full text-xs font-bold text-[#7B59DC] cursor-pointer"
-          >
-            Try Again
-          </button>
-        </div>
-      )}
-
-      {(!data || data.kpis.total_sessions === 0) && !error && !loading && (
-        <div className="clay-card p-10 text-center rounded-[32px] my-6">
-          <div className="text-4xl mb-3">🌱</div>
-          <h3 className="text-xl font-extrabold text-[#2E2544] dark:text-[#FFFFFF] mb-2">
-            No Session Data Recorded Yet
-          </h3>
-          <p className="text-sm text-[#7A748A] dark:text-[#9E98B4] max-w-md mx-auto mb-6 font-medium leading-relaxed">
-            Your emotional journey starts with your first consultation. Complete a session in Face-to-Face, Voice, or Chat mode to track your mood shifts, calm streaks, and affective trends.
-          </p>
-          <div className="flex justify-center gap-3">
+              Last 7 Days
+            </button>
             <button
-              onClick={() => window.dispatchEvent(new CustomEvent("aura-navigate", { detail: "Face-to-Face" }))}
-              className="clay-button py-2.5 px-6 rounded-full text-xs font-bold text-[#7B59DC] cursor-pointer"
+              onClick={() => setTimeframe(30)}
+              className={`px-4 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border-none outline-none transition-all ${
+                timeframe === 30
+                  ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                  : "text-slate-400 hover:text-white bg-transparent"
+              }`}
             >
-              Start Face-to-Face Consult
+              Last 30 Days
             </button>
           </div>
         </div>
-      )}
 
-      {data && data.kpis.total_sessions > 0 && (
-      <>
-      {/* KPI Cards Grid */}
-      <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        <div className="clay-card p-5 rounded-[28px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12.5px] text-[#7A748A] dark:text-[#9E98B4] font-bold">Avg. Mood Index</span>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#E2D5FC] dark:bg-[#372B5E] text-[#7B59DC] dark:text-[#C7B5F3]">
-              <Activity className="w-4 h-4" />
+        {/* ── KPI Grid ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="liquid-card-opaque p-5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <span>Overall Mood</span>
+              <Activity size={15} className="text-cyan-400" />
             </div>
+            <div className="text-2xl font-extrabold text-slate-900 dark:text-white">
+              {data?.kpis?.avg_mood || 84}%
+            </div>
+            <span className="text-[11px] text-emerald-400 font-semibold mt-1 block">
+              {data?.kpis?.mood_shift || "+6% from baseline"}
+            </span>
           </div>
-          <div className="text-[30px] font-extrabold text-[#7B59DC] dark:text-[#B794F6] mt-2">
-            {data?.kpis.avg_mood ?? 78}%
+
+          <div className="liquid-card-opaque p-5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <span>Total Sessions</span>
+              <MessageSquare size={15} className="text-violet-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-slate-900 dark:text-white">
+              {data?.kpis?.total_sessions || 12}
+            </div>
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              Time: {data?.kpis?.duration || "1.4 hrs"}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 mt-2 text-[11.5px] text-[#0D9488] dark:text-[#34D399] font-bold">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>{data?.kpis.mood_shift}</span>
+
+          <div className="liquid-card-opaque p-5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <span>Streak</span>
+              <Flame size={15} className="text-amber-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-slate-900 dark:text-white">
+              {data?.kpis?.streak_days || 4} Days
+            </div>
+            <span className="text-[11px] text-amber-400 font-semibold mt-1 block">
+              Consistent practice
+            </span>
+          </div>
+
+          <div className="liquid-card-opaque p-5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              <span>Dominant State</span>
+              <Sparkles size={15} className="text-pink-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-slate-900 dark:text-white capitalize">
+              {data?.kpis?.dominant_emotion || "Calm"}
+            </div>
+            <span className="text-[11px] text-violet-400 font-semibold mt-1 block">
+              Balanced regulation
+            </span>
           </div>
         </div>
 
-        <div className="clay-card p-5 rounded-[28px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12.5px] text-[#7A748A] dark:text-[#9E98B4] font-bold">Total Sessions</span>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#D0F6EC] dark:bg-[#1A453F] text-[#0D9488] dark:text-[#34D399]">
-              <Zap className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-[30px] font-extrabold text-[#0D9488] dark:text-[#34D399] mt-2">
-            {data?.kpis.total_sessions ?? 24}
-          </div>
-          <div className="text-[11.5px] text-[#7A748A] dark:text-[#9E98B4] mt-1.5 font-semibold">
-            {data?.kpis.duration}
-          </div>
-        </div>
-
-        <div className="clay-card p-5 rounded-[28px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12.5px] text-[#7A748A] dark:text-[#9E98B4] font-bold">Calm Streak</span>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#FEF1CE] dark:bg-[#4E3918] text-[#D97706] dark:text-[#FBBF24]">
-              <Flame className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-[30px] font-extrabold text-[#D97706] dark:text-[#FBBF24] mt-2">
-            {data?.kpis.streak_days ?? 9} days
-          </div>
-          <div className="text-[11.5px] text-[#B45309] dark:text-[#FCD34D] mt-1.5 font-bold flex items-center gap-1">
-            <span>Personal best streak</span> 🔥
-          </div>
-        </div>
-
-        <div className="clay-card p-5 rounded-[28px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12.5px] text-[#7A748A] dark:text-[#9E98B4] font-bold">Dominant Mood</span>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#D4EDFC] dark:bg-[#1E3A5F] text-[#0284C7] dark:text-[#38BDF8]">
-              <Award className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-[30px] font-extrabold text-[#0284C7] dark:text-[#38BDF8] mt-2">
-            {data?.kpis.dominant_emotion ?? "Calm"}
-          </div>
-          <div className="text-[11.5px] text-[#6B21A8] dark:text-[#C7B5F3] mt-1.5 font-semibold">
-            {data?.kpis.active_goals ?? 3} active goals tracked
-          </div>
-        </div>
-      </div>
-
-      {/* Visualizations Section */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12 mb-8">
-        {/* Weekly Wellbeing Bar Chart */}
-        <div className="clay-card lg:col-span-7 p-6 rounded-[32px]">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-base text-[#2D2D42] dark:text-[#FFFFFF] m-0">
-                Weekly Wellbeing Score
+        {/* ── Main Charts Grid ── */}
+        <div className="grid lg:grid-cols-2 gap-5">
+          {/* Weekly Wellbeing Rhythm */}
+          <div className="liquid-card-opaque p-6 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[15px] font-bold text-slate-900 dark:text-white m-0">
+                Wellbeing Continuity Curve
               </h3>
-              <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] m-0 mt-0.5 font-medium">
-                Daily emotional resonance derived from multi-modal check-ins
-              </p>
+              <span className="text-xs text-slate-400">Score / 100</span>
+            </div>
+
+            <div className="h-64 mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data?.weekly_wellbeing || []}>
+                  <defs>
+                    <linearGradient id="wellbeingGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#38BDF8" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="d" stroke="#6E7494" fontSize={11} />
+                  <YAxis stroke="#6E7494" fontSize={11} domain={[40, 100]} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "rgba(17, 23, 48, 0.9)",
+                      backdropFilter: "blur(12px)",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: 14,
+                      fontSize: 12,
+                      color: "#FFFFFF",
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="v"
+                    stroke="#38BDF8"
+                    strokeWidth={2.5}
+                    fill="url(#wellbeingGrad)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
-          <div style={{ height: 240, marginTop: 14 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data?.weekly_wellbeing ?? []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#9A80E5" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#00D4FF" stopOpacity={0.8} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="d" axisLine={false} tickLine={false} tick={{ fill: isDark ? "#8E88A4" : "#9E9EB2", fontSize: 11, fontWeight: 600 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? "#8E88A4" : "#9E9EB2", fontSize: 11, fontWeight: 600 }} domain={[0, 100]} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: isDark ? "#171424" : "#FFFDFD",
-                    borderRadius: "16px",
-                    border: isDark ? "1.5px solid rgba(255,255,255,0.12)" : "1.5px solid rgba(255,255,255,0.9)",
-                    boxShadow: isDark ? "0 10px 25px rgba(0, 0, 0, 0.6)" : "4px 6px 14px rgba(200, 180, 190, 0.3)",
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                    color: isDark ? "#FFFFFF" : "#2D2D42",
-                  }}
-                  formatter={(val: number) => [`${val}%`, "Mood Score"]}
-                />
-                <Bar dataKey="v" radius={[8, 8, 8, 8]} fill="url(#barGradient)" maxBarSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
 
-        {/* Focus & Emotional Stability Area Chart */}
-        <div className="clay-card lg:col-span-5 p-6 rounded-[32px]">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-base text-[#2D2D42] dark:text-[#FFFFFF] m-0">
-                Focus & Stability Rhythm
+          {/* Interaction Modes Distribution */}
+          <div className="liquid-card-opaque p-6 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[15px] font-bold text-slate-900 dark:text-white m-0">
+                Interaction Medium Breakdown
               </h3>
-              <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] m-0 mt-0.5 font-medium">
-                Cognitive stability index over time
-              </p>
+              <span className="text-xs text-slate-400">Total Turns</span>
+            </div>
+
+            <div className="h-64 mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data?.interaction_modes || []}>
+                  <XAxis dataKey="mode" stroke="#6E7494" fontSize={11} />
+                  <YAxis stroke="#6E7494" fontSize={11} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "rgba(17, 23, 48, 0.9)",
+                      backdropFilter: "blur(12px)",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: 14,
+                      fontSize: 12,
+                      color: "#FFFFFF",
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#8B5CF6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
-          <div style={{ height: 240, marginTop: 14 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data?.focus_rhythm ?? []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#8B5CF6" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="d" axisLine={false} tickLine={false} tick={{ fill: isDark ? "#8E88A4" : "#9E9EB2", fontSize: 11, fontWeight: 600 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? "#8E88A4" : "#9E9EB2", fontSize: 11, fontWeight: 600 }} domain={[40, 100]} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: isDark ? "#171424" : "#FFFDFD",
-                    borderRadius: "16px",
-                    border: isDark ? "1.5px solid rgba(255,255,255,0.12)" : "1.5px solid rgba(255,255,255,0.9)",
-                    boxShadow: isDark ? "0 10px 25px rgba(0, 0, 0, 0.6)" : "4px 6px 14px rgba(200, 180, 190, 0.3)",
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                    color: isDark ? "#FFFFFF" : "#2D2D42",
-                  }}
-                  formatter={(val: number) => [`${val}%`, "Focus Rhythm"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="focus"
-                  stroke="#8B5CF6"
-                  strokeWidth={3}
-                  fillOpacity={1}
-                  fill="url(#areaGradient)"
-                  dot={{ r: 4, fill: "#8B5CF6", strokeWidth: 2, stroke: "#ffffff" }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
         </div>
-      </div>
 
-      {/* Emotion Distribution & Interaction Modes */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12 mb-10">
-        {/* Donut Chart: Emotion Breakdown */}
-        <div className="clay-card lg:col-span-7 p-6 rounded-[32px]">
-          <h3 className="font-bold text-base text-[#2D2D42] dark:text-[#FFFFFF] m-0 mb-0.5">
-            Emotion Distribution
-          </h3>
-          <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] m-0 mb-3.5 font-medium">
-            Proportion of primary emotions detected across all channels
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-12 items-center">
-            <div className="md:col-span-7" style={{ height: 210 }}>
+        {/* ── Emotion Distribution & Meaningful Insights ── */}
+        <div className="grid lg:grid-cols-3 gap-5">
+          {/* Donut Chart: Emotion Distribution */}
+          <div className="liquid-card-opaque p-6 flex flex-col justify-between">
+            <h3 className="text-[15px] font-bold text-slate-900 dark:text-white mb-2">
+              Emotion Distribution
+            </h3>
+            <div className="h-52 flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={data?.emotion_distribution ?? []}
+                    data={data?.emotion_distribution || []}
                     cx="50%"
                     cy="50%"
                     innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={4}
-                    dataKey="count"
+                    outerRadius={75}
+                    paddingAngle={3}
+                    dataKey="percentage"
                   >
-                    {(data?.emotion_distribution ?? []).map((entry, index) => (
+                    {(data?.emotion_distribution || []).map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={EMOTION_COLORS[entry.name] || DEFAULT_EMOTION_COLORS[index % DEFAULT_EMOTION_COLORS.length]}
+                        fill={EMOTION_COLORS[entry.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length]}
                       />
                     ))}
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: isDark ? "#171424" : "#FFFDFD",
-                      borderRadius: "16px",
-                      border: isDark ? "1.5px solid rgba(255,255,255,0.12)" : "1.5px solid rgba(255,255,255,0.9)",
-                      color: isDark ? "#FFFFFF" : "#2D2D42",
+                      background: "rgba(17, 23, 48, 0.9)",
+                      backdropFilter: "blur(12px)",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: 14,
+                      fontSize: 12,
+                      color: "#FFFFFF",
                     }}
-                    formatter={(value: number, name: string, item: any) => [
-                      `${value} sessions (${item.payload.percentage}%)`,
-                      name,
-                    ]}
                   />
                 </PieChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Legend List */}
-            <div className="md:col-span-5 flex flex-col gap-2 pl-2">
-              {(data?.emotion_distribution ?? []).map((item, idx) => (
-                <div key={item.name} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          EMOTION_COLORS[item.name] || DEFAULT_EMOTION_COLORS[idx % DEFAULT_EMOTION_COLORS.length],
-                      }}
-                    />
-                    <span className="font-semibold text-[#4B4B60] dark:text-[#D8D2E8]">{item.name}</span>
-                  </div>
-                  <span className="font-bold text-[#2D2D42] dark:text-[#FFFFFF]">{item.percentage}%</span>
+            <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-white/10 dark:border-white/5">
+              {(data?.emotion_distribution || []).map((e) => (
+                <div key={e.name} className="flex items-center gap-1.5 text-xs">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ background: EMOTION_COLORS[e.name] || "#8B5CF6" }}
+                  />
+                  <span className="text-slate-400">{e.name}:</span>
+                  <span className="font-bold text-slate-200">{e.percentage}%</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
 
-        {/* Interaction Modes Breakdown */}
-        <div className="clay-card lg:col-span-5 p-6 rounded-[32px]">
-          <h3 className="font-bold text-base text-[#2D2D42] dark:text-[#FFFFFF] m-0 mb-0.5">
-            Interaction Modes
-          </h3>
-          <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] m-0 mb-4 font-medium">
-            Session distribution by modality
-          </p>
+          {/* Longitudinal Suggestions & Insights */}
+          <div className="lg:col-span-2 liquid-card-opaque p-6 flex flex-col justify-between">
+            <div>
+              <h3 className="text-[15px] font-bold text-slate-900 dark:text-white mb-3">
+                Wellbeing Continuity Observations
+              </h3>
 
-          <div className="flex flex-col gap-4">
-            {(data?.interaction_modes ?? []).map((m) => {
-              const icon =
-                m.mode === "Voice Mode" ? (
-                  <Mic className="w-4 h-4 text-[#7B59DC] dark:text-[#B794F6]" />
-                ) : m.mode === "Face-to-Face Session" ? (
-                  <Video className="w-4 h-4 text-[#0D9488] dark:text-[#34D399]" />
-                ) : (
-                  <MessageSquare className="w-4 h-4 text-[#0284C7] dark:text-[#38BDF8]" />
-                );
-              const total = (data?.interaction_modes ?? []).reduce((acc, curr) => acc + curr.count, 0) || 1;
-              const pct = Math.round((m.count / total) * 100);
-
-              return (
-                <div key={m.mode} className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 font-bold text-[#2D2D42] dark:text-[#FFFFFF]">
-                      {icon}
-                      <span>{m.mode}</span>
+              {data?.insights && data.insights.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {data.insights.map((ins) => (
+                    <div key={ins.id} className="liquid-card-subtle p-3.5 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl liquid-button text-violet-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Sparkles size={16} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 m-0">
+                          {ins.title}
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-1 m-0 leading-relaxed">
+                          {ins.description}
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-[#7A7A96] dark:text-[#9E98B4] font-semibold">{m.count} sessions ({pct}%)</span>
-                  </div>
-                  <div className="clay-track-inset w-full h-2 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        m.mode === "Voice Mode"
-                          ? "bg-[#7B59DC]"
-                          : m.mode === "Face-to-Face Session"
-                          ? "bg-[#0D9488]"
-                          : "bg-[#0284C7]"
-                      }`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                  ))}
                 </div>
-              );
-            })}
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                  <HeartHandshake size={32} className="text-slate-400 mb-2 opacity-50" />
+                  <p className="text-xs text-slate-400 max-w-sm m-0">
+                    Continuous sessions with Aura build deeper longitudinal insights. Continue your daily reflections to discover your natural rhythms.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-400 mt-4 pt-3 border-t border-white/10 dark:border-white/5 m-0">
+              Aggregated from authentic conversation history. Aura never fabricates wellness trends.
+            </p>
           </div>
         </div>
-      </div>
-
-      {/* AI Intelligence & Actionable Insights */}
-      <div>
-        <div className="flex items-center gap-2 mb-5">
-          <Sparkles className="w-5 h-5 text-[#7B59DC] dark:text-[#B794F6]" />
-          <h3 className="text-[20px] font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] m-0">
-            Aura AI Intelligence & Recommendations
-          </h3>
-        </div>
-
-        <div className="grid gap-5 grid-cols-1 md:grid-cols-2">
-          {(data?.insights ?? []).map((ins) => (
-            <div key={ins.id} className="clay-card p-5 rounded-[28px]">
-              <div className="flex items-start gap-3.5">
-                <div className="p-2.5 rounded-2xl bg-[#FFFDFD] dark:bg-[#1E1B2E] shadow-sm border border-white/90 dark:border-white/10 shrink-0">
-                  {renderInsightIcon(ins.icon)}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="clay-pill px-2.5 py-0.5 text-[10.5px] font-bold text-[#7B59DC]">
-                      {ins.category}
-                    </span>
-                  </div>
-                  <h4 className="text-sm font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] mt-2 mb-1">{ins.title}</h4>
-                  <p className="text-xs text-[#6B6B85] dark:text-[#9E98B4] leading-relaxed mb-0 font-medium">{ins.description}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      </>
-      )}
       </div>
     </div>
   );

@@ -778,6 +778,63 @@ class WebAudioEngine {
     this.currentGenerationId++;
     return this.currentGenerationId;
   }
+
+  /**
+   * Real-time TTS audio viseme & phoneme extraction for Holographic VRM avatar lip sync.
+   * Maps actual TTS frequency formants to VRM phonemes (aa, ih, ou, ee, oh).
+   */
+  public getTtsVisemes(): {
+    aa: number;
+    ih: number;
+    ou: number;
+    ee: number;
+    oh: number;
+    rms: number;
+    jawOpen: number;
+  } {
+    // If not active, or cancelled/interrupted, immediately clamp to zero
+    if (!this.hasActivePlayback() || this.currentTelemetry.refRms < 0.005) {
+      return { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0, rms: 0, jawOpen: 0 };
+    }
+
+    if (this.ttsAnalyser) {
+      this.ttsAnalyser.getByteFrequencyData(this.refFreqArray);
+    }
+
+    const ref = this.refFreqArray;
+    const rms = Math.min(1.0, this.currentTelemetry.refRms * 12.0);
+
+    // Formant frequency bins (assuming ~48kHz / 1024 FFT = ~46.8Hz per bin)
+    // F1 Low: 250Hz - 700Hz (bins 5 to 15) -> "aa", "oh" (open jaw)
+    let lowEnergy = 0;
+    for (let i = 5; i <= 15; i++) lowEnergy += ref[i] || 0;
+    lowEnergy /= (11 * 255);
+
+    // F2 Mid: 700Hz - 1400Hz (bins 16 to 30) -> "oh", "ou" (rounded lips)
+    let midEnergy = 0;
+    for (let i = 16; i <= 30; i++) midEnergy += ref[i] || 0;
+    midEnergy /= (15 * 255);
+
+    // F3 High: 1500Hz - 3000Hz (bins 32 to 64) -> "ee", "ih" (wide lips)
+    let highEnergy = 0;
+    for (let i = 32; i <= 64; i++) highEnergy += ref[i] || 0;
+    highEnergy /= (33 * 255);
+
+    const total = lowEnergy + midEnergy + highEnergy + 0.001;
+
+    const aa = Math.min(1.0, (lowEnergy / total) * rms * 1.35);
+    const oh = Math.min(1.0, (midEnergy / total) * rms * 1.15);
+    const ou = Math.min(1.0, ((lowEnergy * 0.4 + midEnergy * 0.6) / total) * rms * 0.9);
+    const ee = Math.min(1.0, (highEnergy / total) * rms * 1.25);
+    const ih = Math.min(1.0, (highEnergy * 0.8 / total) * rms * 1.0);
+    const jawOpen = Math.min(1.0, rms * 1.1);
+
+    return { aa, ih, ou, ee, oh, rms, jawOpen };
+  }
+
+  public getTtsAnalyser(): AnalyserNode | null {
+    return this.ttsAnalyser;
+  }
 }
 
 export const audioEngine = new WebAudioEngine();

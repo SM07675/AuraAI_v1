@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { useState } from "react";
+import { motion } from "motion/react";
 import {
   Sparkles,
   HeartHandshake,
@@ -10,15 +10,15 @@ import {
   BookOpen,
   Moon,
   Rocket,
-  Lightbulb,
   Check,
   ArrowRight,
-  Sliders,
+  ChevronLeft,
 } from "lucide-react";
-import { GlassCard } from "./glass-card";
+import { AuraBrandLogo } from "./AuraBrandLogo";
 
 interface OnboardingProps {
   userName?: string;
+  isUpdateMode?: boolean;
   onComplete: (data: {
     interests: string[];
     goals: string[];
@@ -32,7 +32,7 @@ const INTEREST_TOPICS = [
     label: "Mindfulness & Meditation",
     icon: HeartHandshake,
     category: "Mental Wellness",
-    desc: "Guided calm exercises & deep breathing",
+    desc: "Guided calm pauses, box breathing & centering",
   },
   {
     id: "stress_relief",
@@ -43,52 +43,45 @@ const INTEREST_TOPICS = [
   },
   {
     id: "focus",
-    label: "Focus & Productivity",
+    label: "Focus & Daily Rhythm",
     icon: Target,
     category: "Performance",
-    desc: "Goal tracking, motivation & flow state support",
+    desc: "Goal intention, flow state and routine clarity",
   },
   {
     id: "conversation",
-    label: "Speech & Conversation Practice",
+    label: "Voice & Speech Dialogue",
     icon: MessageCircle,
     category: "Communication",
-    desc: "Real-time voice feedback & social practice",
+    desc: "Freeform voice reflection and deep social practice",
   },
   {
     id: "emotion_tracking",
-    label: "Emotion & Mood Analysis",
+    label: "Emotion & Mood Insights",
     icon: Activity,
     category: "Self-Awareness",
-    desc: "Facial & vocal emotion insights",
+    desc: "Acoustic and facial affective self-discovery",
   },
   {
     id: "journaling",
-    label: "Daily Reflection & Journaling",
+    label: "Daily Reflection",
     icon: BookOpen,
     category: "Self-Awareness",
-    desc: "Thoughtful prompts & mood history",
+    desc: "Evening decompression and thought journaling",
   },
   {
     id: "sleep",
-    label: "Sleep & Deep Relaxation",
+    label: "Sleep & Wind-Down",
     icon: Moon,
     category: "Mental Wellness",
-    desc: "Bedtime wind-downs & calming audio",
+    desc: "Gentle nocturnal wind-downs and soothing pacing",
   },
   {
     id: "growth",
-    label: "Confidence & Habit Building",
+    label: "Habit & Growth Intentions",
     icon: Rocket,
     category: "Performance",
-    desc: "Positive reinforcement & routine building",
-  },
-  {
-    id: "creativity",
-    label: "Creative Thinking",
-    icon: Lightbulb,
-    category: "Performance",
-    desc: "Brainstorming buddy & open dialogue",
+    desc: "Consistent self-confidence and momentum building",
   },
 ];
 
@@ -96,197 +89,222 @@ const COMMUNICATION_STYLES = [
   {
     id: "empathetic",
     label: "Warm & Empathetic",
-    desc: "Supportive, encouraging & compassionate tone",
+    desc: "Compassionate, gentle, patient, validating tone",
   },
   {
-    id: "analytical",
+    id: "direct",
     label: "Direct & Analytical",
-    desc: "Structured, clear & solution-focused advice",
+    desc: "Actionable insights, clear perspective, concise clarity",
   },
   {
     id: "reflective",
     label: "Calm & Reflective",
-    desc: "Gentle questioning & thoughtful pacing",
+    desc: "Thought-provoking questions, mindful grounding, space to think",
   },
 ];
 
-interface OnboardingProps {
-  userName?: string;
-  isUpdateMode?: boolean;
-  onComplete: (data: {
-    interests: string[];
-    goals: string[];
-    communicationStyle: string;
-  }) => void;
-}
-
-export function OnboardingInterestsScreen({ userName = "User", isUpdateMode = false, onComplete }: OnboardingProps) {
+export function OnboardingInterestsScreen({
+  userName = "Friend",
+  isUpdateMode = false,
+  onComplete,
+}: OnboardingProps) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [selectedInterests, setSelectedInterests] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("aura_user_interests");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Map labels back to IDs if necessary
-          const matchedIds = INTEREST_TOPICS.filter((t) =>
-            parsed.some((p: string) => p.toLowerCase().includes(t.id.replace("_", " ")) || t.label.toLowerCase().includes(p.toLowerCase()))
-          ).map((t) => t.id);
-          if (matchedIds.length > 0) return matchedIds;
-        }
-      }
-    } catch (e) {}
-    return ["mindfulness", "stress_relief", "emotion_tracking"];
+      return saved ? JSON.parse(saved) : ["mindfulness", "stress_relief"];
+    } catch {
+      return ["mindfulness", "stress_relief"];
+    }
   });
 
-  const [selectedStyle, setSelectedStyle] = useState(() => {
-    return localStorage.getItem("aura_user_style") || "empathetic";
+  const [selectedStyle, setSelectedStyle] = useState<string>(() => {
+    try {
+      return localStorage.getItem("aura_user_style") || "empathetic";
+    } catch {
+      return "empathetic";
+    }
   });
 
   const toggleInterest = (id: string) => {
-    if (selectedInterests.includes(id)) {
-      if (selectedInterests.length > 1) {
-        setSelectedInterests(selectedInterests.filter((i) => i !== id));
-      }
+    setSelectedInterests((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleNext = () => {
+    if (step === 1) {
+      setStep(2);
     } else {
-      setSelectedInterests([...selectedInterests, id]);
+      const goals = selectedInterests.map((id) => {
+        const topic = INTEREST_TOPICS.find((t) => t.id === id);
+        return topic ? topic.label : id;
+      });
+
+      onComplete({
+        interests: selectedInterests,
+        goals,
+        communicationStyle: selectedStyle,
+      });
     }
   };
 
-  const handleFinish = () => {
-    const interestLabels = INTEREST_TOPICS.filter((t) =>
-      selectedInterests.includes(t.id)
-    ).map((t) => t.label);
-
-    onComplete({
-      interests: interestLabels,
-      goals: interestLabels,
-      communicationStyle: selectedStyle,
-    });
-  };
-
   return (
-    <div className="w-full h-full min-h-0 overflow-y-auto custom-scrollbar select-none py-6 px-3 sm:px-6 pb-32">
-      <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="text-center mb-8"
-      >
-        <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-3 clay-pill" style={{ color: "#7B59DC", fontWeight: 700, fontSize: 12 }}>
-          <Sparkles size={14} className="text-[#9A80E5]" />
-          {isUpdateMode ? "MANAGE INTERESTS & FOCUS AREAS" : "PERSONALIZING YOUR EXPERIENCE"}
-        </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] tracking-tight">
-          {isUpdateMode
-            ? `Your Focus Areas & Preferences, ${userName}`
-            : `What would you like to focus on, ${userName}?`}
-        </h1>
-        <p className="text-[#7A7A96] dark:text-[#9E98B4] text-xs sm:text-sm max-w-lg mx-auto mt-2 font-medium">
-          {isUpdateMode
-            ? "Update your primary interests anytime so Aura AI adapts its conversation tone, recommendations, and audio sessions."
-            : "Select your primary interests so Aura AI can customize conversations, suggestions, and emotional feedback for you."}
-        </p>
-      </motion.div>
+    <div className="w-full min-h-[calc(100vh-84px)] flex flex-col items-center justify-center px-4 py-8 select-none">
+      <div className="w-full max-w-2xl flex flex-col gap-6">
+        {/* ── Progress & Header ── */}
+        <div className="text-center">
+          <div className="flex justify-center mb-3">
+            <AuraBrandLogo size={42} showWordmark={false} />
+          </div>
 
-      {/* Grid of Interests */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {INTEREST_TOPICS.map((item, idx) => {
-          const Icon = item.icon;
-          const isSelected = selectedInterests.includes(item.id);
-
-          return (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.04 }}
-              onClick={() => toggleInterest(item.id)}
-              whileHover={{ y: -2, scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              className={`p-4 cursor-pointer transition-all ${
-                isSelected
-                  ? "clay-active-nav"
-                  : "clay-card"
+          {/* Simple Step Progress Bar */}
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <span
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                step === 1 ? "w-10 bg-violet-500" : "w-6 bg-violet-500/40"
               }`}
-              style={{ borderRadius: 24 }}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/60 dark:bg-white/10 shadow-sm"
-                  style={{ color: isSelected ? "#7B59DC" : "#4B4B60" }}
-                >
-                  <Icon size={18} />
-                </div>
-                <div
-                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+            />
+            <span
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                step === 2 ? "w-10 bg-violet-500" : "w-6 bg-slate-600/40"
+              }`}
+            />
+          </div>
+
+          <h1 className="text-[26px] font-extrabold text-slate-900 dark:text-white m-0 tracking-tight">
+            {step === 1
+              ? `Personalize your companion, ${userName}`
+              : "How would you like Aura to speak with you?"}
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5 m-0 max-w-md mx-auto">
+            {step === 1
+              ? "Select the wellbeing areas you would like to focus on during your reflections."
+              : "Choose a conversational style that feels most comforting and supportive for you."}
+          </p>
+        </div>
+
+        {/* ── Step 1: Tactile Liquid Glass Interest Cards ── */}
+        {step === 1 && (
+          <div className="grid sm:grid-cols-2 gap-3.5">
+            {INTEREST_TOPICS.map((topic) => {
+              const Icon = topic.icon;
+              const isSelected = selectedInterests.includes(topic.id);
+
+              return (
+                <motion.button
+                  key={topic.id}
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => toggleInterest(topic.id)}
+                  className={`liquid-card p-4.5 text-left flex items-start justify-between cursor-pointer border transition-all ${
                     isSelected
-                      ? "bg-[#7B59DC] text-white"
-                      : "clay-track-inset text-transparent"
+                      ? "border-violet-500 bg-violet-500/15 shadow-[0_0_20px_rgba(139,92,246,0.2)]"
+                      : "border-transparent opacity-80 hover:opacity-100"
                   }`}
                 >
-                  {isSelected && <Check size={12} strokeWidth={3} />}
-                </div>
-              </div>
-              <h3 className={`font-extrabold text-xs mb-1 ${isSelected ? "text-white" : "text-[#2D2D42] dark:text-[#FFFFFF]"}`}>{item.label}</h3>
-              <p className={`text-[11px] leading-relaxed font-medium ${isSelected ? "text-white/80" : "text-[#7A7A96] dark:text-[#9E98B4]"}`}>{item.desc}</p>
-            </motion.div>
-          );
-        })}
-      </div>
+                  <div className="flex items-start gap-3.5">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        isSelected
+                          ? "bg-violet-500 text-white"
+                          : "liquid-button text-slate-400"
+                      }`}
+                    >
+                      <Icon size={19} />
+                    </div>
+                    <div>
+                      <h3 className="text-[13.5px] font-bold text-slate-900 dark:text-white m-0">
+                        {topic.label}
+                      </h3>
+                      <p className="text-[11.5px] text-slate-500 dark:text-slate-400 mt-0.5 m-0 leading-relaxed">
+                        {topic.desc}
+                      </p>
+                    </div>
+                  </div>
 
-      {/* Communication Style Preference */}
-      <div className="clay-card p-6 mb-8 rounded-[32px]">
-        <div className="flex items-center gap-2 mb-4">
-          <Sliders size={16} className="text-[#7B59DC]" />
-          <h2 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-sm">
-            Preferred AI Communication Style
-          </h2>
+                  <div
+                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border ml-2 ${
+                      isSelected
+                        ? "bg-violet-600 border-violet-500 text-white"
+                        : "border-slate-500/40 text-transparent"
+                    }`}
+                  >
+                    <Check size={12} strokeWidth={3} />
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Step 2: Communication Style Options ── */}
+        {step === 2 && (
+          <div className="flex flex-col gap-3.5">
+            {COMMUNICATION_STYLES.map((style) => {
+              const isSelected = selectedStyle === style.id;
+              return (
+                <motion.button
+                  key={style.id}
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedStyle(style.id)}
+                  className={`liquid-card p-5 text-left flex items-center justify-between cursor-pointer border transition-all ${
+                    isSelected
+                      ? "border-violet-500 bg-violet-500/15 shadow-[0_0_24px_rgba(139,92,246,0.25)]"
+                      : "border-transparent opacity-80 hover:opacity-100"
+                  }`}
+                >
+                  <div>
+                    <h3 className="text-[15px] font-bold text-slate-900 dark:text-white m-0">
+                      {style.label}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 m-0">
+                      {style.desc}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border ${
+                      isSelected
+                        ? "bg-violet-600 border-violet-500 text-white"
+                        : "border-slate-500/40 text-transparent"
+                    }`}
+                  >
+                    <Check size={14} strokeWidth={3} />
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Bottom Controls ── */}
+        <div className="flex items-center justify-between pt-2">
+          {step === 2 ? (
+            <button
+              onClick={() => setStep(1)}
+              className="liquid-button px-4 py-2 text-xs text-slate-400 hover:text-white gap-1.5"
+            >
+              <ChevronLeft size={15} />
+              <span>Back</span>
+            </button>
+          ) : (
+            <div />
+          )}
+
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleNext}
+            disabled={step === 1 && selectedInterests.length === 0}
+            className="liquid-button-primary px-7 py-3 text-xs font-semibold gap-2 disabled:opacity-50"
+          >
+            <span>{step === 1 ? "Continue" : isUpdateMode ? "Save Preferences" : "Enter Aura Space"}</span>
+            <ArrowRight size={15} />
+          </motion.button>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {COMMUNICATION_STYLES.map((st) => {
-            const active = selectedStyle === st.id;
-            return (
-              <div
-                key={st.id}
-                onClick={() => setSelectedStyle(st.id)}
-                className={`p-3.5 rounded-2xl cursor-pointer transition-all text-left ${
-                  active
-                    ? "clay-active-nav"
-                    : "clay-card-flat"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`font-bold text-xs ${active ? "text-white" : "text-[#2D2D42] dark:text-[#FFFFFF]"}`}>{st.label}</span>
-                  {active && <span className="w-2 h-2 rounded-full bg-white" />}
-                </div>
-                <p className={`text-[11px] leading-snug font-medium ${active ? "text-white/80" : "text-[#7A7A96] dark:text-[#9E98B4]"}`}>{st.desc}</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Footer Action */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="text-xs text-[#7A7A96] dark:text-[#9E98B4] font-semibold">
-          Selected <span className="font-bold text-[#7B59DC] dark:text-[#B794F6]">{selectedInterests.length}</span> focus area{selectedInterests.length > 1 ? "s" : ""}
-        </div>
-
-        <motion.button
-          whileHover={{ scale: 1.04, y: -1 }}
-          whileTap={{ scale: 0.96 }}
-          onClick={handleFinish}
-          className="clay-button w-full sm:w-auto px-8 py-3 rounded-full font-bold text-xs text-[#7B59DC] cursor-pointer flex items-center justify-center gap-2 border-none outline-none"
-        >
-          <span>{isUpdateMode ? "Save Changes & Return to Dashboard" : "Complete Setup & Enter Dashboard"}</span>
-          <ArrowRight size={16} />
-        </motion.button>
-      </div>
       </div>
     </div>
   );
 }
-
