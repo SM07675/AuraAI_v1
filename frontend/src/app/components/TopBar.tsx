@@ -11,9 +11,10 @@ interface TopBarProps {
   onAvatarClick?: () => void;
 }
 
-export function TopBar({ userName, isConnected = true, onSearch, onAvatarClick }: TopBarProps) {
+export function TopBar({ userName, isConnected: connectedProp, onSearch, onAvatarClick }: TopBarProps) {
   const { isDark, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
+  const [connection, setConnection] = useState<"checking" | "connected" | "offline">("checking");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const getGreeting = () => {
@@ -25,6 +26,25 @@ export function TopBar({ userName, isConnected = true, onSearch, onAvatarClick }
 
   const displayName = userName ? userName.split(" ")[0] : "Atharv";
   const avatarChar = displayName.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    if (connectedProp !== undefined) {
+      setConnection(connectedProp ? "connected" : "offline");
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const response = await fetch("/api/v1/health", { cache: "no-store" });
+        if (!cancelled) setConnection(response.ok ? "connected" : "offline");
+      } catch { if (!cancelled) setConnection("offline"); }
+    };
+    check();
+    const timer = window.setInterval(check, 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [connectedProp]);
+
+  const isConnected = connection === "connected";
 
   // Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -55,20 +75,20 @@ export function TopBar({ userName, isConnected = true, onSearch, onAvatarClick }
           style={{ borderRadius: 999 }}
         >
           <span className="relative flex h-2.5 w-2.5">
-            {isConnected ? (
+            {connection === "connected" ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10B981]"></span>
               </>
-            ) : (
+            ) : connection === "offline" ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-[0_0_8px_#F59E0B]"></span>
               </>
-            )}
+            ) : <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-400" />}
           </span>
           <span style={{ letterSpacing: "-0.1px" }}>
-            {isConnected ? "Aura is online" : "Connecting..."}
+            {connection === "connected" ? "Aura connected" : connection === "offline" ? "Aura offline" : "Checking connection"}
           </span>
         </div>
 

@@ -203,6 +203,9 @@ class ConversationOrchestrator:
         )
         prompt_latency_ms = (time.perf_counter() - t_p_start) * 1000.0
 
+        from app.ai.problem_resolution import ProblemResolutionPipeline
+        resolution = ProblemResolutionPipeline().evaluate(transcript, ranked_context.recent_history)
+
         # ── Step 6 & 7: Streaming LLM + Real-Time TTS Chunking ────────
         t_llm_start = time.perf_counter()
         ttft_recorded = False
@@ -228,7 +231,13 @@ class ConversationOrchestrator:
                 max_tokens=350 if mode in ("voice", "face_to_face") else 800,
             )
 
-            token_stream = self._gateway.stream(ai_req)
+            if resolution.urgency == "emergency" or resolution.stage in ("plan", "follow_up"):
+                async def urgent_stream():
+                    from app.ai.base import StreamChunk
+                    yield StreamChunk(content=resolution.fallback_response(is_hindi), provider="safety")
+                token_stream = urgent_stream()
+            else:
+                token_stream = self._gateway.stream(ai_req)
             async for chunk in token_stream:
                 if interrupt_event and interrupt_event.is_set():
                     logger.info("Turn generation interrupted by barge-in event", generation_id=gen_id)
@@ -311,6 +320,8 @@ class ConversationOrchestrator:
                 if is_hindi
                 else "I'm right here with you and listening. What's on your mind today?"
             )
+            if resolution.stage != "conversation":
+                fallback_text = resolution.fallback_response(is_hindi)
             full_response_parts = [fallback_text]
             yield {
                 "type": "chunk",

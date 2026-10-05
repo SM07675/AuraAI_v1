@@ -39,7 +39,7 @@ def _is_hindi_turn(text: str) -> bool:
     words = re.findall(r"[a-zA-Z]+", text.lower())
     if not words:
         return False
-    hindi_matches = sum(1 for w in words if w in _HINDI_KEYWORDS)
+    hindi_matches = len(set(words) & (_HINDI_KEYWORDS - {"the", "doctor"}))
     if hindi_matches >= 2 or (hindi_matches >= 1 and len(words) <= 4):
         return True
     return False
@@ -427,6 +427,11 @@ class PromptBuilder:
                 f"  2. Give a comforting, uplifting farewell and encourage them to carry this calm into their day.\n"
                 f"  3. CRITICAL: DO NOT ASK ANY QUESTIONS. Do NOT ask about scheduling next sessions. Do NOT ask 'how are you doing' or 'is there anything else'. Conclude with a warm period, not a question mark."
             )
+
+        from app.ai.problem_resolution import ProblemResolutionPipeline
+        resolution = ProblemResolutionPipeline().evaluate(user_message, history)
+        if resolution.stage != "conversation":
+            system_parts.append(resolution.prompt_context())
 
         system_prompt = "\n\n---\n\n".join(part for part in system_parts if part.strip())
 

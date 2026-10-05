@@ -92,7 +92,7 @@ class SolutionEngine:
         solution_type = self.select_solution_type(domain, primary_emotion, stress, user_message)
         card_id = f"sol_{solution_type}_{abs(hash(user_message)) % 100000}"
 
-        prompt = f"""You are Dr. Aura's Companion Solution Designer.
+        prompt = f"""You design practical support plans for Aura, an AI wellbeing companion.
 Design a highly practical, empowering, and empathetic {solution_type} solution for {user_name}.
 User concern: "{user_message}"
 Domain: {domain}
@@ -114,7 +114,7 @@ Generate ONLY a JSON object with this exact structure:
 }}"""
 
         req = AIRequest(
-            system_prompt="You are an expert clinical psychologist and empathetic companion. Return ONLY valid JSON.",
+            system_prompt="You are an AI wellbeing planning assistant, not a clinician. Do not diagnose, prescribe, infer unstated facts, or promise cures. Base steps on the user's actual concerns. Return ONLY valid JSON.",
             prompt=prompt,
             temperature=0.3,
             max_tokens=600,

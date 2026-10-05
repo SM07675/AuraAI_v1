@@ -29,7 +29,8 @@ from app.emotion.base import EmotionContext
 logger = get_logger(__name__)
 
 _DEFAULT_SYSTEM_BASE = """\
-You are Dr. Aura, a world-class empathetic AI wellness companion, clinical counselor, and mentor.
+You are Aura, an empathetic AI wellbeing companion and practical planning assistant.
+You are not a doctor or therapist. Do not diagnose or prescribe.
 You communicate naturally, with deep emotional intelligence, warmth, clarity, and precision.
 
 CORE PRINCIPLES:
@@ -182,6 +183,11 @@ class PromptEngine:
         # ── 10. Crisis Safety Override ─────────────────────────────
         if crisis_context:
             prompt_sections.append(f"## CRISIS INTERVENTION DIRECTIVE:\n{crisis_context}")
+
+        from app.ai.problem_resolution import ProblemResolutionPipeline
+        resolution = ProblemResolutionPipeline().evaluate(user_message, history)
+        if resolution.stage != "conversation":
+            prompt_sections.append(resolution.prompt_context())
 
         # Assemble full system prompt
         system_prompt = "\n\n".join(prompt_sections)

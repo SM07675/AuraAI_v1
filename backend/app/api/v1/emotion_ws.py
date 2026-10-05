@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query
@@ -17,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.deps import get_db
 from app.core.logging_config import get_logger
-from app.core.security import decode_token
+from app.core.security import decode_token, is_token_blacklisted
+from app.core.deps import get_redis
 from app.emotion.base import EmotionContext
 from app.emotion.service import get_face_analyzer, verify_models_loaded
 
@@ -54,18 +57,28 @@ async def face_emotion_websocket(
     Accepts base64 JPEG frames, returns structured emotion JSON with face bounding box.
     Throttled to max FPS.
     """
-    user_id = 1
+    await websocket.accept()
+    user_id = 0
+    if settings.voice_ws_require_auth and not token:
+        await websocket.send_json({"type": "error", "code": "AUTH_REQUIRED", "message": "Authentication token required"})
+        await websocket.close(code=4001)
+        return
     if token:
         try:
             payload = decode_token(token)
-            user_id = payload.get("sub", 1)
+            if payload.get("type") != "access":
+                raise ValueError("Access token required")
+            if await is_token_blacklisted(await get_redis(), token):
+                raise ValueError("Token revoked")
+            user_id = int(payload["sub"])
         except Exception:
-            pass
+            await websocket.send_json({"type": "error", "code": "AUTH_INVALID", "message": "Invalid or expired token"})
+            await websocket.close(code=4001)
+            return
 
-    await websocket.accept()
     logger.info("Face emotion WebSocket connected", user_id=user_id)
 
-    face_analyzer = get_face_analyzer()
+    face_analyzer = await asyncio.to_thread(get_face_analyzer)
 
     # Check model availability
     if not face_analyzer.is_available:
@@ -77,7 +90,7 @@ async def face_emotion_websocket(
 
     last_process_time = 0.0
     last_result: dict[str, Any] | None = None
-    client_id = f"user_{user_id}"
+    client_id = f"user_{user_id}_{uuid4().hex}"
 
     try:
         while True:

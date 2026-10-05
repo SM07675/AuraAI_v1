@@ -75,7 +75,7 @@ class LiveVoiceClient {
     this.callbacks.onConnectionChange?.("connecting");
 
     const wsUrl = getWebSocketUrl("/api/v1/ws/voice");
-    console.log("[LIVE VOICE] Connecting to:", wsUrl);
+    console.log("[LIVE VOICE] Connecting...");
 
     try {
       this.socket = new WebSocket(wsUrl);

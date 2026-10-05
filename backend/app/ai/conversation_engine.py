@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIRequest, AIResponse, StreamChunk
+from app.ai.problem_resolution import ProblemResolutionPipeline
 from app.ai.builders.context_builder import ContextBuilder, ContextObject
 from app.ai.builders.context_ranker import ContextRanker, RankedContextBundle
 from app.ai.context_tracker import ContextTracker
@@ -118,6 +119,36 @@ class ConversationEngine:
             self._turn_count = max(self._turn_count, turn_count)
         turn = self._turn_count
 
+        resolution = ProblemResolutionPipeline().evaluate(user_message, recent_history)
+        if debug_out is not None:
+            debug_out["resolution_plan"] = resolution.to_dict()
+        if resolution.urgency == "emergency":
+            from app.prompts.builder import _is_hindi_turn
+            reply = resolution.fallback_response(_is_hindi_turn(user_message))
+            if streaming:
+                async def urgent_stream():
+                    yield StreamChunk(content=reply, provider="safety")
+                return urgent_stream()
+            return reply
+
+        # Known support plans have guaranteed actionable output, independent of provider availability.
+        if resolution.stage in ("plan", "follow_up"):
+            from app.prompts.builder import _is_hindi_turn
+            reply = resolution.fallback_response(_is_hindi_turn(user_message))
+            session.phase = "follow_up" if resolution.stage == "follow_up" else "offer"
+            if debug_out is not None:
+                debug_out["solution_card"] = SolutionCardPayload(
+                    id=f"support_{session.id}_{turn}", type="action_plan", title="Your next steps",
+                    description="A support plan based on what you shared.", domain=resolution.domain,
+                    personalization_note=resolution.follow_up, steps=resolution.actions,
+                    tags=["Support", "Follow-up"],
+                ).to_dict()
+            if streaming:
+                async def plan_stream():
+                    yield StreamChunk(content=reply, provider="support_plan")
+                return plan_stream()
+            return reply
+
         # ── 1. Turn Classification (Fast Path vs Deep Path) ───────
         route_decision: RouteDecision = TurnRouter.classify(
             user_message=user_message,
@@ -127,15 +158,17 @@ class ConversationEngine:
 
         # ── 2. Safe Semantic Cache Check ──────────────────────────
         primary_emo = emotion_context.primary_emotion if emotion_context else "neutral"
-        cached_reply = await self._working_memory.get_semantic_response(
-            query=user_message,
-            intent="general",
-            locale=preferred_language or "en",
-            model="aura_gateway",
-            user_id=user.id,
-            emotion=primary_emo,
-        )
-        if cached_reply:
+        cached_reply = None
+        if resolution.stage == "conversation":
+            cached_reply = await self._working_memory.get_semantic_response(
+                query=user_message,
+                intent="general",
+                locale=preferred_language or "en",
+                model="aura_gateway",
+                user_id=user.id,
+                emotion=primary_emo,
+            )
+        if cached_reply and resolution.stage == "conversation":
             logger.info("Semantic cache hit — bypassing LLM", query=user_message[:40])
             if debug_out is not None:
                 debug_out["cache_hit"] = True
@@ -162,7 +195,7 @@ class ConversationEngine:
             emotion_task = get_cached_emotion()
 
         # Turn directive
-        if route_decision.is_fast_path:
+        if route_decision.is_fast_path or resolution.stage != "conversation":
             async def _fast_directive():
                 return TurnDirective.default(phase=session.phase or "explore")
             directive_task = _fast_directive()
@@ -223,6 +256,7 @@ class ConversationEngine:
             crisis_context_str = escalation.get_crisis_context()
 
         # Advance session phase
+        previous_phase = session.phase
         session.phase = turn_directive.phase
 
         # ── 4b. Context Sufficiency Evaluation (APCE) ──────────────
@@ -250,7 +284,7 @@ class ConversationEngine:
         is_closing = any(phrase in msg_lower for phrase in ContextTracker.SESSION_CLOSING_PHRASES)
 
         # Track if an interactive solution card was already offered in this session
-        already_offered_solution = session.phase in ("offer", "follow_up", "wrap_up")
+        already_offered_solution = previous_phase in ("offer", "follow_up", "wrap_up")
         explicit_solution_req = any(p in msg_lower for p in ContextTracker.SOLUTION_TRIGGER_PHRASES)
         is_acute_panic = any(p in msg_lower for p in getattr(ContextTracker, "ACUTE_PANIC_PHRASES", ()))
 
@@ -267,9 +301,14 @@ class ConversationEngine:
 
         should_offer_solution = (
             not is_closing
-            and not already_offered_solution
+            and (not already_offered_solution or resolution.stage == "follow_up")
             and (explicit_solution_req or is_acute_panic or has_substantial_context)
         )
+
+        if resolution.stage in ("plan", "follow_up"):
+            should_offer_solution = not is_closing and not is_crisis
+        if resolution.stage in ("clarify", "listen", "recovery") or is_crisis:
+            should_offer_solution = False
 
         retrieved_solution = None
         structured_solution: SolutionCardPayload | None = None
@@ -294,17 +333,26 @@ class ConversationEngine:
             session.phase = "offer"
 
             dom = sufficiency.dominant_domain or turn_directive.concernCategory or "wellness"
-            structured_solution = await self._solution_engine.generate_solution(
-                domain=dom,
-                user_message=user_message,
-                primary_emotion=emotion_context.primary_emotion if emotion_context else "neutral",
-                stress=getattr(emotion_context, "stress", "low") if emotion_context else "low",
-                user_name=user.name.split()[0] if user.name else "Friend",
-                user_goals=user.goals or "",
-                user_interests=user.interests or "",
-                preferred_language=preferred_language or "en",
-            )
-            retrieved_solution = structured_solution.description
+            if resolution.domain in ("physical", "mixed_health", "unspecified", "emotional"):
+                structured_solution = SolutionCardPayload(
+                    id=f"support_{session.id}_{turn}", type="action_plan", title="Your next steps",
+                    description="A practical support plan based on what you shared.",
+                    domain=resolution.domain, personalization_note=resolution.follow_up,
+                    steps=resolution.actions, tags=["Support", "Follow-up"],
+                )
+            else:
+                structured_solution = await self._solution_engine.generate_solution(
+                    domain=dom,
+                    user_message="\n".join(resolution.reported_facts) if resolution.reported_facts else user_message,
+                    primary_emotion=emotion_context.primary_emotion if emotion_context else "neutral",
+                    stress=getattr(emotion_context, "stress", "low") if emotion_context else "low",
+                    user_name=user.name.split()[0] if user.name else "Friend",
+                    user_goals=user.goals or "",
+                    user_interests=user.interests or "",
+                    preferred_language=preferred_language or "en",
+                )
+            import json
+            retrieved_solution = json.dumps(structured_solution.to_dict(), ensure_ascii=False)
             if debug_out is not None:
                 debug_out["solution_card"] = structured_solution.to_dict()
         elif already_offered_solution:
@@ -318,9 +366,10 @@ class ConversationEngine:
             turn_directive_dict["phase"] = session.phase
 
         # ── 5. Question Builder (Knowledge Graph & Memory Aware) ───
-        targeted_question = None
+        targeted_question = resolution.next_question if resolution.stage not in ("conversation", "listen") else None
         if (
-            not is_closing
+            resolution.stage == "conversation"
+            and not is_closing
             and not should_offer_solution
             and not (route_decision.is_fast_path and route_decision.reason == "exact_fast_phrase")
         ):
@@ -453,63 +502,64 @@ class ConversationEngine:
                 is_fast_path=route_decision.is_fast_path,
                 retrieval_timings=retrieval_timings,
                 prompt_latency_ms=prompt_latency_ms,
+                fallback_response=resolution.fallback_response(preferred_language == "hi") if resolution.stage != "conversation" else None,
             )
-            t4_llm_start = time.perf_counter()
-            try:
-                resp: AIResponse = await self._gateway.generate(req)
-            except Exception as exc:
-                logger.error("AI gateway generation failed — using resilient fallback", error=str(exc))
-                resp = AIResponse(
-                    content="I'm here with you and listening closely. Please tell me more about how you're feeling right now.",
-                    provider="fallback",
-                    model="fallback",
-                )
-            t4_llm_done = time.perf_counter()
-            llm_latency_ms = (t4_llm_done - t4_llm_start) * 1000.0
-
-            refined = await self._response_builder.refine_text(
-                resp.content,
-                user,
-                recent_history=effective_history,
-                emotion_context=emotion_context.to_prompt_dict() if emotion_context else None,
+        t4_llm_start = time.perf_counter()
+        try:
+            resp: AIResponse = await self._gateway.generate(req)
+        except Exception as exc:
+            logger.error("AI gateway generation failed — using resilient fallback", error=str(exc))
+            resp = AIResponse(
+                content=resolution.fallback_response(preferred_language == "hi") if resolution.stage != "conversation" else "I'm here with you and listening closely. Please tell me more about how you're feeling right now.",
+                provider="fallback",
+                model="fallback",
             )
+        t4_llm_done = time.perf_counter()
+        llm_latency_ms = (t4_llm_done - t4_llm_start) * 1000.0
 
-            # Record Latency Trace
-            total_latency_ms = (time.perf_counter() - t0_start) * 1000.0
-            asyncio.create_task(
-                self._record_latency_trace(
-                    trace_id=trace_id,
-                    session_id=session.id,
-                    user_id=user.id,
-                    turn_id=turn,
-                    provider=resp.provider or "ai_gateway",
-                    model=resp.model or "default",
-                    is_fast_path=route_decision.is_fast_path,
-                    cache_hit=False,
-                    retrieval_latency_ms=retrieval_timings.get("retrieval_total_ms", 0.0),
-                    graph_latency_ms=retrieval_timings.get("graph_retrieval_ms", 0.0),
-                    vector_latency_ms=retrieval_timings.get("memory_retrieval_ms", 0.0),
-                    prompt_build_latency_ms=prompt_latency_ms,
-                    llm_ttft_ms=llm_latency_ms,
-                    llm_total_latency_ms=llm_latency_ms,
-                    total_turn_latency_ms=total_latency_ms,
-                )
+        refined = await self._response_builder.refine_text(
+            resp.content,
+            user,
+            recent_history=effective_history,
+            emotion_context=emotion_context.to_prompt_dict() if emotion_context else None,
+        )
+
+        # Record Latency Trace
+        total_latency_ms = (time.perf_counter() - t0_start) * 1000.0
+        asyncio.create_task(
+            self._record_latency_trace(
+                trace_id=trace_id,
+                session_id=session.id,
+                user_id=user.id,
+                turn_id=turn,
+                provider=resp.provider or "ai_gateway",
+                model=resp.model or "default",
+                is_fast_path=route_decision.is_fast_path,
+                cache_hit=False,
+                retrieval_latency_ms=retrieval_timings.get("retrieval_total_ms", 0.0),
+                graph_latency_ms=retrieval_timings.get("graph_retrieval_ms", 0.0),
+                vector_latency_ms=retrieval_timings.get("memory_retrieval_ms", 0.0),
+                prompt_build_latency_ms=prompt_latency_ms,
+                llm_ttft_ms=llm_latency_ms,
+                llm_total_latency_ms=llm_latency_ms,
+                total_turn_latency_ms=total_latency_ms,
             )
+        )
 
-            # Store in safe semantic cache if eligible
-            asyncio.create_task(
-                self._working_memory.set_semantic_response(
-                    query=user_message,
-                    response=refined,
-                    intent="general",
-                    locale=preferred_language or "en",
-                    model=resp.model or "default",
-                    user_id=user.id,
-                    emotion=primary_emo,
-                )
+        # Store in safe semantic cache if eligible
+        asyncio.create_task(
+            self._working_memory.set_semantic_response(
+                query=user_message,
+                response=refined,
+                intent="general",
+                locale=preferred_language or "en",
+                model=resp.model or "default",
+                user_id=user.id,
+                emotion=primary_emo,
             )
+        )
 
-            return refined
+        return refined
 
     async def _stream_response_with_telemetry(
         self,
@@ -523,6 +573,7 @@ class ConversationEngine:
         is_fast_path: bool,
         retrieval_timings: dict[str, float],
         prompt_latency_ms: float,
+        fallback_response: str | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream chunks with token filtering, sub-second TTFT recording, and barge-in support."""
         from app.ai.builders.response_builder import ThinkingStreamFilter
@@ -560,13 +611,13 @@ class ConversationEngine:
 
         except Exception as exc:
             logger.error("Streaming error in ConversationEngine", error=str(exc))
-            fallback_text = "I'm here with you. Please tell me more about what's on your mind."
+            fallback_text = fallback_response or "I'm here with you. Please tell me more about what's on your mind."
             yield StreamChunk(content=fallback_text, provider="fallback")
             full_text_accum = fallback_text
 
         # Guarantee never returning empty response
         if not full_text_accum.strip():
-            fallback_text = "I am listening and here to support you. What would you like to focus on?"
+            fallback_text = fallback_response or "I am listening and here to support you. What would you like to focus on?"
             yield StreamChunk(content=fallback_text, provider="fallback")
             full_text_accum = fallback_text
 

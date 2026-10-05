@@ -7,6 +7,8 @@ database, Redis, and AI providers.
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -66,8 +68,9 @@ async def health_check_detailed(
     """
     settings = get_settings()
 
-    db_status = await _check_database(db)
-    redis_status = await _check_redis(redis)
+    db_status, redis_status = await asyncio.gather(
+        _check_database(db), _check_redis(redis),
+    )
 
     # Check which AI providers are configured
     ai_providers: dict[str, Any] = {}
@@ -113,7 +116,7 @@ async def health_check_detailed(
 
 
 @router.get("/emotion/health", summary="Perception and Local Emotion Models Health Check")
-async def emotion_health_check() -> dict[str, Any]:
+def emotion_health_check() -> dict[str, Any]:
     """Health check for all local emotion and perception models."""
     from app.services.emotion.text_emotion import TextEmotionService
     from app.services.emotion.face_emotion import FaceEmotionService
@@ -129,15 +132,15 @@ async def emotion_health_check() -> dict[str, Any]:
     voice_svc = VoiceEmotionService.get_instance()
     stt_svc = SpeechToTextService.get_instance()
 
-    return {
-        "status": "healthy",
-        "models": {
-            "text_emotion": text_svc.health_check(),
-            "face_emotion": face_svc.health_check(),
-            "face_tracker": tracker_svc.health_check(),
-            "face_behavior": behavior_svc.health_check(),
-            "voice_emotion": voice_svc.health_check(),
-            "speech_to_text": stt_svc.health_check(),
-        },
+    models = {
+        "text_emotion": text_svc.health_check(),
+        "face_emotion": face_svc.health_check(),
+        "face_tracker": tracker_svc.health_check(),
+        "face_behavior": behavior_svc.health_check(),
+        "voice_emotion": voice_svc.health_check(),
+        "speech_to_text": stt_svc.health_check(),
     }
-
+    return {
+        "status": "healthy" if all(m.get("status") == "healthy" for m in models.values()) else "degraded",
+        "models": models,
+    }

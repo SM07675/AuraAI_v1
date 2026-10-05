@@ -27,7 +27,8 @@ class FaceEmotionService:
     """Singleton service for FERPlus ONNX facial emotion recognition with temporal smoothing."""
 
     def __init__(self, model_path: Optional[str] = None) -> None:
-        self._analyzer = FaceEmotionAnalyzer()
+        from app.emotion.service import get_face_analyzer
+        self._analyzer = get_face_analyzer()
         self.device = "cpu"
         self.is_loaded = getattr(self._analyzer, "_available", True)
         self.load_time_ms = 8.5

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -55,6 +56,7 @@ _VOICE_LABEL_MAP: dict[str, str] = {
 }
 
 _GLOBAL_VOICE_EMOTION_SERVICE: Optional[VoiceEmotionService] = None
+_VOICE_INSTANCE_LOCK = threading.Lock()
 
 
 class VoiceEmotionService:
@@ -74,8 +76,9 @@ class VoiceEmotionService:
     @classmethod
     def get_instance(cls, model_path: Optional[str] = None) -> VoiceEmotionService:
         global _GLOBAL_VOICE_EMOTION_SERVICE
-        if _GLOBAL_VOICE_EMOTION_SERVICE is None:
-            _GLOBAL_VOICE_EMOTION_SERVICE = cls(model_path=model_path)
+        with _VOICE_INSTANCE_LOCK:
+            if _GLOBAL_VOICE_EMOTION_SERVICE is None:
+                _GLOBAL_VOICE_EMOTION_SERVICE = cls(model_path=model_path)
         return _GLOBAL_VOICE_EMOTION_SERVICE
 
     def _resolve_model_dir(self) -> Path:

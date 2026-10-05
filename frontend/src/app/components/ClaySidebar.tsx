@@ -25,12 +25,15 @@ const BASE_NAV_ITEMS = [
   { id: "Dashboard", label: "Home", IconComponent: ClayHomeIcon },
   { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
+  { id: "Face-to-Face", label: "Face-to-Face", IconComponent: ClayCameraSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
-  { id: "Analytics", label: "Insights", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
+  { id: "Analytics", label: "Analytics", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Interests", label: "Interests", IconComponent: ClayHeartSidebarIcon },
   { id: "Settings", label: "Settings", IconComponent: ClaySettingsSidebarIcon },
 ];
 
-export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = true }: ClaySidebarProps) {
+export function ClaySidebar({ active, onSelect, user, onLogout }: ClaySidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(() => {
     try {
@@ -212,7 +215,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
                   style={{
                     fontSize: 9.5,
                     fontWeight: 600,
-                    color: isConnected ? "#10B981" : "#F59E0B",
+                    color: "#8E88A4",
                   }}
                 >
                   <span
@@ -221,11 +224,11 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
                       width: 5,
                       height: 5,
                       borderRadius: 999,
-                      background: isConnected ? "#10B981" : "#F59E0B",
+                      background: "#8B5CF6",
                       display: "inline-block",
                     }}
                   />
-                  {isConnected ? "Connected" : "Connecting..."}
+                  Account active
                 </div>
               </motion.div>
             )}
@@ -307,9 +310,8 @@ const MOBILE_NAV_ITEMS = [
   { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
   { id: "Face-to-Face", label: "Face", IconComponent: ClayCameraSidebarIcon },
-  { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
   { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
-  { id: "Analytics", label: "Stats", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Settings", label: "More", IconComponent: ClaySettingsSidebarIcon },
 ];
 
 export function ClayBottomNav({ active, onSelect }: { active: string; onSelect: (screen: string) => void }) {

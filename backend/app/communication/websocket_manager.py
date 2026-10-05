@@ -62,8 +62,13 @@ async def _analyze_voice_emotion(audio_bytes: bytes, timeout_s: float = 0.4) -> 
     """
     try:
         from app.services.emotion.voice_emotion import VoiceEmotionService
-        svc = VoiceEmotionService.get_instance()
-        return await asyncio.wait_for(svc.analyze(audio_bytes, sample_rate=16_000), timeout=timeout_s)
+        async def analyze():
+            # Model construction can load weights; keep it off the socket loop
+            # and include it in the latency budget for this optional modality.
+            svc = await asyncio.to_thread(VoiceEmotionService.get_instance)
+            return await svc.analyze(audio_bytes, sample_rate=16_000)
+
+        return await asyncio.wait_for(analyze(), timeout=timeout_s)
     except Exception as exc:
         logger.debug("Voice emotion analysis fast fallback", error=str(exc))
         return {

@@ -73,7 +73,8 @@ async def test_emotion_health_endpoint():
         response = await client.get("/api/v1/emotion/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "healthy"
+        expected = "healthy" if all(m["status"] == "healthy" for m in data["models"].values()) else "degraded"
+        assert data["status"] == expected
         assert "text_emotion" in data["models"]
         assert "face_emotion" in data["models"]
         assert "face_tracker" in data["models"]

@@ -7,7 +7,15 @@
 
 export function getWebSocketUrl(endpointPath: string): string {
   const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-  const token = typeof window !== "undefined" ? (localStorage.getItem("token") || localStorage.getItem("aura_token") || "") : "";
+  let token = "";
+  if (typeof window !== "undefined") {
+    try {
+      token = sessionStorage.getItem("aura_access_token") || localStorage.getItem("aura_access_token") ||
+        localStorage.getItem("token") || localStorage.getItem("aura_token") || "";
+    } catch {}
+  }
+  // Guest explorer credentials are local UI markers, not signed access tokens.
+  if (token.startsWith("guest_token_")) token = "";
   const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
 
   const normalizedPath = endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`;

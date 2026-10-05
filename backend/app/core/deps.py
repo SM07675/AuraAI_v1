@@ -77,9 +77,19 @@ class InMemoryRedis:
             self._expiries.pop(key, None)
         return True
 
+    async def setex(self, key: str, seconds: int, value: Any) -> bool:
+        return await self.set(key, value, ex=seconds)
+
+    async def incr(self, key: str, amount: int = 1) -> int:
+        self._is_expired(key)
+        value = int(self._data.get(key, 0)) + amount
+        self._data[key] = value
+        return value
+
     async def delete(self, *keys: str) -> int:
         count = 0
         for k in keys:
+            self._is_expired(k)
             if k in self._data or k in self._sets or k in self._hashes:
                 self._data.pop(k, None)
                 self._expiries.pop(k, None)
@@ -89,12 +99,14 @@ class InMemoryRedis:
         return count
 
     async def expire(self, key: str, seconds: int) -> bool:
+        self._is_expired(key)
         if key in self._data or key in self._sets or key in self._hashes:
             self._expiries[key] = time.time() + seconds
             return True
         return False
 
     async def ttl(self, key: str) -> int:
+        self._is_expired(key)
         if key in self._expiries:
             rem = int(self._expiries[key] - time.time())
             return max(rem, -2)
@@ -115,6 +127,7 @@ class InMemoryRedis:
         return self._hashes.get(name, {}).get(key)
 
     async def hset(self, name: str, key: str | None = None, value: Any = None, mapping: dict | None = None) -> int:
+        self._is_expired(name)
         if name not in self._hashes:
             self._hashes[name] = {}
         if mapping:
@@ -131,50 +144,13 @@ class InMemoryRedis:
         return dict(self._hashes.get(name, {}))
 
     async def sadd(self, name: str, *values: Any) -> int:
+        self._is_expired(name)
         if name not in self._sets:
             self._sets[name] = set()
         old_len = len(self._sets[name])
         for v in values:
             self._sets[name].add(str(v))
         return len(self._sets[name]) - old_len
-
-    def pipeline(self, transaction: bool = True) -> "InMemoryRedisPipeline":
-        return InMemoryRedisPipeline(self)
-
-
-class InMemoryRedisPipeline:
-    """Mock pipeline for InMemoryRedis."""
-
-    def __init__(self, redis: InMemoryRedis) -> None:
-        self._redis = redis
-        self._commands: list[Any] = []
-
-    def set(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
-        self._commands.append(lambda: self._redis.set(*args, **kwargs))
-        return self
-
-    def expire(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
-        self._commands.append(lambda: self._redis.expire(*args, **kwargs))
-        return self
-
-    def delete(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
-        self._commands.append(lambda: self._redis.delete(*args, **kwargs))
-        return self
-
-    def hset(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
-        self._commands.append(lambda: self._redis.hset(*args, **kwargs))
-        return self
-
-    def sadd(self, *args: Any, **kwargs: Any) -> "InMemoryRedisPipeline":
-        self._commands.append(lambda: self._redis.sadd(*args, **kwargs))
-        return self
-
-    async def execute(self) -> list[Any]:
-        results = []
-        for cmd in self._commands:
-            res = await cmd()
-            results.append(res)
-        return results
 
     async def sismember(self, name: str, value: Any) -> bool:
         if self._is_expired(name):

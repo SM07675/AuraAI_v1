@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play, Check, Globe, Activity } from "lucide-react";
-import { AuraMascot3D } from "./aura-robot";
+import { AuraOrb, AuraOrbState } from "./AuraOrb";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
 import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../services/speechRecognitionService";
@@ -314,6 +314,15 @@ export function VoiceScreen() {
 
   const activePersonaObj = CURATED_VOICES.find((v) => v.id === selectedVoice) || CURATED_VOICES[0];
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLang) || SUPPORTED_LANGUAGES[0];
+  const orbState: AuraOrbState = speaking
+    ? "speaking"
+    : thinking
+    ? "processing"
+    : duplexState === "USER_SPEAKING"
+    ? "user-speaking"
+    : listening
+    ? "listening"
+    : "idle";
 
   // Waveform Bar Heights (smooth symmetrical animation pattern)
   const waveHeights = [10, 18, 28, 16, 34, 24, 14, 30, 36, 22, 12, 32, 20, 34, 26, 14, 28, 16];
@@ -537,21 +546,8 @@ export function VoiceScreen() {
           )}
         </AnimatePresence>
 
-        {/* Hero 3D Robot Mascot (Compact proportion) */}
         <div className="my-1 relative flex items-center justify-center">
-          <motion.div
-            animate={{
-              y: speaking ? [0, -4, 0] : thinking ? [0, -3, 0] : [0, -3.5, 0],
-              scale: speaking ? [1, 1.02, 1] : 1,
-            }}
-            transition={{
-              duration: speaking ? 3.0 : 5.0,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            <AuraMascot3D size={100} />
-          </motion.div>
+          <AuraOrb state={orbState} size={240} />
         </div>
 
         {/* Animated Voice Waveform Visualizer */}

@@ -1,3 +1,4 @@
+import { authService } from "../services/authService";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -311,24 +312,21 @@ export function FaceToFaceScreen() {
   const [latencyMetrics, setLatencyMetrics] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    fetch("/api/v1/users/me")
-      .then((r) => r.json())
+    let cancelled = false;
+    authService.authFetch("/api/v1/users/me")
+      .then((r) => {
+        if (!r.ok) throw new Error("Profile unavailable");
+        return r.json();
+      })
       .then((u) => {
-        if (u) {
-          if (u.goals) setActiveGoal(u.goals);
-          if (u.interests) setActiveInterest(u.interests);
-        }
+        if (cancelled || !u) return;
+        const goals = Array.isArray(u.goals) ? u.goals.join(", ") : u.goals;
+        const interests = Array.isArray(u.interests) ? u.interests.join(", ") : u.interests;
+        if (goals) setActiveGoal(goals);
+        if (interests) setActiveInterest(interests);
       })
       .catch(() => {});
-
-    fetch("/api/v1/goals")
-      .then((r) => r.json())
-      .then((goals) => {
-        if (Array.isArray(goals) && goals.length > 0) {
-          setActiveGoal(goals[0].title || goals[0].goal || "Career & Placement Goals");
-        }
-      })
-      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   // Guided Breathing Loop
@@ -508,7 +506,11 @@ export function FaceToFaceScreen() {
             };
             setFaceEmotion(newEmoObj);
             liveVoiceClient.sendFaceEmotion(newEmoObj);
-          } else if (data.type === "no_face") {
+          } else if (data.type === "no_face" || data.type === "unavailable") {
+            liveVoiceClient.sendFaceEmotion({ face_detected: false, confidence: 0 });
+            if (data.type === "unavailable") {
+              setFaceErrors((prev) => [data.message || "Face analysis model unavailable", ...prev].slice(0, 5));
+            }
             setFaceEmotion((prev) => ({
               ...prev,
               face_detected: false,

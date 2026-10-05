@@ -9,6 +9,7 @@ delegates fusion to EmotionFusionService, and returns unified EmotionContext for
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any, Dict, List, Optional
 
 from app.core.logging_config import get_logger
@@ -20,6 +21,7 @@ from app.services.emotion.voice_emotion import VoiceEmotionService
 logger = get_logger(__name__)
 
 # Global singletons
+_analyzer_lock = threading.RLock()
 _global_text_analyzer: Optional[TextEmotionAnalyzer] = None
 _global_face_analyzer: Optional[FaceEmotionAnalyzer] = None
 _global_voice_service: Optional[VoiceEmotionService] = None
@@ -28,15 +30,17 @@ _global_fusion_service: Any = None
 
 def get_text_analyzer() -> TextEmotionAnalyzer:
     global _global_text_analyzer
-    if _global_text_analyzer is None:
-        _global_text_analyzer = TextEmotionAnalyzer(use_llm=True)
+    with _analyzer_lock:
+        if _global_text_analyzer is None:
+            _global_text_analyzer = TextEmotionAnalyzer(use_llm=True)
     return _global_text_analyzer
 
 
 def get_face_analyzer() -> FaceEmotionAnalyzer:
     global _global_face_analyzer
-    if _global_face_analyzer is None:
-        _global_face_analyzer = FaceEmotionAnalyzer()
+    with _analyzer_lock:
+        if _global_face_analyzer is None:
+            _global_face_analyzer = FaceEmotionAnalyzer()
     return _global_face_analyzer
 
 

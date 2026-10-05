@@ -349,11 +349,20 @@ class VoiceConversationManager:
             on_speak=on_speak,
         )
 
+        from app.ai.problem_resolution import ProblemResolutionPipeline
+        from app.prompts.builder import _is_hindi_turn
+        resolution = ProblemResolutionPipeline().evaluate(transcript.text, list(self._history[:-1]))
+
         user_obj = await self._get_user()
         session_obj = await self._get_session()
 
         try:
-            if is_fast_cmd and fast_reply_text:
+            if resolution.urgency == "emergency" or resolution.stage in ("plan", "follow_up"):
+                async def urgent_stream():
+                    from app.ai.base import StreamChunk
+                    yield StreamChunk(content=resolution.fallback_response(_is_hindi_turn(transcript.text)), provider="safety")
+                token_stream = urgent_stream()
+            elif is_fast_cmd and fast_reply_text:
                 # Fast path: instantaneous synthetic stream
                 async def _fast_token_stream():
                     for word in fast_reply_text.split(" "):
@@ -402,6 +411,8 @@ class VoiceConversationManager:
                     "For immediate self-harm danger, prioritize safety, encourage contacting local emergency "
                     "services and a trusted nearby person, and do not claim to dispatch help."
                 )
+                if resolution.stage != "conversation":
+                    system_prompt += "\n" + resolution.prompt_context()
                 if was_prev_interrupted:
                     system_prompt += (
                         " NOTE: Your previous response was interrupted by the user mid-sentence. "
@@ -436,6 +447,9 @@ class VoiceConversationManager:
                 fallback_msg = "मैं आपके साथ हूँ और ध्यान से सुन रही हूँ। कृपया बताइए कि इस समय आप कैसा महसूस कर रहे हैं?"
             else:
                 fallback_msg = "I'm right here with you and listening closely. Please tell me a bit more about what you're experiencing."
+
+            if resolution.stage != "conversation":
+                fallback_msg = resolution.fallback_response(_is_hindi_turn(transcript.text))
 
             async def _fallback_stream():
                 for word in fallback_msg.split(" "):

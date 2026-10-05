@@ -26,7 +26,11 @@ class TextEmotionService:
     """Singleton service for English text emotion analysis."""
 
     def __init__(self, model_path: Optional[str] = None) -> None:
-        self._analyzer = TextEmotionAnalyzer(model_path=model_path)
+        if model_path is None:
+            from app.emotion.service import get_text_analyzer
+            self._analyzer = get_text_analyzer()
+        else:
+            self._analyzer = TextEmotionAnalyzer(model_path=model_path)
         self.device = getattr(self._analyzer, "_device", "cpu")
         self.is_loaded = getattr(self._analyzer, "_model_loaded", True)
         self.load_time_ms = getattr(self._analyzer, "load_time_ms", 12.0)

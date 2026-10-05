@@ -15,6 +15,7 @@ import { duplexManager } from "./services/duplexManager";
 import { PageTransition } from "./components/PageTransition";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { UserProvider } from "./context/UserContext";
+import { AmbientBackground } from "./components/AmbientBackground";
 
 // Eagerly loaded critical screens
 import {
@@ -348,15 +349,8 @@ function MainApp() {
     (!user && active !== "Login" && active !== "Register" && active !== "Privacy");
 
   return (
-    <div
-      className="h-screen max-h-screen w-full flex overflow-hidden selection:bg-[#C7B5F3]/30 transition-colors duration-300"
-      style={{
-        background: isDark
-          ? "linear-gradient(135deg, #12101B 0%, #171424 50%, #0E0C17 100%)"
-          : "linear-gradient(135deg, #FBF4F0 0%, #F5ECE6 50%, #EDE1DB 100%)",
-        color: isDark ? "#F3EFFC" : "#2E2544",
-      }}
-    >
+    <div className="aura-app h-screen max-h-screen w-full flex overflow-hidden selection:bg-violet-400/25 transition-colors duration-300">
+      <AmbientBackground />
       <Toaster position="top-right" richColors closeButton />
 
       {user && isOnboarded && active !== "Privacy" && !isLandingView && (

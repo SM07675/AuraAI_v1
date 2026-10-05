@@ -79,22 +79,28 @@ async def lifespan(app: FastAPI):
     async def _warmup_models():
         try:
             import asyncio
-            from app.emotion.service import get_text_analyzer, get_face_analyzer
+            from app.emotion.service import get_text_analyzer, get_face_analyzer, get_voice_service
             from app.communication.speech_to_text import STTEngine
             logger.info("Starting background model warmup...")
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, get_text_analyzer)
             await loop.run_in_executor(None, get_face_analyzer)
             stt = STTEngine.from_settings()
-            await stt._provider._get_model()
+            if hasattr(stt._provider, "_get_model"):
+                await stt._provider._get_model()
+            await loop.run_in_executor(None, get_voice_service)
             logger.info("Background model warmup complete — all models ready in memory.")
         except Exception as exc:
             logger.warning("Background model warmup warning", error=str(exc))
 
     import asyncio
-    asyncio.create_task(_warmup_models())
+    warmup_task = asyncio.create_task(_warmup_models())
 
-    yield
+    try:
+        yield
+    finally:
+        warmup_task.cancel()
+        await asyncio.gather(warmup_task, return_exceptions=True)
 
     # ── Shutdown ─────────────────────────────────────────────────
     logger.info("Aura AI 2.0 shutting down")
