@@ -1,7 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Toaster, toast } from "sonner";
-import { ClaySidebar, ClayBottomNav } from "./components/ClaySidebar";
+import { TopNavigation } from "./components/TopNavigation";
 import { TopBar } from "./components/TopBar";
 import { AuthScreen } from "./components/AuthScreen";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -280,7 +280,10 @@ function MainApp() {
       case "Home":
         return (
           <HomeScreen
-            onStart={(scr) => setActive(scr || "Voice Mode")}
+            onStart={(scr, query) => {
+              if (query) setInitialChatQuery(query);
+              setActive(scr || "Voice Mode");
+            }}
             onLogout={handleLogout}
             onNavigateToAuth={handleLogout}
           />
@@ -335,7 +338,10 @@ function MainApp() {
       default:
         return (
           <HomeScreen
-            onStart={(scr) => setActive(scr || "Voice Mode")}
+            onStart={(scr, query) => {
+              if (query) setInitialChatQuery(query);
+              setActive(scr || "Voice Mode");
+            }}
             onLogout={handleLogout}
             onNavigateToAuth={handleLogout}
           />
@@ -349,12 +355,12 @@ function MainApp() {
     (!user && active !== "Login" && active !== "Register" && active !== "Privacy");
 
   return (
-    <div className="aura-app h-screen max-h-screen w-full flex overflow-hidden selection:bg-violet-400/25 transition-colors duration-300">
+    <div className="aura-app h-screen max-h-screen w-full flex flex-col overflow-hidden selection:bg-blue-400/25 transition-colors duration-300">
       <AmbientBackground />
       <Toaster position="top-right" richColors closeButton />
 
       {user && isOnboarded && active !== "Privacy" && !isLandingView && (
-        <ClaySidebar
+        <TopNavigation
           active={active}
           onSelect={handleNavigateScreen}
           user={user}
@@ -366,7 +372,7 @@ function MainApp() {
         className={`flex-1 flex flex-col min-w-0 ${
           isLandingView || !user
             ? "p-0 pb-0 h-screen max-h-screen overflow-hidden"
-            : "p-2 sm:p-3 lg:p-3.5 pb-20 lg:pb-3.5 h-screen max-h-screen overflow-hidden justify-between"
+            : "p-2 sm:p-3 lg:p-3.5 min-h-0 overflow-hidden justify-between"
         }`}
       >
         {user && isOnboarded && active !== "Privacy" && !isLandingView && (
@@ -401,10 +407,6 @@ function MainApp() {
         </main>
       </div>
 
-      {/* Mobile & Tablet Bottom Navigation Bar */}
-      {user && isOnboarded && active !== "Privacy" && !isLandingView && (
-        <ClayBottomNav active={active} onSelect={handleNavigateScreen} />
-      )}
     </div>
   );
 }

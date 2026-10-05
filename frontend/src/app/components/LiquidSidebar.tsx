@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Home,
@@ -56,7 +56,8 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
   });
 
   const [isHovered, setIsHovered] = useState(false);
-  const isExpanded = isPinned || isHovered;
+  const [hasFocus, setHasFocus] = useState(false);
+  const isExpanded = isPinned || isHovered || hasFocus;
 
   const togglePin = () => {
     setIsPinned((prev) => {
@@ -83,6 +84,10 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onFocusCapture={() => setHasFocus(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHasFocus(false);
+      }}
       style={{
         height: "calc(100vh - 28px)",
         maxHeight: "calc(100vh - 28px)",
@@ -101,7 +106,7 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
             <AuraBrandLogo size={34} showWordmark={isExpanded} subtitle="AI Wellbeing Companion" />
           </div>
 
-          {isExpanded && (
+          {isExpanded ? (
             <button
               onClick={togglePin}
               className="liquid-button w-7 h-7 rounded-full text-slate-400 hover:text-white dark:hover:text-white"
@@ -109,6 +114,15 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
               aria-label={isPinned ? "Collapse Sidebar" : "Pin Sidebar"}
             >
               <ChevronLeft size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={togglePin}
+              className="liquid-button absolute top-[62px] left-1/2 -translate-x-1/2 w-8 h-8 rounded-full text-slate-400 hover:text-violet-300"
+              title="Open navigation"
+              aria-label="Open navigation"
+            >
+              <ChevronRight size={15} />
             </button>
           )}
         </div>
@@ -127,6 +141,8 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onSelect(item.id)}
                 title={!isExpanded ? item.label : undefined}
+                aria-label={item.label}
+                aria-current={isActive ? "page" : undefined}
                 className={`relative flex items-center ${
                   isExpanded ? "gap-3 px-3.5" : "justify-center px-0"
                 } py-2.5 rounded-[18px] text-[13px] font-semibold cursor-pointer border-none outline-none transition-colors duration-200 shrink-0 ${
@@ -220,9 +236,9 @@ export function LiquidSidebar({ active, onSelect, user, onLogout }: LiquidSideba
                 <span className="text-[13px] font-bold text-slate-800 dark:text-white truncate">
                   {displayName}
                 </span>
-                <span className="text-[10px] text-emerald-500 flex items-center gap-1 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Online
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                  Account active
                 </span>
               </motion.div>
             )}
@@ -256,19 +272,30 @@ interface LiquidBottomNavProps {
 export function LiquidBottomNav({ active, onSelect }: LiquidBottomNavProps) {
   const [showMoreDrawer, setShowMoreDrawer] = useState(false);
 
+  useEffect(() => {
+    if (!showMoreDrawer) return;
+    const close = (event: KeyboardEvent) => event.key === "Escape" && setShowMoreDrawer(false);
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [showMoreDrawer]);
+
   const PRIMARY_MOBILE_ITEMS = [
     { id: "Dashboard", label: "Home", icon: Home },
     { id: "Chat", label: "Chat", icon: MessageSquare },
     { id: "Voice Mode", label: "Voice", icon: Mic },
     { id: "Face-to-Face", label: "Face", icon: Video },
-    { id: "Emotion", label: "Emotion", icon: Activity },
   ];
 
   const DRAWER_ITEMS = [
+    { id: "Dashboard", label: "Home", icon: Home, desc: "Your calm starting space" },
+    { id: "Chat", label: "Chat", icon: MessageSquare, desc: "Write with Aura" },
+    { id: "Voice Mode", label: "Voice Mode", icon: Mic, desc: "A hands-free conversation" },
+    { id: "Face-to-Face", label: "Face-to-Face", icon: Video, desc: "Enter the holographic space" },
     { id: "Memory", label: "Memory", icon: Brain, desc: "Personal insights and facts" },
+    { id: "Emotion", label: "Emotion", icon: Activity, desc: "Observed and self-reported signals" },
     { id: "Analytics", label: "Analytics", icon: BarChart2, desc: "Wellbeing trends and progress" },
-    { id: "Interests", label: "Interests", icon: Sparkles, desc: "Focus topics & communication style" },
-    { id: "Settings", label: "Settings", icon: Settings, desc: "Preferences, appearance and account" },
+    { id: "Interests", label: "Interests", icon: Sparkles, desc: "Topics and communication style" },
+    { id: "Settings", label: "Settings", icon: Settings, desc: "Appearance, voice and account" },
   ];
 
   return (
@@ -318,11 +345,14 @@ export function LiquidBottomNav({ active, onSelect }: LiquidBottomNavProps) {
             showMoreDrawer ? "text-violet-400" : "text-slate-400 hover:text-slate-200"
           }`}
           style={{ minWidth: 48, minHeight: 44 }}
+          aria-label="Open all Aura spaces"
+          aria-expanded={showMoreDrawer}
+          aria-controls="aura-spaces-drawer"
         >
           <div className="p-1 rounded-xl">
             <MoreHorizontal size={19} strokeWidth={1.8} />
           </div>
-          <span className="text-[10px] font-bold mt-0.5 tracking-tight">More</span>
+          <span className="text-[10px] font-bold mt-0.5 tracking-tight">Menu</span>
         </button>
       </nav>
 
@@ -332,6 +362,10 @@ export function LiquidBottomNav({ active, onSelect }: LiquidBottomNavProps) {
           <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden">
             {/* Backdrop */}
             <motion.div
+              id="aura-spaces-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="All Aura spaces"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -345,16 +379,17 @@ export function LiquidBottomNav({ active, onSelect }: LiquidBottomNavProps) {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 380, damping: 32 }}
-              className="relative z-10 liquid-glass-elevated rounded-t-[32px] p-6 pb-12 shadow-2xl border-t border-white/20"
+              className="relative z-10 liquid-glass-elevated rounded-t-[32px] p-5 sm:p-6 pb-10 shadow-2xl border-t border-white/20 max-h-[82vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
                 <div className="flex items-center gap-2">
                   <AuraBrandLogo size={28} showWordmark={true} />
-                  <span className="text-xs text-slate-400 font-semibold">• Spaces</span>
+                  <span className="text-xs text-slate-400 font-semibold">• All spaces</span>
                 </div>
                 <button
                   onClick={() => setShowMoreDrawer(false)}
                   className="w-8 h-8 rounded-full liquid-button text-slate-300"
+                  aria-label="Close navigation menu"
                 >
                   <X size={16} />
                 </button>
@@ -371,6 +406,7 @@ export function LiquidBottomNav({ active, onSelect }: LiquidBottomNavProps) {
                         onSelect(item.id);
                       }}
                       className="liquid-card p-3.5 flex items-center gap-3.5 text-left cursor-pointer border-none outline-none group hover:bg-white/10"
+                      aria-current={active === item.id ? "page" : undefined}
                     >
                       <div className="w-10 h-10 rounded-2xl liquid-button text-violet-400 flex items-center justify-center shrink-0">
                         <Icon size={20} />

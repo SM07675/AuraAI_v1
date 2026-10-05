@@ -23,7 +23,10 @@ import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
 import { LiveAudioDebugger } from "./LiveAudioDebugger";
 
 export function VoiceScreen() {
-  const [listening, setListening] = useState(speechService.isListening);
+  const [listening, setListening] = useState(false);
+  const microphoneEnabled = useRef(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [micStarting, setMicStarting] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -60,7 +63,7 @@ export function VoiceScreen() {
     if (duplexState === "USER_SPEAKING") {
       return "user-speaking";
     }
-    if (listening || duplexState === "LISTENING") {
+    if (listening) {
       return "listening";
     }
     return "ready";
@@ -71,20 +74,17 @@ export function VoiceScreen() {
     liveVoiceClient.setCallbacks({
       onStateChange: (st) => {
         if (st === "LISTENING" || st === "USER_SPEAKING") {
-          setListening(true);
           setThinking(false);
           setSpeaking(false);
         } else if (st === "THINKING") {
           setThinking(true);
           setSpeaking(false);
         } else if (st === "SPEAKING") {
-          setListening(true);
           setThinking(false);
           setSpeaking(true);
         } else if (st === "INTERRUPTED") {
           setSpeaking(false);
           setThinking(false);
-          setListening(true);
         }
       },
       onTurnStarted: () => {
@@ -113,19 +113,20 @@ export function VoiceScreen() {
         setThinking(false);
       },
       onTurnCompleted: () => {
-        setSpeaking(false);
         setThinking(false);
-        setListening(true);
       },
+      onAssistantSpeechEnd: () => setSpeaking(false),
       onError: (err) => {
+        setAudioError(err);
         setThinking(false);
         setSpeaking(false);
       },
     });
 
-    audioEngine.initMicrophonePipeline().catch(() => {});
+    liveVoiceClient.setMicrophoneEnabled(false);
+    liveVoiceClient.setLanguage(currentLang);
     liveVoiceClient.connect();
-    liveVoiceClient.setClientTranscription(speechService.isSupported);
+    liveVoiceClient.setClientTranscription(false);
 
     const unSpeech = speechService.subscribe({
       onInterim: (interim) => {
@@ -137,35 +138,57 @@ export function VoiceScreen() {
         if (clean) {
           setTranscript(clean);
           setInterimTranscript("");
-          if (liveVoiceClient.isConnected()) {
+          if (microphoneEnabled.current && liveVoiceClient.isConnected()) {
             liveVoiceClient.sendClientTranscript(clean, 0.96);
           }
         }
       },
-      onListeningChange: (isList) => setListening(isList),
+      onError: () => liveVoiceClient.setClientTranscription(false),
     });
 
     return () => {
       unSpeech();
+      microphoneEnabled.current = false;
+      speechService.stop();
+      audioEngine.releaseMicrophone();
       liveVoiceClient.disconnect();
+      liveVoiceClient.setCallbacks({});
     };
   }, []);
 
   const toggleMic = async () => {
-    if (listening) {
+    if (micStarting) return;
+    if (audioEngine.hasActivePlayback()) liveVoiceClient.interrupt();
+    if (microphoneEnabled.current) {
+      microphoneEnabled.current = false;
       speechService.stop();
-      audioEngine.pause();
+      liveVoiceClient.setMicrophoneEnabled(false);
+      audioEngine.releaseMicrophone();
       setListening(false);
     } else {
-      await audioEngine.initMicrophonePipeline();
-      speechService.start();
-      setListening(true);
+      setMicStarting(true);
+      try {
+        await audioEngine.getAudioContext();
+        const stream = await audioEngine.initMicrophonePipeline();
+        if (!stream) { setAudioError("Allow microphone access in your browser, then try again."); return; }
+        microphoneEnabled.current = true;
+        liveVoiceClient.setMicrophoneEnabled(true);
+        liveVoiceClient.setClientTranscription(speechService.isSupported);
+        liveVoiceClient.connect();
+        if (speechService.isSupported) speechService.start();
+        setListening(true);
+        setAudioError(null);
+      } catch { setAudioError("Audio could not start. Check microphone permissions and try again."); }
+      finally { setMicStarting(false); }
     }
   };
 
   const handleEndCall = () => {
     speechService.stop();
-    audioEngine.pause();
+    microphoneEnabled.current = false;
+    liveVoiceClient.setMicrophoneEnabled(false);
+    audioEngine.releaseMicrophone();
+    liveVoiceClient.disconnect();
     voiceService.stop();
     setSpeaking(false);
     setThinking(false);
@@ -177,6 +200,7 @@ export function VoiceScreen() {
   const handleSelectLanguage = (langCode: SupportedLanguage) => {
     setCurrentLang(langCode);
     speechService.setLanguage(langCode);
+    liveVoiceClient.setLanguage(langCode);
     setShowLangMenu(false);
   };
 
@@ -203,7 +227,7 @@ export function VoiceScreen() {
       case "interrupted":
         return "Interrupted · Ready for your words";
       default:
-        return "Ready · Speak anytime";
+        return micStarting ? "Starting microphone…" : "Microphone off · Tap the microphone to start";
     }
   };
 
@@ -320,6 +344,8 @@ export function VoiceScreen() {
         </div>
       </div>
 
+      {audioError && <div role="alert" className="liquid-card-subtle px-4 py-2 text-sm text-amber-700 dark:text-amber-200 z-20">{audioError}</div>}
+
       {/* ── Center Hero: Living Aura Orb & Conversation State ── */}
       <div className="flex-1 flex flex-col items-center justify-center relative my-auto z-10">
         <AuraOrb state={orbState} size={320} />
@@ -371,6 +397,8 @@ export function VoiceScreen() {
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.94 }}
           onClick={toggleMic}
+          disabled={micStarting}
+          aria-label={micStarting ? "Starting microphone" : listening ? "Mute microphone" : "Start voice conversation"}
           className={`w-13 h-13 rounded-full liquid-button flex items-center justify-center cursor-pointer transition-colors ${
             listening
               ? "bg-violet-500/20 text-violet-300 border-violet-500/40"

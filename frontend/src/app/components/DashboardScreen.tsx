@@ -13,6 +13,7 @@ import {
   Smile,
 } from "lucide-react";
 import { AuraOrb } from "./AuraOrb";
+import { authService } from "../services/authService";
 
 interface DashboardScreenProps {
   onStart: (screen?: string, query?: string) => void;
@@ -86,8 +87,8 @@ export function DashboardScreen({ onStart }: DashboardScreenProps) {
     let cancelled = false;
 
     Promise.allSettled([
-      fetch("/api/v1/memory?limit=3").then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/v1/users/me").then((r) => (r.ok ? r.json() : null)),
+      authService.authFetch("/api/v1/memory?limit=3").then((r) => (r.ok ? r.json() : null)),
+      authService.authFetch("/api/v1/users/me").then((r) => (r.ok ? r.json() : null)),
     ]).then(([memRes, userRes]) => {
       if (cancelled) return;
 
@@ -266,9 +267,11 @@ export function DashboardScreen({ onStart }: DashboardScreenProps) {
                     >
                       <div>
                         <span className="font-bold text-slate-800 dark:text-slate-200 capitalize">
-                          {m.key}:
-                        </span>{" "}
-                        <span className="text-slate-600 dark:text-slate-300">{m.value}</span>
+                          {String(m.title || m.key || "Saved memory").replaceAll("_", " ")}
+                        </span>
+                        <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                          Protected memory · Open Memory to review
+                        </span>
                       </div>
                       <span className="text-[10px] text-slate-400 shrink-0 uppercase tracking-wider">
                         {m.type}
@@ -323,8 +326,8 @@ export function DashboardScreen({ onStart }: DashboardScreenProps) {
             </div>
 
             <div className="mt-4 pt-3 border-t border-white/10 dark:border-white/5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-              <span>Privacy protected · Real database integration</span>
-              <span>100% Confidential</span>
+              <span>Protected account data</span>
+              <span>AI wellbeing companion</span>
             </div>
           </div>
         </section>

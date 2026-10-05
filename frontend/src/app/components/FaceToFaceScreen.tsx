@@ -32,6 +32,7 @@ import { getWebSocketUrl } from "../services/wsHelper";
 import { duplexManager, ConversationState, InterruptionScoreDetails } from "../services/duplexManager";
 import { liveVoiceClient } from "../services/liveVoiceSocket";
 import { audioEngine } from "../services/audioEngine";
+import { authService } from "../services/authService";
 import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
 import { LiveAudioDebugger } from "./LiveAudioDebugger";
 import { FaceDebugPanel } from "./FaceDebugPanel";
@@ -81,14 +82,16 @@ export function FaceToFaceScreen() {
     confidence: number;
     sources: string[];
   }>({
-    primary: "Calm",
-    confidence: 0.85,
-    sources: ["Voice", "Text"],
+    primary: "Unavailable",
+    confidence: 0,
+    sources: [],
   });
 
   // ── Conversational Context ──────────────────────────────────────────────────
-  const [activeGoal, setActiveGoal] = useState("Cultivate Daily Inner Peace");
-  const [activeInterest, setActiveInterest] = useState("Mindfulness & Stress Resilience");
+  const [activeGoal, setActiveGoal] = useState("No goal set");
+  const [activeInterest, setActiveInterest] = useState("No focus selected");
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const responseId = useRef<string | null>(null);
 
   // ── Chat & Dialogue State ───────────────────────────────────────────────────
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -100,7 +103,10 @@ export function FaceToFaceScreen() {
   ]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
-  const [micActive, setMicActive] = useState(speechService.isListening);
+  const [micActive, setMicActive] = useState(false);
+  const micEnabledRef = useRef(false);
+  const [micStarting, setMicStarting] = useState(false);
+  const [interimSpeech, setInterimSpeech] = useState("");
   const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
 
@@ -134,7 +140,7 @@ export function FaceToFaceScreen() {
 
   // Fetch real personalized user context
   useEffect(() => {
-    fetch("/api/v1/users/me")
+    authService.authFetch("/api/v1/users/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.goals?.length) setActiveGoal(data.goals[0]);
@@ -146,12 +152,14 @@ export function FaceToFaceScreen() {
   // ── Live Voice Client Integration ──────────────────────────────────────────
   useEffect(() => {
     liveVoiceClient.setCallbacks({
-      onConnectionChange: (status) => setConnectionStatus(status),
+      onConnectionChange: (status) => {
+        setConnectionStatus(status);
+        if (status === "connected") setSessionError(null);
+      },
       onStateChange: (st) => {
         if (st === "LISTENING") {
           setIsAuraSpeaking(false);
           setTyping(false);
-          setMicActive(true);
         } else if (st === "USER_SPEAKING") {
           setIsAuraSpeaking(false);
           setTyping(false);
@@ -167,7 +175,8 @@ export function FaceToFaceScreen() {
         }
       },
       onTurnStarted: () => {
-        setTyping(false);
+        responseId.current = `aura-${Date.now()}`;
+        setTyping(true);
       },
       onPartialTranscript: (txt) => {
         setText(txt);
@@ -179,13 +188,10 @@ export function FaceToFaceScreen() {
       onPartialResponseToken: (tok) => {
         setTyping(false);
         setMsgs((prev) => {
-          const lastIdx = prev.length - 1;
-          const last = prev[lastIdx];
-          if (last && last.from === "aura") {
-            return [...prev.slice(0, lastIdx), { ...last, text: last.text + tok }];
-          } else {
-            return [...prev, { id: "aura-" + Date.now(), from: "aura", text: tok }];
-          }
+          const id = responseId.current || (responseId.current = `aura-${Date.now()}`);
+          const existing = prev.find((message) => message.id === id);
+          return existing ? prev.map((message) => message.id === id ? { ...message, text: message.text + tok } : message)
+            : [...prev, { id, from: "aura", text: tok }];
         });
       },
       onSpeaking: () => {
@@ -201,25 +207,85 @@ export function FaceToFaceScreen() {
         setTyping(false);
       },
       onTurnCompleted: () => {
-        setIsAuraSpeaking(false);
         setTyping(false);
       },
-      onError: () => {
+      onError: (error) => {
+        setSessionError(error);
         setIsAuraSpeaking(false);
         setTyping(false);
       },
     });
 
     liveVoiceClient.connect();
-    liveVoiceClient.setClientTranscription(speechService.isSupported);
+    liveVoiceClient.setLanguage(currentLang);
+    liveVoiceClient.setMicrophoneEnabled(false);
+    liveVoiceClient.setClientTranscription(false);
+    const unsubscribeSpeech = speechService.subscribe({
+      onInterim: (transcript) => setInterimSpeech(transcript),
+      onFinal: (transcript) => {
+        if (micEnabledRef.current && transcript.trim()) {
+          liveVoiceClient.sendClientTranscript(transcript.trim(), 0.96);
+          setInterimSpeech("");
+        }
+      },
+      onError: (error) => {
+        // Browser recognition may be unavailable; keep PCM/server STT active.
+        liveVoiceClient.setClientTranscription(false);
+        if (error === "not-allowed" || error === "audio-capture") setSessionError("Microphone access is unavailable. Check browser permissions or type below.");
+      },
+    });
 
     return () => {
       liveVoiceClient.disconnect();
+      unsubscribeSpeech();
+      micEnabledRef.current = false;
+      speechService.stop();
+      audioEngine.releaseMicrophone();
+      liveVoiceClient.setCallbacks({});
       stopCamera();
     };
   }, []);
 
   // ── Camera Initialization & Frame Stream ──────────────────────────────────
+  useEffect(() => {
+    if (!cameraActive) return;
+    const socket = new WebSocket(getWebSocketUrl("/api/v1/emotion/ws"));
+    let waiting = false;
+    let sentAt = 0;
+    socket.onmessage = (event) => {
+      waiting = false;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "error") { setCameraError(data.message || "Face observations are unavailable."); return; }
+        if (data.primary_emotion && cameraActiveRef.current) {
+          setFaceEmotion(data);
+          liveVoiceClient.sendFaceEmotion(data);
+          setFusedEmotion({ primary: data.face_detected ? data.primary_emotion : "Unavailable", confidence: data.confidence || 0, sources: data.face_detected ? ["Camera observation"] : [] });
+        }
+      } catch { /* Ignore malformed observations. */ }
+    };
+    const timer = window.setInterval(() => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (waiting && Date.now() - sentAt < 5000) return;
+      if (!video || !canvas || video.readyState < 2 || socket.readyState !== WebSocket.OPEN || !cameraActiveRef.current || socket.bufferedAmount > 64000) return;
+      canvas.width = 320;
+      canvas.height = Math.round(320 * video.videoHeight / video.videoWidth);
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      socket.send(JSON.stringify({ type: "frame", image: canvas.toDataURL("image/jpeg", 0.65) }));
+      waiting = true;
+      sentAt = Date.now();
+    }, 400);
+    return () => {
+      window.clearInterval(timer);
+      socket.onmessage = null;
+      socket.close();
+      setFusedEmotion({ primary: "Unavailable", confidence: 0, sources: [] });
+    };
+  }, [cameraActive]);
+
   const startCamera = async () => {
     setCameraError(null);
     try {
@@ -253,45 +319,67 @@ export function FaceToFaceScreen() {
   };
 
   const toggleMic = async () => {
-    if (micActive) {
+    if (micStarting) return;
+    if (audioEngine.hasActivePlayback()) liveVoiceClient.interrupt();
+    if (micEnabledRef.current) {
+      micEnabledRef.current = false;
       speechService.stop();
-      audioEngine.pause();
+      liveVoiceClient.setMicrophoneEnabled(false);
+      audioEngine.releaseMicrophone();
       setMicActive(false);
     } else {
-      await audioEngine.initMicrophonePipeline();
-      speechService.start();
-      setMicActive(true);
+      setMicStarting(true);
+      try {
+        await audioEngine.getAudioContext();
+        const stream = await audioEngine.initMicrophonePipeline();
+        if (!stream) { setSessionError("Allow microphone access to speak. Text conversation remains available."); return; }
+        micEnabledRef.current = true;
+        liveVoiceClient.setMicrophoneEnabled(true);
+        liveVoiceClient.setClientTranscription(speechService.isSupported);
+        liveVoiceClient.connect();
+        if (speechService.isSupported) speechService.start();
+        setSessionError(null);
+        setMicActive(true);
+      } catch {
+        setSessionError("Could not start audio. Check microphone permissions and try again.");
+      } finally { setMicStarting(false); }
     }
   };
 
-  const sendMsg = () => {
+  const sendMsg = async () => {
     const t = text.trim();
     if (!t) return;
+    // Unlock browser playback while the Send click/Enter gesture is active.
+    await audioEngine.getAudioContext();
+    if (!liveVoiceClient.getIsSessionReady()) {
+      setSessionError("Aura is reconnecting. Your message is still here—send it when connected.");
+      liveVoiceClient.connect();
+      return;
+    }
+    if (audioEngine.hasActivePlayback()) liveVoiceClient.interrupt();
+    if (!liveVoiceClient.sendTextMessage(t, currentLang)) return;
     setMsgs((m) => [...m, { id: "user-" + Date.now(), from: "user", text: t }]);
     setText("");
     setTyping(true);
 
-    if (liveVoiceClient.isConnected()) {
-      liveVoiceClient.sendClientTranscript(t, 1.0);
-    }
   };
 
   const latestAuraMsg = [...msgs].reverse().find((m) => m.from === "aura")?.text || "";
 
   return (
-    <div className="relative w-full h-[calc(100vh-84px)] flex flex-col justify-between overflow-hidden select-none px-2 sm:px-4 py-2">
+    <div className="face-stage relative w-full h-full min-h-[480px] flex flex-col justify-between overflow-hidden px-2 sm:px-4 py-2">
       {/* ── 1. Top Controls Bar: State & Options ── */}
-      <header className="liquid-glass-elevated rounded-[24px] px-4 py-2 flex items-center justify-between z-30 shadow-xl">
+      <header className="face-stage__bar liquid-glass-elevated rounded-[24px] px-3 sm:px-4 py-2 flex items-center justify-between z-30 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22D3EE]" />
-            <span className="text-[13px] font-bold text-slate-800 dark:text-white">
+            <span className="hidden sm:inline text-[13px] font-bold text-slate-800 dark:text-white">
               Face-to-Face Hologram
             </span>
           </div>
 
           <span className="liquid-pill px-2.5 py-0.5 text-[10px] uppercase font-bold text-violet-300">
-            {duplexState}
+            {connectionStatus !== "connected" ? connectionStatus : micActive || isAuraSpeaking || typing ? duplexState : "Ready · microphone off"}
           </span>
         </div>
 
@@ -305,7 +393,7 @@ export function FaceToFaceScreen() {
             }`}
           >
             <Wind size={13} />
-            <span>Pacer</span>
+            <span className="hidden md:inline">Pacer</span>
           </button>
 
           {/* Voice Selector */}
@@ -318,7 +406,7 @@ export function FaceToFaceScreen() {
               className="liquid-button px-3 py-1 text-xs text-slate-300 gap-1.5"
             >
               <Volume2 size={13} />
-              <span>{voiceList.find((v) => v.id === currentVoiceId)?.name.split(" ")[0] || "Voice"}</span>
+              <span className="hidden md:inline">{voiceList.find((v) => v.id === currentVoiceId)?.name.split(" ")[0] || "Voice"}</span>
             </button>
 
             <AnimatePresence>
@@ -359,13 +447,16 @@ export function FaceToFaceScreen() {
             title="Toggle Context & Observations Drawer"
           >
             <Layers size={13} />
-            <span>Context</span>
+            <span className="hidden md:inline">Context</span>
           </button>
         </div>
       </header>
+      {(sessionError || cameraError) && <div role="status" className="liquid-card-subtle px-4 py-2 my-2 text-sm text-amber-700 dark:text-amber-200">{sessionError || cameraError}</div>}
+      {!micActive && !micStarting && <div className="flex items-center justify-center gap-3 py-2 text-sm text-slate-600 dark:text-slate-300"><span>Ready to talk?</span><button onClick={toggleMic} className="liquid-button-primary rounded-full px-4 py-2" aria-label="Start voice conversation">Start conversation</button></div>}
+      {interimSpeech && <p role="status" className="text-center text-sm text-slate-600 dark:text-cyan-200 m-0 py-2">You: {interimSpeech}</p>}
 
       {/* ── 2. Hero Center: Full Holographic 3D Aura Character ── */}
-      <div className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden z-10">
+      <div className="relative flex-1 min-h-0 w-full flex items-center justify-center overflow-hidden z-10">
         <HolographicAuraAvatar
           isSpeaking={isAuraSpeaking}
           isListening={micActive && !isAuraSpeaking}
@@ -375,7 +466,7 @@ export function FaceToFaceScreen() {
         />
 
         {/* Live Subtitle Transcript Projection Overlay */}
-        <div className="absolute bottom-16 left-4 right-4 sm:left-12 sm:right-12 max-w-2xl mx-auto pointer-events-none z-20 flex flex-col items-center text-center">
+        <div className="face-captions absolute bottom-4 left-4 right-4 sm:left-12 sm:right-12 max-w-xl mx-auto pointer-events-none z-20 flex flex-col items-center text-center" aria-live="polite">
           <AnimatePresence mode="wait">
             {latestAuraMsg && (
               <motion.div
@@ -386,7 +477,7 @@ export function FaceToFaceScreen() {
                 transition={{ duration: 0.25 }}
                 className="liquid-glass-elevated rounded-[22px] px-6 py-3 shadow-2xl pointer-events-auto border border-violet-400/25"
               >
-                <p className="text-[14px] sm:text-[15px] font-medium text-slate-100 leading-relaxed m-0">
+                <p className="text-[14px] sm:text-[15px] font-medium text-slate-800 dark:text-slate-100 leading-relaxed m-0 max-h-24 overflow-y-auto">
                   {latestAuraMsg}
                 </p>
               </motion.div>
@@ -406,10 +497,10 @@ export function FaceToFaceScreen() {
       <motion.div
         drag
         dragConstraints={{ left: -300, right: 300, top: -400, bottom: 200 }}
-        className={`absolute top-16 right-4 z-40 liquid-glass-elevated rounded-[22px] overflow-hidden shadow-2xl transition-all ${
+        className={`face-stage__camera absolute top-16 right-4 z-40 liquid-glass-elevated rounded-[22px] overflow-hidden shadow-2xl transition-all ${
           isCameraExpanded ? "w-64 sm:w-72" : "w-44 sm:w-52"
         }`}
-        style={{ cursor: "grab" }}
+        style={{ cursor: "grab", position: "absolute" }}
       >
         <div className="flex items-center justify-between px-3 py-1.5 bg-black/40 border-b border-white/10">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300">
@@ -478,6 +569,8 @@ export function FaceToFaceScreen() {
           whileHover={{ scale: 1.06 }}
           whileTap={{ scale: 0.94 }}
           onClick={toggleMic}
+          disabled={micStarting}
+          aria-label={micStarting ? "Starting microphone" : micActive ? "Mute microphone" : "Start voice conversation"}
           className={`w-10 h-10 rounded-full liquid-button shrink-0 ${
             micActive ? "text-violet-300 bg-violet-500/20 border-violet-500/40" : "text-rose-400"
           }`}
@@ -502,6 +595,9 @@ export function FaceToFaceScreen() {
       <AnimatePresence>
         {showSideDrawer && (
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Conversation context"
             initial={{ x: "100%", opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "100%", opacity: 0 }}
@@ -519,6 +615,7 @@ export function FaceToFaceScreen() {
                 <button
                   onClick={() => setShowSideDrawer(false)}
                   className="w-7 h-7 rounded-full liquid-button text-slate-400 hover:text-white"
+                  aria-label="Close conversation context"
                 >
                   <X size={14} />
                 </button>
