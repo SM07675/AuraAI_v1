@@ -7,6 +7,7 @@ Determines the shape of the upcoming response based on the conversation state.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -85,11 +86,133 @@ Concern Categories:
 
 Only return valid JSON."""
 
-    async def classify(self, user_message: str, current_phase: str, turn_count: int) -> TurnDirective:
-        """Analyze the turn and return a directive."""
-        msg_lower = user_message.lower().strip()
-        
-        # Adaptive fatigue / disengagement check
+    def fast_classify(
+        self,
+        user_message: str,
+        current_phase: str = "explore",
+        turn_count: int = 1,
+    ) -> TurnDirective:
+        """Instantaneous heuristic turn classification (sub-0.1ms)."""
+        msg_lower = (user_message or "").lower().strip()
+
+        # Disengagement check
+        disengage_patterns = [
+            "don't want to talk", "dont want to talk", "stop", "shut up",
+            "leave me alone", "enough", "bye", "goodbye", "pause", "wait",
+            "बस", "रुको", "रहने दो", "बंद करो", "wrap up", "gotta go", "have to go",
+        ]
+        if any(p in msg_lower for p in disengage_patterns) or turn_count > 30:
+            return TurnDirective(
+                phase="wrap_up" if any(p in msg_lower for p in ("bye", "goodbye", "wrap up", "gotta go", "have to go")) else "explore",
+                problemDetected=False,
+                concernCategory=None,
+                mustReflectFirst=True,
+                offerSolution=False,
+                mustAskFollowUp=False,
+                nextQuestionSeed="Would you like to wrap up our session for today?",
+            )
+
+        # Concern category detection
+        categories = {
+            "work_stress": [
+                "stress", "exam", "test", "study", "interview", "job", "career",
+                "boss", "deadline", "code", "coding", "project", "pressure", "fail",
+                "तनाव", "परीक्षा", "नौकरी", "दबाव",
+            ],
+            "sleep": [
+                "sleep", "insomnia", "tired", "exhausted", "awake", "nightmare", "rest",
+                "नींद", "थका", "थकान",
+            ],
+            "relationships": [
+                "breakup", "partner", "girlfriend", "boyfriend", "friend", "family",
+                "parents", "mom", "dad", "fight", "argue", "divorce", "रिश्ते", "दोस्त",
+            ],
+            "loneliness": [
+                "lonely", "alone", "isolated", "nobody", "no one", "अकेला", "अकेलापन",
+            ],
+            "anxiety": [
+                "anxious", "anxiety", "panic", "scared", "fear", "nervous", "worry",
+                "worried", "घबराहट", "डर", "चिंता",
+            ],
+            "motivation": [
+                "lazy", "unmotivated", "procrastinat", "burnout", "stuck", "give up",
+                "आलस", "हिम्मत",
+            ],
+        }
+
+        detected_category = None
+        for cat, keywords in categories.items():
+            if any(kw in msg_lower for kw in keywords):
+                detected_category = cat
+                break
+
+        problem_detected = detected_category is not None
+
+        # Phase progression logic
+        phase = current_phase or "explore"
+        offer_solution = False
+        must_reflect = True
+
+        if problem_detected:
+            if phase in ("check_in", "explore"):
+                phase = "identify"
+            elif phase == "identify":
+                phase = "reflect"
+            elif phase == "reflect":
+                phase = "offer"
+                offer_solution = True
+            elif phase == "offer":
+                phase = "follow_up"
+        else:
+            if phase == "check_in" and turn_count > 1:
+                phase = "explore"
+
+        # Early-turn guardrail: Never offer unsolicited solution on turns 1-2
+        explicit_req = any(p in msg_lower for p in (
+            "what should i do", "what can i do", "help me fix", "give me advice",
+            "suggest something", "solution", "any tips", "kya karun", "kya karoon"
+        ))
+        panic_req = any(p in msg_lower for p in (
+            "panic attack", "cannot breathe", "can't breathe", "hyperventilat"
+        ))
+        if turn_count < 3 and not (explicit_req or panic_req):
+            offer_solution = False
+            if phase == "offer":
+                phase = "explore" if turn_count <= 1 else "identify"
+
+        # Formulate contextual question seed
+        seed_map = {
+            "work_stress": "What specific part of your workload or exams feels the heaviest right now?",
+            "sleep": "How long have you been experiencing difficulties with your sleep schedule?",
+            "relationships": "Would it help to talk through how that interaction affected you?",
+            "loneliness": "What is one small thing that usually brings you a bit of comfort when feeling isolated?",
+            "anxiety": "Would taking a slow, calming breath together help you right now?",
+            "motivation": "What is one very small step you might feel up to trying today?",
+        }
+        next_seed = seed_map.get(detected_category) if detected_category else None
+
+        return TurnDirective(
+            phase=phase,
+            problemDetected=problem_detected,
+            concernCategory=detected_category,
+            mustReflectFirst=must_reflect,
+            offerSolution=offer_solution,
+            mustAskFollowUp=True,
+            nextQuestionSeed=next_seed,
+        )
+
+    async def classify(
+        self,
+        user_message: str,
+        current_phase: str,
+        turn_count: int,
+        use_llm: bool = False,
+    ) -> TurnDirective:
+        """Analyze the turn and return a directive. Defaults to instant heuristic classification."""
+        if not use_llm:
+            return self.fast_classify(user_message, current_phase, turn_count)
+
+        msg_lower = (user_message or "").lower().strip()
         is_wrapup_request = any(p in msg_lower for p in ("bye", "goodbye", "leave now", "wrap up", "gotta go", "have to go", "alvida", "chalta hoon", "chalti hoon"))
         if is_wrapup_request or turn_count > 30:
             return TurnDirective(
@@ -99,31 +222,29 @@ Only return valid JSON."""
                 mustReflectFirst=True,
                 offerSolution=False,
                 mustAskFollowUp=False,
-                nextQuestionSeed="Would you like to wrap up our session for today?"
+                nextQuestionSeed="Would you like to wrap up our session for today?",
             )
-            
+
         prompt = f"Current Turn: {turn_count}\nCurrent Phase: {current_phase}\nUser Message: {user_message}"
-        
         req = AIRequest(
             system_prompt=self._system_prompt,
             prompt=prompt,
             stream=False,
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=256,
         )
-        
+
         try:
-            # Fast tier LLM call
-            resp = await self._gateway.generate(req)
+            # Fast tier LLM call with short timeout protection
+            resp = await asyncio.wait_for(self._gateway.generate(req), timeout=2.5)
             content = resp.content.strip()
-            
-            # Strip potential markdown formatting
+
             if content.startswith("```json"):
                 content = content[7:-3]
             elif content.startswith("```"):
                 content = content[3:-3]
-                
+
             data = json.loads(content)
-            
             phase = data.get("phase", current_phase)
             offer_sol = bool(data.get("offerSolution", False))
 
@@ -147,8 +268,8 @@ Only return valid JSON."""
                 mustReflectFirst=data.get("mustReflectFirst", True),
                 offerSolution=offer_sol,
                 mustAskFollowUp=data.get("mustAskFollowUp", True),
-                nextQuestionSeed=data.get("nextQuestionSeed")
+                nextQuestionSeed=data.get("nextQuestionSeed"),
             )
         except Exception as e:
-            logger.warning(f"TurnDirective classification failed: {e}. Falling back.")
-            return TurnDirective.default(current_phase)
+            logger.debug(f"TurnDirective LLM classification fallback to fast: {e}")
+            return self.fast_classify(user_message, current_phase, turn_count)

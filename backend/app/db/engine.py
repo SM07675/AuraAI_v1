@@ -49,15 +49,22 @@ def _get_sqlite_url() -> str:
 def get_engine() -> AsyncEngine:
     global _engine, _is_sqlite_fallback
     if _engine is None:
+        if _is_sqlite_fallback:
+            _engine = create_async_engine(_get_sqlite_url(), echo=False)
+            return _engine
+
         try:
-            # First attempt primary database connection configured in settings
+            connect_args = {}
+            if "postgresql" in settings.database_url:
+                connect_args = {"timeout": 3.0}
             _engine = create_async_engine(
                 settings.database_url,
                 echo=False,
                 pool_size=10,
                 max_overflow=5,
-                pool_timeout=5,
+                pool_timeout=3,
                 pool_pre_ping=True,
+                connect_args=connect_args,
             )
         except Exception as exc:
             logger.warning("Primary database engine creation failed, using SQLite fallback", error=str(exc))

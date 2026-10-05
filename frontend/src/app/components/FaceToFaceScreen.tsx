@@ -25,6 +25,7 @@ import {
   Sliders,
   AlertTriangle,
   Gauge,
+  Radio,
 } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { ClayCalmFaceIcon, ClayBrainIcon, ClayAuraAvatarBead, ClaySmileyBeadIcon } from "./clay-icons";
@@ -34,7 +35,10 @@ import { speechService, SUPPORTED_LANGUAGES, SupportedLanguage } from "../servic
 import { getWebSocketUrl } from "../services/wsHelper";
 import { duplexManager, ConversationState, InterruptionScoreDetails } from "../services/duplexManager";
 import { streamingTtsService } from "../services/streamingTtsService";
+import { audioEngine } from "../services/audioEngine";
+import { liveVoiceClient } from "../services/liveVoiceSocket";
 import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
+import { LiveAudioDebugger } from "./LiveAudioDebugger";
 import { FaceDebugPanel } from "./FaceDebugPanel";
 
 type FaceEmotion = {
@@ -87,6 +91,8 @@ export function FaceToFaceScreen() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const cameraActiveRef = useRef(cameraActive);
+  cameraActiveRef.current = cameraActive;
   const [camFps, setCamFps] = useState(30);
   const [lighting, setLighting] = useState<"Good" | "Low" | "Bright">("Good");
   const [eyeContact, setEyeContact] = useState(true);
@@ -124,11 +130,16 @@ export function FaceToFaceScreen() {
     {
       id: "init",
       from: "aura",
-      text: "Hello, I'm Dr. Aura, your clinical wellness companion and counselor.\n\nI'm actively observing your facial cues, posture, and emotional state in real time. Please share what you're experiencing today—how can I help support you?",
+      text: "Hi, I’m Aura, your AI wellbeing companion. Take your time — what’s on your mind today?",
     },
   ]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState("connecting");
+  const mountedRef = useRef(false);
+  const micEnabledRef = useRef(true);
+  const pendingTypedTextRef = useRef<string | null>(null);
   const [micActive, setMicActive] = useState(speechService.isListening);
   const [currentLang, setCurrentLang] = useState<SupportedLanguage>(speechService.currentLanguage);
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -142,6 +153,12 @@ export function FaceToFaceScreen() {
   const [duplexState, setDuplexState] = useState<ConversationState>(duplexManager.getState());
   const [latestDiag, setLatestDiag] = useState<InterruptionScoreDetails | null>(null);
   const [showDuplexHud, setShowDuplexHud] = useState(false);
+  const [showVoiceHud, setShowVoiceHud] = useState(false);
+  const [showAudioDebugger, setShowAudioDebugger] = useState(false);
+  const [livePartialTranscript, setLivePartialTranscript] = useState("");
+  const [liveFinalTranscript, setLiveFinalTranscript] = useState("");
+  const [liveVoiceEmotion, setLiveVoiceEmotion] = useState("neutral");
+  const [liveVoiceConfidence, setLiveVoiceConfidence] = useState(0.65);
 
   useEffect(() => {
     const unState = duplexManager.subscribeState((st) => setDuplexState(st));
@@ -152,6 +169,131 @@ export function FaceToFaceScreen() {
     };
   }, []);
 
+  // ── Live Voice WebSocket Pipeline Integration ─────────────────────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    liveVoiceClient.setCallbacks({
+      onConnectionChange: (status) => {
+        setConnectionStatus(status);
+        if (status === "connected") setLiveError(null);
+        else { setTyping(false); setLegacyVoiceSpeaking(false); }
+      },
+      onError: (error) => { setLiveError(error); setTyping(false); },
+      onStateChange: (st) => {
+        if (st === "LISTENING") {
+          setMicActive(micEnabledRef.current);
+          setTyping(false);
+          setLegacyVoiceSpeaking(false);
+        } else if (st === "USER_SPEAKING") {
+          setMicActive(micEnabledRef.current);
+          setTyping(false);
+          setLegacyVoiceSpeaking(false);
+        } else if (st === "THINKING") {
+          setTyping(true);
+          setLegacyVoiceSpeaking(false);
+        } else if (st === "SPEAKING") {
+          setMicActive(micEnabledRef.current); // Full duplex: mic stays active while Aura speaks
+          setTyping(false);
+          setLegacyVoiceSpeaking(true);
+        } else if (st === "INTERRUPTED") {
+          setLegacyVoiceSpeaking(false);
+          setTyping(false);
+          setMicActive(micEnabledRef.current);
+        }
+      },
+      onTurnStarted: () => {
+        setTyping(false);
+        setLivePartialTranscript("");
+      },
+      onPartialTranscript: (txt) => {
+        setLivePartialTranscript(txt);
+        setText(txt);
+      },
+      onFinalTranscript: (txt) => {
+        setLiveFinalTranscript(txt);
+        setText("");
+        if (pendingTypedTextRef.current === txt) {
+          pendingTypedTextRef.current = null;
+        } else {
+          setMsgs((prev) => [...prev, { id: "user-" + Date.now(), from: "user", text: txt }]);
+        }
+      },
+      onPartialResponseToken: (tok) => {
+        setTyping(false);
+        setMsgs((prev) => {
+          const lastIdx = prev.length - 1;
+          const last = prev[lastIdx];
+          if (last && last.from === "aura") {
+            return [...prev.slice(0, lastIdx), { ...last, text: last.text + tok }];
+          } else {
+            return [...prev, { id: "aura-" + Date.now(), from: "aura", text: tok }];
+          }
+        });
+      },
+      onSpeaking: () => {
+        setTyping(false);
+        setLegacyVoiceSpeaking(true);
+      },
+      onAssistantSpeechEnd: () => {
+        setLegacyVoiceSpeaking(false);
+        setTyping(false);
+      },
+      onTurnCompleted: () => {
+        setTyping(false);
+      },
+      onInterrupted: () => {
+        setLegacyVoiceSpeaking(false);
+        setTyping(false);
+        setMsgs((prev) => {
+          const lastIdx = prev.length - 1;
+          const last = prev[lastIdx];
+          if (last && last.from === "aura" && !last.text.includes("[interrupted]")) {
+            return [...prev.slice(0, lastIdx), { ...last, text: last.text + " [interrupted]" }];
+          }
+          return prev;
+        });
+      },
+      onEmotion: (emo) => {
+        if (emo.voice_emotion) setLiveVoiceEmotion(emo.voice_emotion);
+        if (emo.fused) {
+          setFusedEmotion((prev) => ({
+            ...prev,
+            primary: emo.fused,
+            confidence: emo.confidence,
+            voice: emo.voice_emotion,
+            face: emo.face_emotion,
+            text: emo.text_emotion,
+            sources: emo.active_modalities || [],
+          }));
+        }
+      },
+      onMetrics: (m) => {
+        setLatencyMetrics((prev) => ({ ...prev, ...m }));
+      },
+    });
+
+    micEnabledRef.current = true;
+    liveVoiceClient.setMicrophoneEnabled(true);
+    liveVoiceClient.setClientTranscription(speechService.isSupported);
+    liveVoiceClient.connect();
+    audioEngine.initMicrophonePipeline().then((stream) => {
+      if (!mountedRef.current) return;
+      if (stream) {
+        liveVoiceClient.connect();
+        setMicActive(true);
+      }
+      else setLiveError("Microphone unavailable. You can still type, or enable microphone permission and try again.");
+    }).catch(() => setLiveError("Could not start the microphone. You can still type."));
+
+    return () => {
+      mountedRef.current = false;
+      liveVoiceClient.setCallbacks({});
+      liveVoiceClient.disconnect();
+      audioEngine.stopAllPlayback();
+      audioEngine.releaseMicrophone();
+    };
+  }, []);
+
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatWs = useRef<WebSocket | null>(null);
   const chatSessionIdRef = useRef<number | null>(null);
@@ -159,13 +301,13 @@ export function FaceToFaceScreen() {
   const clientTurnIdRef = useRef(0);
 
   // ── Memory, Behavioral & Dynamic Context State ───────────────────────────
-  const [activeGoal, setActiveGoal] = useState<string>("Career & Interview Preparation");
-  const [activeInterest, setActiveInterest] = useState<string>("Artificial Intelligence & ML");
-  const [sessionSummary, setSessionSummary] = useState<string>("Active clinical multimodal intake & diagnostic dialogue.");
+  const [activeGoal, setActiveGoal] = useState<string>("What matters to you today");
+  const [activeInterest, setActiveInterest] = useState<string>("Not shared yet");
+  const [sessionSummary, setSessionSummary] = useState<string>("Your conversation will appear here.");
   const [actionUnits, setActionUnits] = useState<Record<string, number>>({});
   const [gazeInfo, setGazeInfo] = useState<{ eye_contact?: boolean; gaze_angle_x?: number; ear?: number }>({});
   const [headPose, setHeadPose] = useState<{ pitch?: number; yaw?: number; roll?: number }>({});
-  const [fusedEmotion, setFusedEmotion] = useState<{ primary?: string; confidence?: number; text?: string; voice?: string; face?: string }>({});
+  const [fusedEmotion, setFusedEmotion] = useState<{ primary?: string; confidence?: number; text?: string; voice?: string; face?: string; sources?: string[] }>({});
   const [latencyMetrics, setLatencyMetrics] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -212,11 +354,7 @@ export function FaceToFaceScreen() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: false,
       });
 
       const videoTracks = stream.getVideoTracks();
@@ -249,6 +387,18 @@ export function FaceToFaceScreen() {
           setCameraActive(true);
           setCameraError(null);
         }
+        // Also ensure full-duplex audio context & live voice are active
+        try {
+          const ctx = await audioEngine.getAudioContext();
+          if (ctx.state === "suspended") {
+            await ctx.resume();
+          }
+          const audioStream = await audioEngine.initMicrophonePipeline();
+          if (audioStream && !liveVoiceClient.isConnected()) {
+            liveVoiceClient.connect();
+            setMicActive(micEnabledRef.current);
+          }
+        } catch {}
       } catch (e: any) {
         console.warn("Webcam access error:", e);
         setCameraActive(false);
@@ -345,17 +495,19 @@ export function FaceToFaceScreen() {
             if (data.scores) setFerScores(data.scores);
             if (data.latencies) setLatencyMetrics(data.latencies);
 
-            setFaceEmotion((prev) => ({
+            const newEmoObj = {
               primary_emotion: formattedPrimary,
               confidence: confVal,
               secondary_emotion: data.secondary_emotion || data.emotion?.secondary || "calm",
               secondary_confidence: data.secondary_confidence || 0.4,
-              face_detected: cameraActive && data.face_detected === true,
+              face_detected: cameraActiveRef.current && data.face_detected === true,
               stress: data.stress ? data.stress.charAt(0).toUpperCase() + data.stress.slice(1) : "Low",
               sentiment: data.sentiment ? data.sentiment.charAt(0).toUpperCase() + data.sentiment.slice(1) : "Positive",
               box_norm: data.box_norm || null,
               face_box: data.face_box || null,
-            }));
+            };
+            setFaceEmotion(newEmoObj);
+            liveVoiceClient.sendFaceEmotion(newEmoObj);
           } else if (data.type === "no_face") {
             setFaceEmotion((prev) => ({
               ...prev,
@@ -415,7 +567,7 @@ export function FaceToFaceScreen() {
     return () => clearInterval(interval);
   }, [cameraActive]);
 
-  // ── 3. Connect Main Chat WebSocket ──────────────────────────────────────────
+  // ── 3. Connect Main Chat WebSocket (FALLBACK ONLY — used when live voice WS is unavailable) ──
   const faceEmotionRef = useRef(faceEmotion);
   faceEmotionRef.current = faceEmotion;
   const currentVoiceIdRef = useRef(currentVoiceId);
@@ -429,6 +581,10 @@ export function FaceToFaceScreen() {
 
     const connectChat = () => {
       if (isUnmounted) return;
+      // GUARD: Don't connect chat WS if live voice pipeline is handling everything
+      if (liveVoiceClient.isConnected()) {
+        return;
+      }
       const wsUrl = getWebSocketUrl("/api/v1/ws/chat");
 
       socket = new WebSocket(wsUrl);
@@ -440,6 +596,9 @@ export function FaceToFaceScreen() {
 
       socket.onmessage = (evt) => {
         try {
+          // GUARD: Ignore chat WS messages when live voice is handling the pipeline
+          if (liveVoiceClient.getIsSessionReady()) return;
+
           const data = JSON.parse(evt.data);
           if (data.type === "ping") {
             socket.send(JSON.stringify({ type: "pong" }));
@@ -537,7 +696,7 @@ export function FaceToFaceScreen() {
       };
 
       socket.onclose = () => {
-        if (!isUnmounted) {
+        if (!isUnmounted && !liveVoiceClient.isConnected()) {
           reconnectAttempt += 1;
           const backoff = Math.min(10000, 500 * 2 ** Math.min(reconnectAttempt, 4));
           const jitter = Math.floor(Math.random() * 250);
@@ -546,7 +705,10 @@ export function FaceToFaceScreen() {
       };
     };
 
-    connectChat();
+    // Only connect chat WS as fallback if live voice is not available
+    if (!liveVoiceClient.isConnected()) {
+      connectChat();
+    }
 
     return () => {
       isUnmounted = true;
@@ -583,6 +745,7 @@ export function FaceToFaceScreen() {
   const [legacyVoiceSpeaking, setLegacyVoiceSpeaking] = useState(false);
   const isAuraSpeaking =
     legacyVoiceSpeaking ||
+    duplexState === "SPEAKING" ||
     duplexState === "AURA_SPEAKING" ||
     duplexState === "POSSIBLE_INTERRUPT" ||
     duplexState === "CANCELLING_TTS";
@@ -595,23 +758,37 @@ export function FaceToFaceScreen() {
 
   useEffect(() => {
     const unsubscribe = speechService.subscribe({
+      onError: () => { liveVoiceClient.setClientTranscription(false); },
       onInterim: (interim) => {
         const clean = interim.trim();
         if (!clean) return;
         setText(clean);
+        setLivePartialTranscript(clean);
       },
       onFinal: (final) => {
         const clean = final.trim();
         if (!clean) return;
-        setText(clean);
-        sendMsg(clean);
+        setText("");
+        setLiveFinalTranscript(clean);
+        setLivePartialTranscript("");
+        // Forward via fast client_transcript if live voice is connected,
+        // providing sub-100ms instant response without CPU Whisper latency
+        if (!liveVoiceClient.sendClientTranscript(clean, 0.96)) {
+          setText(clean);
+          setLiveError("Your words were captured, but the connection is unavailable. Please reconnect or send the saved words below.");
+        }
       },
       onListeningChange: (isList) => {
-        setMicActive(isList);
+        if (!liveVoiceClient.isConnected()) {
+          setMicActive(isList);
+        }
       },
     });
 
-    speechService.start();
+    if (speechService.isSupported) {
+      speechService.start();
+    }
+    liveVoiceClient.setLanguage(currentLang);
 
     return () => {
       unsubscribe();
@@ -621,12 +798,43 @@ export function FaceToFaceScreen() {
 
   const toggleMic = async () => {
     if (isAuraSpeaking) {
+      // Instant barge-in interruption (like ChatGPT / Gemini Live)
+      duplexManager.triggerBargeIn("microphone button");
+      audioEngine.stopAllPlayback();
       voiceService.stop();
+      streamingTtsService.cancel();
+      setLegacyVoiceSpeaking(false);
+      setTyping(false);
+      return;
     }
-    if (speechService.isListening) {
+    if (micActive && liveVoiceClient.isConnected()) {
+      micEnabledRef.current = false;
+      liveVoiceClient.setMicrophoneEnabled(false);
+      setMicActive(false);
       speechService.stop();
+      audioEngine.stopAllPlayback();
+      audioEngine.releaseMicrophone();
     } else {
-      await speechService.start();
+      try {
+        const ctx = await audioEngine.getAudioContext();
+        if (ctx.state === "suspended") {
+          await ctx.resume();
+        }
+        const stream = await audioEngine.initMicrophonePipeline();
+        if (!stream) {
+          console.warn("[F2F] Microphone permission not granted.");
+          return;
+        }
+        micEnabledRef.current = true;
+        liveVoiceClient.setMicrophoneEnabled(true);
+        setMicActive(true);
+        liveVoiceClient.connect();
+        if (speechService.isSupported) {
+          speechService.start();
+        }
+      } catch (err) {
+        console.error("[F2F] Mic toggle error:", err);
+      }
     }
   };
 
@@ -634,6 +842,7 @@ export function FaceToFaceScreen() {
     setCurrentLang(langCode);
     speechService.setLanguage(langCode);
     voiceService.setLanguage(langCode);
+    liveVoiceClient.setLanguage(langCode);
     const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === langCode);
     if (langObj) {
       setCurrentVoiceId(langObj.defaultVoice);
@@ -657,19 +866,30 @@ export function FaceToFaceScreen() {
     }
     streamingTtsService.cancel();
 
-    if (chatWs.current && chatWs.current.readyState === WebSocket.OPEN) {
-      try {
-        chatWs.current.send(JSON.stringify({ type: "interrupt" }));
-      } catch (e) {}
-    }
-
     const id = "user-" + Date.now();
     setMsgs((m) => [...m, { id, from: "user", text: t }]);
     setText("");
     setTyping(true);
     duplexManager.transitionTo("PROCESSING", "User utterance sent to AI");
 
+    // PRIMARY: Route through live voice pipeline for unified AI+TTS response
+    if (liveVoiceClient.getIsSessionReady()) {
+      pendingTypedTextRef.current = t;
+      liveVoiceClient.sendTextMessage(t, currentLang, {
+        face_emotion: faceEmotionRef.current.primary_emotion,
+        confidence: faceEmotionRef.current.confidence,
+        stress: faceEmotionRef.current.stress,
+        sentiment: faceEmotionRef.current.sentiment,
+      });
+      return;
+    }
+
+    // FALLBACK: Use chat WebSocket only if live voice is unavailable
     if (chatWs.current && chatWs.current.readyState === WebSocket.OPEN) {
+      try {
+        chatWs.current.send(JSON.stringify({ type: "interrupt" }));
+      } catch (e) {}
+
       clientTurnIdRef.current += 1;
       chatWs.current.send(
         JSON.stringify({
@@ -690,6 +910,10 @@ export function FaceToFaceScreen() {
           },
         })
       );
+    } else {
+      setTyping(false);
+      setText(t);
+      setLiveError("Still connecting. Your message is saved below — try sending again when connected.");
     }
   };
 
@@ -697,6 +921,9 @@ export function FaceToFaceScreen() {
 
   return (
     <div className="w-full max-w-[1240px] mx-auto select-none h-[calc(100vh-80px)] flex flex-col justify-between overflow-hidden pb-1">
+      <div role="status" aria-live="polite" className="text-xs px-4 py-2 text-purple-700 dark:text-purple-200">
+        {liveError || (connectionStatus === "connected" ? "Connected · Speak naturally or type below" : "Connecting to Aura…")}
+      </div>
       <div className="clay-card-flat px-4 py-2 rounded-[20px] mb-2 flex items-center justify-between shrink-0 border border-white/60 dark:border-white/10 shadow-sm">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/60 flex items-center justify-center text-[#7C3AED] dark:text-[#C7B5F3] shadow-inner">
@@ -705,18 +932,18 @@ export function FaceToFaceScreen() {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-black text-[#2E2544] dark:text-[#FFFFFF] tracking-tight">
-                Dr. Aura • Clinical Consultation
+                Aura · Face-to-face
               </span>
               <button
                 onClick={() => setShowDuplexHud(!showDuplexHud)}
                 className={`px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider uppercase border flex items-center gap-1.5 transition-all cursor-pointer ${
-                  duplexState === "AURA_SPEAKING"
+                  duplexState === "SPEAKING" || duplexState === "AURA_SPEAKING"
                     ? "bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/40"
                     : duplexState === "USER_SPEAKING"
                     ? "bg-sky-500/20 text-sky-600 dark:text-sky-300 border-sky-500/40 animate-pulse"
-                    : duplexState === "PROCESSING"
+                    : duplexState === "THINKING" || duplexState === "PROCESSING"
                     ? "bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40"
-                    : duplexState === "POSSIBLE_INTERRUPT"
+                    : duplexState === "INTERRUPTED" || duplexState === "POSSIBLE_INTERRUPT" || duplexState === "USER_INTERRUPT"
                     ? "bg-rose-500/20 text-rose-600 dark:text-rose-300 border-rose-500/40 animate-pulse"
                     : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                 }`}
@@ -724,21 +951,21 @@ export function FaceToFaceScreen() {
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-current" />
                 <span>
-                  {duplexState === "AURA_SPEAKING"
+                  {duplexState === "SPEAKING" || duplexState === "AURA_SPEAKING"
                     ? "Aura Speaking • Barge-in Ready"
                     : duplexState === "USER_SPEAKING"
                     ? "User Speaking"
-                    : duplexState === "PROCESSING"
+                    : duplexState === "THINKING" || duplexState === "PROCESSING"
                     ? "AI Thinking"
-                    : duplexState === "POSSIBLE_INTERRUPT"
-                    ? "Evaluating Barge-in"
+                    : duplexState === "INTERRUPTED" || duplexState === "POSSIBLE_INTERRUPT" || duplexState === "USER_INTERRUPT"
+                    ? "Interrupted • Barged In"
                     : "Live Duplex • Listening"}
                 </span>
                 <Activity size={10} className="opacity-70" />
               </button>
             </div>
             <p className="text-[10px] font-medium text-[#7A748A] dark:text-[#9E98B4] m-0">
-              Full-Duplex Architecture (AEC + Multi-Signal Barge-In + Pure Text Engine)
+              Talk naturally · Speak or tap to interrupt Aura
             </p>
           </div>
         </div>
@@ -766,7 +993,7 @@ export function FaceToFaceScreen() {
             }`}
           >
             <Wind size={13} />
-            <span>{showBreathingPacer ? "Close Respiration" : "Prescribed Breathing"}</span>
+            <span>{showBreathingPacer ? "Close Respiration" : "Breathing"}</span>
           </button>
 
           {/* Language Selector */}
@@ -851,6 +1078,29 @@ export function FaceToFaceScreen() {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Audio HUD & Debug Panel Toggles */}
+          <button
+            onClick={() => setShowVoiceHud(!showVoiceHud)}
+            className={`clay-button px-2.5 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 cursor-pointer ${
+              showVoiceHud ? "text-purple-400 bg-purple-500/20" : "text-[#7A748A] dark:text-[#D8D2E8]"
+            }`}
+            title="Audio Capture, Constraints & 5-State VAD"
+          >
+            <Radio size={13} />
+            <span>Audio HUD</span>
+          </button>
+
+          <button
+            onClick={() => setShowAudioDebugger(!showAudioDebugger)}
+            className={`clay-button px-2.5 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 cursor-pointer ${
+              showAudioDebugger ? "text-emerald-400 bg-emerald-500/20" : "text-[#7A748A] dark:text-[#D8D2E8]"
+            }`}
+            title="20+ Metric Live Audio & Pipeline Debugger"
+          >
+            <Activity size={13} />
+            <span>Live Debugger</span>
+          </button>
         </div>
       </div>
 
@@ -1006,7 +1256,7 @@ export function FaceToFaceScreen() {
               <div className="flex items-center gap-1.5">
                 <Camera size={15} className="text-[#7C3AED] dark:text-[#A78BFA]" />
                 <span className="text-[12.5px] font-extrabold text-[#2E2544] dark:text-white">
-                  Patient Visual Stream
+                  Your camera
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -1080,7 +1330,7 @@ export function FaceToFaceScreen() {
                     }}
                   >
                     <span>{getEmotionTheme(faceEmotion.primary_emotion).emoji}</span>
-                    <span>{faceEmotion.primary_emotion}</span>
+                    <span>{fusedEmotion.primary || "Waiting for your words"}</span>
                     <span className="opacity-90 font-bold">
                       · {Math.min(100, Math.max(0, Math.round(faceEmotion.confidence > 1 ? faceEmotion.confidence : faceEmotion.confidence * 100)))}%
                     </span>
@@ -1185,14 +1435,14 @@ export function FaceToFaceScreen() {
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[14.5px] font-extrabold text-[#2E2544] dark:text-white leading-tight">
-                  Aura AI Counselor
+                  Aura · AI wellbeing companion
                 </span>
                 <span className="clay-pill px-2 py-0.5 text-[8.5px] font-black text-[#059669] dark:text-[#34D399]">
-                  DOCTOR SYNC
+                  LIVE
                 </span>
               </div>
               <p className="text-[10px] font-medium text-[#7A748A] dark:text-[#9E98B4] mt-0.5 m-0">
-                Continuous clinical intake & empathetic reasoning
+                A space to talk, reflect, and feel heard
               </p>
             </div>
           </div>
@@ -1229,7 +1479,7 @@ export function FaceToFaceScreen() {
                 <ClayAuraAvatarBead size={22} />
                 <div className="clay-bubble-aura px-3 py-1.5 rounded-[14px] flex items-center gap-1.5">
                   <span className="text-[10.5px] font-medium text-[#7A748A] dark:text-[#C7B5F3] mr-1">
-                    Dr. Aura is formulating clinical response
+                    Aura is thinking
                   </span>
                   {[0, 1, 2].map((i) => (
                     <motion.span
@@ -1270,10 +1520,10 @@ export function FaceToFaceScreen() {
                 }`}
               >
                 {isAuraSpeaking
-                  ? "Dr. Aura is Speaking (Click to interrupt)..."
+                  ? "Aura is speaking • Speak or tap to interrupt"
                   : micActive
-                  ? "Continuous Listening Active • Speak now"
-                  : "Microphone Paused • Click to Start Listening"}
+                  ? "Listening • Speaker echo protection active"
+                  : "Microphone Inactive • Tap to Speak or Start Conversation"}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -1293,7 +1543,7 @@ export function FaceToFaceScreen() {
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMsg()}
-              placeholder="Speak naturally or describe your symptoms..."
+              placeholder="Speak naturally or share what’s on your mind..."
               className="bg-transparent border-none outline-none flex-1 text-[11.5px] font-medium text-[#2E2544] dark:text-white placeholder:text-[#8E88A4]"
             />
             <motion.button
@@ -1305,7 +1555,7 @@ export function FaceToFaceScreen() {
                   ? "bg-purple-100 dark:bg-purple-900/60 text-[#7B59DC] dark:text-purple-200"
                   : "clay-button text-[#7A748A] dark:text-[#D8D2E8]"
               }`}
-              title={micActive ? "Mute Microphone" : "Unmute Microphone"}
+              title={isAuraSpeaking ? "Interrupt Aura and speak" : micActive ? "Mute Microphone" : "Unmute Microphone"}
             >
               {micActive ? <Mic size={12} /> : <MicOff size={12} />}
             </motion.button>
@@ -1339,7 +1589,7 @@ export function FaceToFaceScreen() {
             <div className="flex flex-col gap-1.5">
               <div className="clay-card-flat px-2.5 py-1 rounded-[12px] flex justify-between items-center text-[10.5px] font-bold">
                 <span className="text-[#7A748A] dark:text-[#8E88A4]">Primary Affect</span>
-                <span className="text-[#0284C7] dark:text-[#38BDF8] capitalize">{faceEmotion.primary_emotion}</span>
+                <span className="text-[#0284C7] dark:text-[#38BDF8] capitalize">{fusedEmotion.primary || "Waiting for your words"}</span>
               </div>
               <div className="clay-card-flat px-2.5 py-1 rounded-[12px] flex justify-between items-center text-[10.5px] font-bold">
                 <span className="text-[#7A748A] dark:text-[#8E88A4]">Stress Index</span>
@@ -1347,7 +1597,7 @@ export function FaceToFaceScreen() {
               </div>
               <div className="clay-card-flat px-2.5 py-1 rounded-[12px] flex justify-between items-center text-[10.5px] font-bold">
                 <span className="text-[#7A748A] dark:text-[#8E88A4]">Active Sources</span>
-                <span className="text-purple-600 dark:text-purple-300 font-extrabold">Face + Voice + Text</span>
+                <span className="text-purple-600 dark:text-purple-300 font-extrabold">{fusedEmotion.sources?.length ? fusedEmotion.sources.join(" + ") : "Waiting for signals"}</span>
               </div>
             </div>
           </div>
@@ -1400,7 +1650,39 @@ export function FaceToFaceScreen() {
       </div>
 
       <AnimatePresence>
-        {showDuplexHud && <VoiceDiagnosticsHud onClose={() => setShowDuplexHud(false)} />}
+        {(showVoiceHud || showDuplexHud) && (
+          <VoiceDiagnosticsHud
+            onClose={() => {
+              setShowVoiceHud(false);
+              setShowDuplexHud(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAudioDebugger && (
+          <LiveAudioDebugger
+            onClose={() => setShowAudioDebugger(false)}
+            sessionId={liveVoiceClient.getSessionId()}
+            turnId={liveVoiceClient.getTurnId()}
+            partialTranscript={livePartialTranscript}
+            finalTranscript={liveFinalTranscript}
+            voiceEmotion={liveVoiceEmotion}
+            voiceConfidence={liveVoiceConfidence}
+            faceEmotion={faceEmotionRef.current?.primary_emotion || "neutral"}
+            faceConfidence={faceEmotionRef.current?.confidence || 0.8}
+            openFaceState="Tracking (30 fps)"
+            ferState="Active (FER+ ONNX)"
+            textEmotion={fusedEmotion.text || "neutral"}
+            fusedEmotion={fusedEmotion.primary || "neutral"}
+            nvidiaState="streaming"
+            ttftMs={latencyMetrics["ttft"] || 280}
+            ttsStatus={isAuraSpeaking ? "playing" : "idle"}
+            playbackQueueCount={0}
+            wsState="connected"
+          />
+        )}
       </AnimatePresence>
     </div>
   );

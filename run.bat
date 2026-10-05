@@ -195,6 +195,8 @@ set "POSTGRES_HOST=localhost"
 set "REDIS_HOST=localhost"
 
 cd /d "!BACKEND_DIR!"
+"!VENV_DIR!\Scripts\python.exe" -m alembic upgrade head
+if errorlevel 1 echo  [WARN] Migration warning (SQLite fallback is enabled on app startup)
 
 echo.
 echo  +-----------------------------------------------+
@@ -206,7 +208,7 @@ echo  ^|  Swagger  :  http://localhost:8000/docs       ^|
 echo  +-----------------------------------------------+
 echo.
 
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
+"!VENV_DIR!\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
 
 goto :done
 

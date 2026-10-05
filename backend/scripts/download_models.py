@@ -230,6 +230,23 @@ def download_all_models():
         except Exception as exc:
             print(f"[NOTE] Text emotion HF snapshot download skipped: {exc} (fallback keyword classification active)")
 
+    # 5. Whisper Speech-to-Text Model (Pre-cache local weights to prevent runtime HF lock deadlock)
+    whisper_dir = PRIMARY_MODELS_DIR / "speech" / "whisper" / "faster-whisper-small"
+    whisper_bin = whisper_dir / "model.bin"
+    if not (whisper_bin.exists() and whisper_bin.stat().st_size > 10_000_000):
+        try:
+            from huggingface_hub import snapshot_download
+            print("Pre-caching faster-whisper-small model locally...")
+            snapshot_download(
+                repo_id="Systran/faster-whisper-small",
+                local_dir=str(whisper_dir),
+                ignore_patterns=["*.msgpack", "*.h5", "tf_model.h5"],
+                max_workers=4,
+            )
+            print("[OK] Downloaded faster-whisper-small model.")
+        except Exception as exc:
+            print(f"[NOTE] Whisper model pre-cache skipped: {exc}")
+
     sync_to_backend()
 
 

@@ -11,7 +11,7 @@
 
 import { audioEngine } from "./audioEngine";
 import { duplexManager } from "./duplexManager";
-import { cleanTextForSpeech } from "./voiceService";
+import { cleanTextForSpeech } from "./speechText";
 
 export interface StreamingTtsOptions {
   voice?: string;
@@ -40,6 +40,8 @@ class StreamingTtsEngine {
   private isPlayerLoopRunning = false;
   private options: StreamingTtsOptions = {};
   private firstPhraseTimer: ReturnType<typeof setTimeout> | null = null;
+  private spokenText = "";
+  private completedGeneration = -1;
 
   constructor() {
     duplexManager.onInterrupt(() => {
@@ -60,6 +62,7 @@ class StreamingTtsEngine {
     this.sentenceQueue = [];
     this.abortController = new AbortController();
     this.options = options || {};
+    this.spokenText = "";
 
     this.options.onStart?.();
   }
@@ -84,6 +87,7 @@ class StreamingTtsEngine {
     this.extractAndQueueSentences(true);
     this.clearFirstPhraseTimer();
     this.isStreamActive = false;
+    this.finishIfDrained();
   }
 
   /**
@@ -171,7 +175,8 @@ class StreamingTtsEngine {
       if (candidate.length < 18) return;
       const preferredEnd = Math.min(candidate.length, 72);
       const splitAt = candidate.lastIndexOf(" ", preferredEnd);
-      const phraseEnd = splitAt >= 18 ? splitAt : preferredEnd;
+      if (splitAt < 18) return; // Wait rather than synthesize half a word.
+      const phraseEnd = splitAt;
       this.queueSentence(candidate.slice(0, phraseEnd));
       this.buffer = candidate.slice(phraseEnd).trimStart();
     }, 180);
@@ -230,7 +235,8 @@ class StreamingTtsEngine {
           continue;
         }
 
-        duplexManager.notifyTtsStart(item.text, `stream-${currentGen}-${item.index}`, currentGen);
+        this.spokenText = `${this.spokenText} ${item.text}`.trim();
+        duplexManager.notifyTtsStart(this.spokenText, `stream-${currentGen}-${item.index}`, currentGen);
         this.options.onSentenceStart?.(item.text, item.index);
 
         try {
@@ -242,17 +248,22 @@ class StreamingTtsEngine {
           console.warn("[STREAMING TTS] Sentence playback error:", playErr);
         }
 
-        if (currentGen === this.currentGenerationId && this.sentenceQueue.length === 0 && !this.isStreamActive) {
-          duplexManager.notifyTtsEnd(currentGen);
-          this.options.onEnd?.();
-        }
       }
     } catch (e) {
       console.warn("[STREAMING TTS] Player loop error:", e);
       this.options.onError?.(e);
     } finally {
       this.isPlayerLoopRunning = false;
+      this.finishIfDrained();
     }
+  }
+
+  private finishIfDrained() {
+    if (this.isStreamActive || this.isPlayerLoopRunning || this.sentenceQueue.length ||
+        this.completedGeneration === this.currentGenerationId || this.sentenceIndex === 0) return;
+    this.completedGeneration = this.currentGenerationId;
+    duplexManager.notifyTtsEnd(this.currentGenerationId);
+    this.options.onEnd?.();
   }
 
   // ── Backend Synthesis Fetcher ──────────────────────────────────────────────

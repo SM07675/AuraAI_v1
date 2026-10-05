@@ -34,7 +34,7 @@ async def test_trigger_interrupt_during_speaking():
     result = await im.trigger_interrupt()
     
     assert result is True
-    assert sm.state == CommunicationState.LISTENING
+    assert sm.state == CommunicationState.INTERRUPTED
     assert im.get_ai_interrupt_event().is_set()
     assert tts.stopped is True
     

@@ -27,10 +27,10 @@ from app.utils.sanitizer import sanitize_sensitive_data
 logger = get_logger(__name__)
 
 # TTL Configuration (in seconds)
-_WORKING_MEMORY_TTL = 7200       # 2 hours
-_CONTEXT_CACHE_TTL = 3600        # 1 hour
-_SEMANTIC_CACHE_TTL = 3600       # 1 hour
-_SNAPSHOT_TTL = 86400            # 24 hours for session recovery
+_WORKING_MEMORY_TTL = 3600        # 1 hour (tighter for fast sessions)
+_CONTEXT_CACHE_TTL = 1800         # 30 minutes
+_SEMANTIC_CACHE_TTL = 3600        # 1 hour
+_SNAPSHOT_TTL = 43200             # 12 hours for session recovery
 
 # In-memory fallback dictionary if Redis is temporarily unreachable
 _in_memory_state: dict[str, dict[str, Any]] = {}
@@ -249,6 +249,10 @@ class WorkingMemoryService:
         if latency_metadata:
             state.latency_metadata = latency_metadata
 
+        # Auto-increment context_version when meaningful context changes
+        if (active_entities and active_entities != state.active_entities[-len(active_entities):]) or goal:
+            state.context_version += 1
+
         await self.save_state(state)
         return state
 
@@ -259,6 +263,30 @@ class WorkingMemoryService:
         if interrupted:
             state.voice_state = "listening"
         await self.save_state(state)
+
+    async def preload_user_context(
+        self,
+        user_id: int,
+        session_id: int,
+        user_profile: dict[str, Any] | None = None,
+    ) -> None:
+        """Warm user context into cache at session start for sub-ms retrieval.
+
+        Called once when a voice session is created. Preloads the user's stable
+        context (profile, goals, interests) so the first turn doesn't suffer
+        a cold-cache penalty.
+        """
+        state = await self.get_state(session_id, user_id)
+        if user_profile:
+            state.current_goal = user_profile.get("goals", state.current_goal) or state.current_goal
+            if user_profile.get("interests"):
+                # Extract first few entities from interests
+                interest_entities = [e.strip() for e in user_profile["interests"].split(",")][:5]
+                state.active_entities = list(dict.fromkeys(state.active_entities + interest_entities))[:15]
+        state.current_state = "active"
+        state.voice_state = "listening"
+        await self.save_state(state)
+        logger.debug("User context preloaded", user_id=user_id, session_id=session_id)
 
     # ── 2. Session Snapshot & Resumption ────────────────────────────
 

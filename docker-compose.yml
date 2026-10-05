@@ -55,6 +55,9 @@ services:
       - PYTHONUNBUFFERED=1
       - POSTGRES_HOST=postgres
       - REDIS_HOST=redis
+      - HF_HOME=/app/models/cache
+      - HF_HUB_DISABLE_SYMLINKS_WARNING=1
+      - HF_HUB_ENABLE_HF_TRANSFER=0
     depends_on:
       postgres:
         condition: service_healthy

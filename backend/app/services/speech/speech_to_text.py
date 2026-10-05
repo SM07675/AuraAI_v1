@@ -33,8 +33,26 @@ class SpeechToTextService:
     def _load_model(self) -> None:
         t0 = time.perf_counter()
         try:
+            import glob
+            import os
+            from pathlib import Path
             from faster_whisper import WhisperModel
-            self._model = WhisperModel(self.model_size, device=self.device, compute_type="int8")
+
+            # Purge stale locks
+            for root in [os.environ.get("HF_HOME"), os.path.expanduser("~/.cache/huggingface"), "/root/.cache/huggingface", "/app/models/cache"]:
+                if root:
+                    for lf in glob.glob(os.path.join(root, "hub", ".locks", "**", "*.lock"), recursive=True):
+                        try:
+                            os.remove(lf)
+                        except Exception:
+                            pass
+
+            download_root = "/app/models/speech/whisper" if Path("/app/models/speech/whisper").exists() else None
+            kwargs: dict[str, Any] = {"device": self.device, "compute_type": "int8"}
+            if download_root:
+                kwargs["download_root"] = download_root
+
+            self._model = WhisperModel(self.model_size, **kwargs)
             self.is_loaded = True
             logger.info("Faster-Whisper STT model loaded successfully", model=self.model_size, device=self.device)
         except Exception as exc:

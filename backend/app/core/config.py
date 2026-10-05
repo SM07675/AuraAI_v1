@@ -17,13 +17,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Resolve .env from the project root
 def _find_project_root() -> Path:
     curr = Path(__file__).resolve().parent
-    # 1. Look for .env file explicitly in parents
-    for p in [curr, *curr.parents]:
-        if (p / ".env").is_file():
-            return p
-    # 2. Look for project boundary markers
+    # 1. Look for project boundary markers (monorepo root)
     for p in [curr, *curr.parents]:
         if (p / "backend").is_dir() and (p / "frontend").is_dir():
+            return p
+    # 2. Look for .env file explicitly in parents
+    for p in [curr, *curr.parents]:
+        if (p / ".env").is_file():
             return p
     return Path("/app") if Path("/app").exists() else curr
 
@@ -159,7 +159,7 @@ class Settings(BaseSettings):
     # ── TTS ──────────────────────────────────────────────────────
     tts_provider: str = "edge_tts"        # elevenlabs | edge_tts | nvidia_tts
     tts_voice: str = "en-IN-NeerjaExpressiveNeural"  # Expressive Indian English neural voice
-    tts_sentence_buffer_chars: int = 80   # Flush TTS after this many buffered chars
+    tts_sentence_buffer_chars: int = 60   # Flush TTS after this many buffered chars (lowered for sub-500ms TTFA)
 
     # ElevenLabs TTS
     elevenlabs_api_key: str | None = None
@@ -178,8 +178,8 @@ class Settings(BaseSettings):
 
     # ── Voice Activity Detection ─────────────────────────────────
     vad_aggressiveness: int = 2          # 0 (lenient) – 3 (aggressive)
-    vad_silence_threshold_ms: int = 800  # Silence gap before speech_ended fires
-    vad_min_speech_ms: int = 250         # Min speech duration to trigger STT
+    vad_silence_threshold_ms: int = 350  # Ultra-low latency silence gap before speech_ended fires (ChatGPT/Gemini Live spec)
+    vad_min_speech_ms: int = 150         # Min speech duration to trigger STT (captures quick words: yes, hi, ok)
     vad_frame_duration_ms: int = 30      # VAD frame size: 10 | 20 | 30 ms
 
     # ── Voice WebSocket ──────────────────────────────────────────

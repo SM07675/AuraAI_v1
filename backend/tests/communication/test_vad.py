@@ -2,6 +2,8 @@ import pytest
 import struct
 from app.communication.voice_activity import VoiceActivityDetector, VADEvent
 
+import math
+
 def _create_silent_frame(duration_ms=30, sample_rate=16000):
     samples = int(sample_rate * (duration_ms / 1000))
     # Fill with 0 (perfect silence)
@@ -9,8 +11,9 @@ def _create_silent_frame(duration_ms=30, sample_rate=16000):
 
 def _create_noisy_frame(duration_ms=30, sample_rate=16000):
     samples = int(sample_rate * (duration_ms / 1000))
-    # Fill with large values simulating speech energy
-    return struct.pack(f"{samples}h", *([8000] * samples))
+    # Fill with 400Hz wave simulating voiced speech energy
+    wave_samples = [int(8000 * math.sin(2 * math.pi * 400 * i / sample_rate)) for i in range(samples)]
+    return struct.pack(f"{samples}h", *wave_samples)
 
 @pytest.mark.asyncio
 async def test_vad_speech_start_end():

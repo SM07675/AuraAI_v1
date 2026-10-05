@@ -79,7 +79,7 @@ class ResponseStreamer:
         was_interrupted = False
 
         try:
-            async for chunk in token_stream:
+            async for chunk in self._bounded_tokens(token_stream):
                 # Check for barge-in between tokens
                 if interrupt_event.is_set():
                     was_interrupted = True
@@ -104,22 +104,21 @@ class ResponseStreamer:
 
                 buffered_text = "".join(self._sentence_buffer)
 
-                # Ultra-fast first phrase chunking for sub-800ms audio start
-                if self._is_first_chunk:
-                    should_flush = (
-                        (len(buffered_text) >= 20 and _CLAUSE_END.search(buffered_text) is not None)
-                        or _SENTENCE_END.search(token) is not None
-                        or len(buffered_text) >= 60
-                    )
-                else:
-                    should_flush = (
-                        _SENTENCE_END.search(token) is not None
-                        or len(buffered_text) >= self._sentence_buffer_chars
-                    )
-
-                if should_flush:
+                # Preserve sentence/clause prosody and never split a word across
+                # separate synthesis requests, including multi-token words.
+                boundary = _SENTENCE_END.search(buffered_text)
+                if not boundary and self._is_first_chunk and len(buffered_text) >= 24:
+                    boundary = _CLAUSE_END.search(buffered_text)
+                split_at = boundary.end() if boundary else 0
+                limit = max(60, self._sentence_buffer_chars)
+                if not split_at and len(buffered_text) >= limit:
+                    spaces = list(re.finditer(r"\s+", buffered_text[:limit + 1]))
+                    if spaces and spaces[-1].start() >= 20:
+                        split_at = spaces[-1].end()
+                if split_at:
                     self._is_first_chunk = False
-                    await self._flush_tts(buffered_text)
+                    await self._flush_tts(buffered_text[:split_at])
+                    self._sentence_buffer = [buffered_text[split_at:]]
 
         except asyncio.CancelledError:
             was_interrupted = True
@@ -132,9 +131,27 @@ class ResponseStreamer:
 
         return full_response, was_interrupted
 
+    async def _bounded_tokens(self, token_stream):
+        """Do not leave a live conversation waiting indefinitely for a provider."""
+        iterator = token_stream.__aiter__()
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(anext(iterator), timeout=12.0)
+                except StopAsyncIteration:
+                    return
+                yield chunk
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if close:
+                await close()
+
     async def _flush_tts(self, text: str) -> None:
         """Send buffered text to TTS and clear the buffer."""
         text = text.strip()
+        if not re.search(r"[^\W_]", text, re.UNICODE):
+            self._sentence_buffer.clear()
+            return
         if text:
             logger.debug(
                 "Flushing TTS chunk",
@@ -144,12 +161,7 @@ class ResponseStreamer:
             )
             self._sentence_buffer.clear()
             try:
-                # TTS runs concurrently — create a task so we don't block
-                # the token stream while TTS is producing audio
-                asyncio.create_task(
-                    self._on_speak(text),
-                    name=f"tts-speak-{self._session_id}",
-                )
+                await self._on_speak(text)
             except Exception as exc:
                 logger.warning(
                     "TTS flush error",

@@ -202,6 +202,25 @@ class VoiceEmotionService:
 
         tensor_audio, acoustic_features = converted
 
+        # Audio Quality Assessment
+        energy = acoustic_features.get("rms_energy", 0.0)
+        zcr = acoustic_features.get("zero_crossing_rate", 0.0)
+        peak = acoustic_features.get("peak_amplitude", 0.0)
+        duration_ms = (len(tensor_audio.squeeze()) / 16.0) if tensor_audio is not None else 0.0
+        
+        # Estimate SNR from peak vs baseline floor
+        snr_est = max(0.0, 20.0 * (__import__("math").log10(max(1e-4, energy) / 0.003)))
+        is_poor_quality = duration_ms < 200.0 or snr_est < 4.0 or peak > 0.98
+        quality_rating = "poor" if is_poor_quality else ("good" if snr_est > 12.0 else "fair")
+        
+        audio_quality = {
+            "snr_db": round(snr_est, 1),
+            "duration_ms": round(duration_ms, 1),
+            "rms_energy": round(energy, 4),
+            "peak_amplitude": round(peak, 4),
+            "rating": quality_rating,
+        }
+
         # 1. Run SpeechBrain Classifier
         if VoiceEmotionService._is_loaded and VoiceEmotionService._classifier is not None:
             try:
@@ -216,7 +235,12 @@ class VoiceEmotionService:
 
                 raw_label = str(text_lab[0]).lower().strip()
                 dominant_emotion = _VOICE_LABEL_MAP.get(raw_label, "neutral")
-                confidence = float(score.item())
+                raw_conf = float(score.item())
+                confidence = raw_conf if raw_conf <= 1.0 else raw_conf / 100.0
+                
+                # Dampen confidence if audio quality is poor
+                if is_poor_quality:
+                    confidence = round(confidence * 0.5, 4)
 
                 # IEMOCAP classes: neu, ang, hap, sad
                 prob_list = out_prob.squeeze().tolist()
@@ -242,9 +266,11 @@ class VoiceEmotionService:
                     "modality": "voice",
                     "primary_emotion": dominant_emotion,
                     "secondary_emotion": secondary_emotion,
-                    "confidence": round(confidence if confidence <= 1.0 else confidence / 100.0, 4),
+                    "confidence": round(confidence, 4),
                     "scores": scores,
+                    "probabilities": scores,
                     "acoustic_features": acoustic_features,
+                    "audio_quality": audio_quality,
                     "sample_rate": sample_rate,
                     "inference_latency_ms": round(latency_ms, 2),
                     "model": "speechbrain/wav2vec2-IEMOCAP",
@@ -254,9 +280,6 @@ class VoiceEmotionService:
                 logger.warning("SpeechBrain voice inference failed, using acoustic fallback", error=str(exc))
 
         # 2. Acoustic heuristics fallback
-        energy = acoustic_features.get("rms_energy", 0.0)
-        zcr = acoustic_features.get("zero_crossing_rate", 0.0)
-
         if energy > 0.15 and zcr > 0.15:
             dom = "angry"
             conf = 0.65
@@ -270,6 +293,10 @@ class VoiceEmotionService:
             dom = "neutral"
             conf = 0.50
 
+        if is_poor_quality:
+            conf = round(conf * 0.6, 4)
+            dom = "neutral"
+
         scores = {dom: conf, "neutral": 0.3}
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -279,7 +306,9 @@ class VoiceEmotionService:
             "secondary_emotion": "neutral" if dom != "neutral" else None,
             "confidence": round(conf, 4),
             "scores": scores,
+            "probabilities": scores,
             "acoustic_features": acoustic_features,
+            "audio_quality": audio_quality,
             "sample_rate": sample_rate,
             "inference_latency_ms": round(latency_ms, 2),
             "model": "acoustic_prosody_fallback",
@@ -291,9 +320,11 @@ class VoiceEmotionService:
             "modality": "voice",
             "primary_emotion": "neutral",
             "secondary_emotion": None,
-            "confidence": 0.5,
-            "scores": {"neutral": 0.5, "calm": 0.3, "happy": 0.1, "sad": 0.1},
+            "confidence": 0.0,
+            "scores": {"neutral": 1.0, "calm": 0.0, "happy": 0.0, "sad": 0.0},
+            "probabilities": {"neutral": 1.0},
             "acoustic_features": {},
+            "audio_quality": {"rating": "unusable", "snr_db": 0.0, "duration_ms": 0.0},
             "sample_rate": 16000,
             "inference_latency_ms": round(latency_ms, 2),
             "timestamp": datetime.now(timezone.utc).isoformat(),

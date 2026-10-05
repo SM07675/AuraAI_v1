@@ -186,8 +186,56 @@ class InMemoryRedisPipeline:
             return set()
         return set(self._sets.get(name, set()))
 
+    def pipeline(self, transaction: bool = True) -> "_InMemoryRedisPipeline":
+        return _InMemoryRedisPipeline(self)
+
     async def close(self) -> None:
         pass
+
+
+class _InMemoryRedisPipeline:
+    """Mock pipeline executor for InMemoryRedis."""
+
+    def __init__(self, parent: InMemoryRedis) -> None:
+        self._parent = parent
+        self._calls: list[tuple[str, tuple, dict]] = []
+
+    def set(self, *args, **kwargs):
+        self._calls.append(("set", args, kwargs))
+        return self
+
+    def get(self, *args, **kwargs):
+        self._calls.append(("get", args, kwargs))
+        return self
+
+    def expire(self, *args, **kwargs):
+        self._calls.append(("expire", args, kwargs))
+        return self
+
+    def delete(self, *args, **kwargs):
+        self._calls.append(("delete", args, kwargs))
+        return self
+
+    def hset(self, *args, **kwargs):
+        self._calls.append(("hset", args, kwargs))
+        return self
+
+    def hget(self, *args, **kwargs):
+        self._calls.append(("hget", args, kwargs))
+        return self
+
+    def sadd(self, *args, **kwargs):
+        self._calls.append(("sadd", args, kwargs))
+        return self
+
+    async def execute(self) -> list[Any]:
+        results = []
+        for method, args, kwargs in self._calls:
+            fn = getattr(self._parent, method)
+            res = await fn(*args, **kwargs)
+            results.append(res)
+        self._calls.clear()
+        return results
 
 
 # ── Redis Client ─────────────────────────────────────────────────
@@ -206,11 +254,11 @@ async def get_redis() -> Any:
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                socket_connect_timeout=2.0,
-                socket_timeout=2.0,
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
             )
-            # Test ping with short timeout
-            await asyncio.wait_for(client.ping(), timeout=2.0)
+            # Test ping with short timeout for instant fallback
+            await asyncio.wait_for(client.ping(), timeout=0.5)
             _redis_client = client
             logger.info("Connected to Redis server", url=settings.redis_url)
         except Exception as exc:

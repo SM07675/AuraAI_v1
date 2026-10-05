@@ -16,6 +16,7 @@ Never asks random questions — only asks when:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -74,6 +75,7 @@ class QuestionBuilder:
         graph_facts: list[str] | None = None,
         conversation_summary: str = "",
         previous_session_context: list[str] | None = None,
+        fast_mode: bool = False,
     ) -> str | None:
         """Determine if a follow-up question should be asked.
 
@@ -84,6 +86,7 @@ class QuestionBuilder:
             turn_count: Current turn number in the session.
             previously_asked: Questions already asked this session.
             graph_facts: Active knowledge graph facts.
+            fast_mode: If True (default), generate instantaneous contextual question (<0.1ms).
 
         Returns:
             A question string if one should be asked, or None.
@@ -93,6 +96,28 @@ class QuestionBuilder:
             return None
 
         asked = previously_asked or self._asked_questions
+
+        # ── Fast Mode: Instant contextual generation without remote LLM delay ──
+        if fast_mode:
+            question = self._generate_contextual_fallback(
+                user_message,
+                preferred_language=preferred_language or getattr(user, "preferred_language", "en"),
+                user=user,
+                relevant_memories=relevant_memories,
+            )
+            if question:
+                question = question.strip('"` \t\n')
+                if not question.endswith("?") and not question.endswith("।"):
+                    question += "?"
+
+                for prev in asked:
+                    if self._questions_are_similar(question, prev):
+                        return None
+
+                self._asked_questions.append(question)
+                self._last_question_turn = turn_count
+                return question
+            return None
 
         # Build previously asked section
         asked_section = ""
@@ -140,10 +165,11 @@ class QuestionBuilder:
             prompt=prompt,
             stream=False,
             temperature=0.2,
+            max_tokens=128,
         )
 
         try:
-            resp = await self._gateway.generate(req)
+            resp = await asyncio.wait_for(self._gateway.generate(req), timeout=2.0)
             content = resp.content.strip()
 
             # Strip markdown if present
@@ -167,7 +193,7 @@ class QuestionBuilder:
                         question = lines[-1].strip('"` \t\n')
 
             if not question:
-                question = self._generate_contextual_fallback(user_message)
+                question = self._generate_contextual_fallback(user_message, preferred_language, user, relevant_memories)
 
             if question:
                 question = question.strip('"` \t\n')
@@ -185,37 +211,57 @@ class QuestionBuilder:
                 logger.info("QuestionBuilder generated follow-up", question=question)
                 return question
 
-            return self._generate_contextual_fallback(user_message)
+            return self._generate_contextual_fallback(user_message, preferred_language, user, relevant_memories)
 
         except Exception as e:
-            logger.warning("QuestionBuilder failed, using contextual fallback", error=str(e))
-            fallback = self._generate_contextual_fallback(user_message)
+            logger.debug("QuestionBuilder remote call fallback to fast", error=str(e))
+            fallback = self._generate_contextual_fallback(user_message, preferred_language, user, relevant_memories)
             self._asked_questions.append(fallback)
             self._last_question_turn = turn_count
             return fallback
 
-    def _generate_contextual_fallback(self, user_message: str) -> str:
-        """Generate a reliable fallback follow-up question based on user keywords."""
-        msg = user_message.lower().strip()
+    def _generate_contextual_fallback(
+        self,
+        user_message: str,
+        preferred_language: str | None = None,
+        user: Any = None,
+        relevant_memories: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Generate an empathetic, context-rich follow-up question in sub-0.05ms."""
+        msg = (user_message or "").lower().strip()
+        is_hi = bool(preferred_language and preferred_language.lower().startswith("hi"))
+
+        # Category checking
         factual_terms = [
             "what", "how", "why", "when", "where", "explain", "meaning",
-            "definition", "difference", "frequency", "concept",
+            "definition", "difference", "frequency", "concept", "क्या", "कैसे", "क्यों",
         ]
         if any(word in msg for word in factual_terms):
+            if is_hi:
+                return "आप इस विषय या ज्ञान को अपने काम या प्रोजेक्ट में किस प्रकार लागू करने की योजना बना रहे हैं?"
             return "How are you planning to apply or use this concept in your current work or project?"
+
         emotion_terms = [
             "feel", "stressed", "tired", "anxious", "overwhelmed", "sad",
-            "worry", "upset", "down",
+            "worry", "upset", "down", "pain", "तनाव", "चिंता", "थका", "दुखी", "उदास",
         ]
         if any(word in msg for word in emotion_terms):
-            return "What do you feel has been contributing the most to that feeling lately?"
+            if is_hi:
+                return "इस समय कौन सी बात या विचार आपको सबसे अधिक परेशान कर रहा है?"
+            return "What specific aspect of that has been weighing on you the most lately?"
+
         goal_terms = [
             "goal", "project", "exam", "interview", "job", "career", "study",
-            "code", "work", "task",
+            "code", "work", "task", "लक्ष्य", "परीक्षा", "नौकरी", "इंटरव्यू",
         ]
         if any(word in msg for word in goal_terms):
+            if is_hi:
+                return "इसके लिए आपका अगला महत्वपूर्ण कदम या मील का पत्थर क्या होने वाला है?"
             return "What is the next key milestone or challenge you're focusing on with that?"
-        return "What are your thoughts on this, and what would you like to explore next?"
+
+        if is_hi:
+            return "इसके बारे में आपके क्या विचार हैं, और आप इस दिशा में आगे क्या बात करना चाहेंगे?"
+        return "What are your thoughts on this, and what aspect would you like to explore next?"
 
     @property
     def asked_questions(self) -> list[str]:

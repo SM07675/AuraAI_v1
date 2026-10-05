@@ -416,10 +416,13 @@ function MainApp() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <UserProvider>
-        <MainApp />
-      </UserProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <UserProvider>
+          <MainApp />
+        </UserProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
+

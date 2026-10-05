@@ -102,6 +102,9 @@ def clean_text_for_speech(text: str) -> str:
     # 11. Normalize multiple spaces and newlines to natural pause spaces
     t = re.sub(r"\s+", " ", t).strip()
 
+    # 12. Apply natural Hindi phonetics if text is in Hindi/Hinglish
+    t = apply_hindi_phonetics(t)
+
     return t
 
 
@@ -113,19 +116,68 @@ ELEVENLABS_TO_EDGETTS_MAP = {
 }
 
 
+_HINDI_KEYWORDS = frozenset({
+    "mujhe", "mera", "meri", "mere", "hai", "hain", "hoon", "tha", "thi", "the",
+    "kya", "kyun", "kaise", "kab", "kahan", "nahi", "nahin", "bohot", "bahut",
+    "namaste", "namaskar", "shukriya", "dhanyawad", "doctor", "sahab", "sahiba",
+    "thak", "thakan", "thaka", "dard", "sirdard", "pareshan", "pareshani", "tanav",
+    "bechaini", "neend", "suno", "ruko", "batao", "bataiye", "kripya", "aap", "tum",
+    "karen", "kare", "karo", "hota", "hoti", "hote"
+})
+
+_HINDI_PHONETIC_REPLACEMENTS: list[tuple[str, str]] = [
+    (r"\bAI\b", "एआई"),
+    (r"\bA\.I\.\b", "एआई"),
+    (r"\bOK\b", "ओके"),
+    (r"\bOk\b", "ओके"),
+    (r"\bok\b", "ओके"),
+    (r"\bDr\.\s*Aura\b", "डॉक्टर ऑरा"),
+    (r"\bDr\.\b", "डॉक्टर"),
+    (r"\bAura\b", "ऑरा"),
+    (r"\banxiety\b", "एंग्जायटी"),
+    (r"\bstress\b", "स्ट्रेस"),
+    (r"\bdepression\b", "डिप्रेशन"),
+    (r"\brelax\b", "रिलैक्स"),
+    (r"\bpanic\b", "पैनिक"),
+    (r"\bmeditation\b", "मेडिटेशन"),
+    (r"\bdeep breath\b", "गहरी सांस"),
+    (r"\bbreathing\b", "ब्रीदिंग"),
+    (r"\btherapy\b", "थेरेपी"),
+    (r"\bsession\b", "सेशन"),
+    (r"\bmental health\b", "मानसिक स्वास्थ्य"),
+    (r"\bmood\b", "मूड"),
+]
+
+
 def is_hindi_text(text: str) -> bool:
-    """Check if the text contains Devanagari Hindi characters."""
+    """Check if the text contains Devanagari Hindi characters or Romanized Hindi keywords."""
     if not text:
         return False
-    return bool(re.search(r"[\u0900-\u097F]", text))
+    if bool(re.search(r"[\u0900-\u097F]", text)):
+        return True
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    if not words:
+        return False
+    hindi_matches = sum(1 for w in words if w in _HINDI_KEYWORDS)
+    return hindi_matches >= 2 or (hindi_matches >= 1 and len(words) <= 4)
+
+
+def apply_hindi_phonetics(text: str) -> str:
+    """Replace English medical and technical terms with phonetic Devanagari spellings for natural Hindi TTS."""
+    if not is_hindi_text(text):
+        return text
+    t = text
+    for pattern, replacement in _HINDI_PHONETIC_REPLACEMENTS:
+        t = re.sub(pattern, replacement, t, flags=re.IGNORECASE)
+    return t
 
 
 def resolve_edgetts_voice(requested_voice: Optional[str], text: str) -> str:
     """Resolve requested voice to a valid, high-fidelity Microsoft Edge Neural voice.
     
     Guarantees:
-    - If text contains Devanagari Hindi characters, automatically maps to a Hindi neural voice
-      (hi-IN-MadhurNeural for male, hi-IN-SwaraNeural for female).
+    - If text contains Devanagari Hindi characters or Hinglish, automatically maps to next-level Hindi neural voice:
+      hi-IN-MadhurNeural for male, hi-IN-SwaraNeural for female.
     - If an ElevenLabs voice ID or unknown identifier was passed, maps to a compatible Edge voice.
     """
     req = (requested_voice or "").strip()

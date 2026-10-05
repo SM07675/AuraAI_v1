@@ -92,21 +92,45 @@ export function ChatScreen({
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === "ping") {
+            socket?.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+          if (data.type === "interrupted") {
+            setTyping(false);
+            return;
+          }
+          if (data.type === "session_start" || data.type === "emotion" || data.type === "debug") {
+            return;
+          }
           if (data.type === "start") {
-            setMsgs((m) => [...m, { id: "aura-" + Date.now(), from: "aura", text: "", time: getCurrentTime() }]);
+            setTyping(true);
+            setMsgs((prev) => {
+              const last = prev[prev.length - 1];
+              if (last && last.from === "aura" && !last.text) return prev;
+              return [...prev, { id: "aura-" + Date.now(), from: "aura", text: "", time: getCurrentTime() }];
+            });
           } else if (data.type === "chunk") {
             setTyping(false);
+            const chunk = data.content || "";
+            if (!chunk) return;
             setMsgs((prev) => {
-              if (prev.length === 0) return prev;
+              if (prev.length === 0) {
+                return [{ id: "aura-" + Date.now(), from: "aura", text: chunk, time: getCurrentTime() }];
+              }
               const lastIdx = prev.length - 1;
               const lastMsg = prev[lastIdx];
               if (lastMsg && lastMsg.from === "aura") {
                 return [
                   ...prev.slice(0, lastIdx),
-                  { ...lastMsg, text: lastMsg.text + data.content },
+                  { ...lastMsg, text: lastMsg.text + chunk },
+                ];
+              } else {
+                return [
+                  ...prev,
+                  { id: "aura-" + Date.now(), from: "aura", text: chunk, time: getCurrentTime() },
                 ];
               }
-              return prev;
             });
           } else if (data.type === "solution_card") {
             const solData = data.solution || data.data;
@@ -126,12 +150,33 @@ export function ChatScreen({
                 return [...prev, { id: "aura-sol-" + Date.now(), from: "aura", text: "", solution: solData, time: getCurrentTime() }];
               });
             }
-          } else if (data.type === "done") {
+          } else if (data.type === "done" || data.type === "message") {
             setTyping(false);
+            const reply = data.response || data.content || "";
             setMsgs((prev) => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.from === "aura" && lastMsg.text) {
-                voiceService.speak(lastMsg.text);
+              if (prev.length === 0) {
+                if (reply) {
+                  voiceService.speak(reply);
+                  return [{ id: "aura-" + Date.now(), from: "aura", text: reply, time: getCurrentTime() }];
+                }
+                return prev;
+              }
+              const lastIdx = prev.length - 1;
+              const lastMsg = prev[lastIdx];
+              const finalText = reply || (lastMsg && lastMsg.from === "aura" ? lastMsg.text : "");
+              if (finalText) {
+                voiceService.speak(finalText);
+              }
+              if (lastMsg && lastMsg.from === "aura") {
+                return [
+                  ...prev.slice(0, lastIdx),
+                  { ...lastMsg, text: finalText || lastMsg.text },
+                ];
+              } else if (reply) {
+                return [
+                  ...prev,
+                  { id: "aura-" + Date.now(), from: "aura", text: reply, time: getCurrentTime() },
+                ];
               }
               return prev;
             });

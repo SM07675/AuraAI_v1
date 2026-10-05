@@ -124,11 +124,20 @@ class EmotionService:
     """Orchestrates multi-modal emotion analysis and fusion."""
 
     def __init__(self, use_llm_text: bool = True) -> None:
-        self._text = get_text_analyzer()
-        self._face = get_face_analyzer()
-        self._voice = get_voice_service()
         self._fusion = get_fusion_service()
         self.trend_buffer: List[Dict[str, Any]] = []
+
+    @property
+    def _text(self) -> TextEmotionAnalyzer:
+        return get_text_analyzer()
+
+    @property
+    def _face(self) -> FaceEmotionAnalyzer:
+        return get_face_analyzer()
+
+    @property
+    def _voice(self) -> VoiceEmotionService:
+        return get_voice_service()
 
     async def analyze_text(self, text: str) -> EmotionResult:
         """Analyze text emotion only."""
@@ -166,10 +175,10 @@ class EmotionService:
         tasks = []
         if text and text.strip():
             tasks.append(("text", self._text.analyze(text)))
-        if image_data and self._face.is_available and face_res is None:
+        if image_data is not None and face_res is None and self._face.is_available:
             tasks.append(("face", self._face.analyze(image_data)))
         # Only run voice analysis if not pre-computed AND audio data provided
-        if audio_data and voice_res is None:
+        if audio_data is not None and voice_res is None:
             tasks.append(("voice", self._voice.analyze(audio_data)))
 
         if tasks:
@@ -186,6 +195,7 @@ class EmotionService:
                         "primary_emotion": result.emotion,
                         "confidence": result.confidence / 100.0 if result.confidence > 1.0 else result.confidence,
                         "scores": result.scores,
+                        "is_mock": result.is_mock,
                         "sentiment": result.sentiment,
                         "stress_level": result.stress_level,
                         "intent": result.intent,
@@ -196,6 +206,7 @@ class EmotionService:
                         "primary_emotion": result.emotion,
                         "confidence": result.confidence / 100.0 if result.confidence > 1.0 else result.confidence,
                         "scores": result.scores,
+                        "is_mock": result.is_mock,
                         "face_detected": result.face_detected,
                         "face_box": result.face_box,
                         "tracking_quality": metadata.get("tracking_quality", 0.90),

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import time
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -53,19 +54,18 @@ logger = get_logger(__name__)
 _PING_INTERVAL_S = 30
 
 
-async def _analyze_voice_emotion(audio_bytes: bytes) -> dict:
-    """Run voice emotion analysis on raw PCM bytes.
+async def _analyze_voice_emotion(audio_bytes: bytes, timeout_s: float = 0.4) -> dict:
+    """Run voice emotion analysis on raw PCM bytes with timeout protection.
 
-    Returns a result dict or an empty neutral dict on failure.
-    Runs in a background asyncio task so it never blocks the STT path.
+    Returns a result dict or an empty neutral dict on timeout or failure.
+    Ensures voice emotion analysis never delays the conversational turn.
     """
     try:
         from app.services.emotion.voice_emotion import VoiceEmotionService
         svc = VoiceEmotionService.get_instance()
-        result = await svc.analyze(audio_bytes, sample_rate=16_000)
-        return result
+        return await asyncio.wait_for(svc.analyze(audio_bytes, sample_rate=16_000), timeout=timeout_s)
     except Exception as exc:
-        logger.debug("Voice emotion analysis skipped", error=str(exc))
+        logger.debug("Voice emotion analysis fast fallback", error=str(exc))
         return {
             "modality": "voice",
             "primary_emotion": "neutral",
@@ -122,7 +122,8 @@ class VoiceWebSocketManager:
                     if message.get("bytes"):
                         # Binary frame = raw PCM audio
                         if session:
-                            await session.audio_handler.feed(message["bytes"])
+                            pcm = message["bytes"]
+                            await session.audio_handler.feed(bytes(len(pcm)) if self._is_input_blocked(session) else pcm)
                         continue
 
                     # JSON text message
@@ -149,7 +150,7 @@ class VoiceWebSocketManager:
                         db=db,
                     )
 
-                    if session and session.state == CommunicationState.DISCONNECTED:
+                    if msg_type == "stop_session" or (session and session.state == CommunicationState.DISCONNECTED):
                         break
 
         except WebSocketDisconnect:
@@ -191,6 +192,14 @@ class VoiceWebSocketManager:
             session = await self._handle_session_start(websocket, msg, db)
             return session
 
+        if msg_type == "playback_state":
+            if session:
+                session.speaker_playback_active = msg.get("active") is True
+                if not session.speaker_playback_active:
+                    session.input_resume_at = (0.0 if msg.get("user_interruption") is True
+                                               else time.monotonic() + 1.2)
+            return session
+
         if msg_type == "audio_chunk":
             # Base64-encoded audio in JSON (fallback for environments without binary WS)
             if session:
@@ -198,9 +207,101 @@ class VoiceWebSocketManager:
                 if b64:
                     try:
                         pcm = base64.b64decode(b64)
-                        await session.audio_handler.feed(pcm)
+                        await session.audio_handler.feed(bytes(len(pcm)) if self._is_input_blocked(session) else pcm)
                     except Exception as exc:
                         logger.warning("Audio decode error", error=str(exc))
+            return session
+
+        if msg_type in ("face_emotion", "camera_emotion", "face_state"):
+            if session:
+                face_data = msg.get("data") or msg.get("emotion") or msg
+                session.conversation.set_latest_face_emotion(face_data)
+            return session
+
+        if msg_type == "set_transcription_mode":
+            if session:
+                session.client_transcription = msg.get("client_transcription") is True
+            return session
+
+        if msg_type in ("set_language", "language_change"):
+            if session:
+                lang_raw = (msg.get("language") or msg.get("code") or "en").strip().lower()
+                iso_lang = "hi" if lang_raw.startswith("hi") else "en"
+                session.stt.set_language(iso_lang)
+                logger.info("Language synced from client", session_id=session.session_id, language=iso_lang)
+            return session
+
+        if msg_type in ("client_transcript", "fast_transcript"):
+            if session and self._is_input_blocked(session):
+                return session
+            # High-accuracy sub-100ms transcript from client Web Speech API
+            if session:
+                transcript_text = (msg.get("text") or msg.get("transcript") or "").strip()
+                if transcript_text:
+                    session.transcript_revision += 1
+                    session.pending_utterance_audio = b""
+                    if session.transcription_task and not session.transcription_task.done():
+                        session.transcription_task.cancel()
+                    confidence = float(msg.get("confidence") or 0.95)
+                    raw_audio_bytes = bytes(session.stt._buffer)
+                    session.stt.clear_buffer()
+
+                    lang_raw = str(msg.get("language") or session.stt.language).strip().lower()
+                    iso_lang = "hi" if lang_raw.startswith("hi") else "en"
+                    session.stt.set_language(iso_lang)
+
+                    transcript = TranscriptResult(
+                        text=transcript_text,
+                        confidence=confidence,
+                        language=iso_lang,
+                        is_final=True,
+                        duration_ms=float(msg.get("duration_ms") or 0.0),
+                    )
+
+                    # Cancel any active turn before starting new turn
+                    await session.conversation.cancel_active_turn()
+                    try:
+                        await session.state_machine.transition(CommunicationState.THINKING)
+                    except ValueError:
+                        pass
+
+                    # Run voice emotion concurrently if audio is available
+                    if raw_audio_bytes:
+                        try:
+                            voice_emotion = await _analyze_voice_emotion(raw_audio_bytes)
+                            transcript.voice_emotion = voice_emotion
+                        except Exception:
+                            pass
+
+                    session.conversation._active_turn_task = asyncio.create_task(
+                        self._run_conversation_turn(websocket, session, transcript),
+                        name=f"hybrid-turn-{session.session_id}",
+                    )
+            return session
+
+        if msg_type == "text_message":
+            # Typed text messages flow through the same AI+TTS pipeline as voice
+            if session:
+                text_content = msg.get("content", "").strip() or msg.get("text", "").strip()
+                if text_content:
+                    transcript = TranscriptResult(
+                        text=text_content,
+                        confidence=1.0,
+                        language=msg.get("language", "en"),
+                        is_final=True,
+                        duration_ms=0,
+                    )
+                    # Cancel any running generation before starting new turn
+                    await session.conversation.cancel_active_turn()
+                    session.stt.clear_buffer()
+                    try:
+                        await session.state_machine.transition(CommunicationState.THINKING)
+                    except ValueError:
+                        pass
+                    session.conversation._active_turn_task = asyncio.create_task(
+                        self._run_conversation_turn(websocket, session, transcript),
+                        name=f"text-turn-{session.session_id}",
+                    )
             return session
 
         if msg_type == "interrupt":
@@ -224,15 +325,32 @@ class VoiceWebSocketManager:
         self, websocket: WebSocket, msg: dict, db
     ) -> VoiceSession:
         """Create a new voice session and wire up all callbacks."""
-        user_id = int(msg.get("user_id") or 0)
+        # Identity comes from a validated token, never a browser-supplied user ID.
+        user_id = 0
+        token = websocket.query_params.get("token")
+        if token:
+            from app.core.security import decode_token, is_token_blacklisted
+            from app.core.deps import get_redis
+            payload = decode_token(token)
+            if payload.get("type") != "access":
+                raise ValueError("An access token is required")
+            if await is_token_blacklisted(await get_redis(), token):
+                raise ValueError("Token is no longer valid")
+            user_id = int(payload["sub"])
 
         session = await self._registry.create_session(user_id=user_id, db=db)
+        session.client_transcription = msg.get("client_transcription") is True
+        if msg.get("language"):
+            lang_raw = str(msg["language"]).strip().lower()
+            iso_lang = "hi" if lang_raw.startswith("hi") else "en"
+            session.stt.set_language(iso_lang)
 
         # ── State change callback → send state_change events ──────
         async def on_state_change(from_state, to_state):
+            snapshot = session.state_machine.snapshot()
             await self._send(websocket, {
                 "type": "state_change",
-                "state": to_state.value,
+                **snapshot,
             })
 
         session.state_machine.on_state_change(on_state_change)
@@ -241,16 +359,19 @@ class VoiceWebSocketManager:
         async def on_text_token(token: str) -> None:
             await self._send(websocket, {
                 "type": "partial_response",
+                "session_id": session.session_id,
+                "turn_id": session.state_machine.turn_id,
+                "generation_id": session.state_machine.active_generation_id,
                 "text": token,
             })
 
-        async def on_audio_chunk(audio_bytes: bytes, sequence: int) -> None:
+        async def on_audio_chunk(audio_bytes: bytes, sequence: int, turn_id: int = 0, gen_id: int = 0) -> None:
             session.metrics.record_first_audio()
             self._send_audio_chunk(websocket, audio_bytes, sequence)
 
         async def on_event(event_name: str, data: dict) -> None:
             await self._send(websocket, {"type": event_name, **data})
-            if event_name == "completed":
+            if event_name == "completed" or event_name == "turn_completed":
                 # Send metrics snapshot after each turn
                 await self._send(websocket, {
                     "type": "metrics",
@@ -262,17 +383,28 @@ class VoiceWebSocketManager:
         session.conversation.on_event(on_event)
 
         # ── TTS audio callback ────────────────────────────────────
-        async def on_tts_chunk(audio_bytes: bytes, seq: int) -> None:
+        async def on_tts_chunk(audio_bytes: bytes, seq: int, turn_id: int = 0, gen_id: int = 0) -> None:
             session.metrics.record_first_audio()
             await self._send(websocket, {
                 "type": "audio_chunk",
-                "data": base64.b64encode(audio_bytes).decode(),
+                "session_id": session.session_id,
+                "turn_id": turn_id or session.state_machine.turn_id,
+                "generation_id": gen_id or session.state_machine.active_generation_id,
+                "sequence_number": seq,
                 "sequence": seq,
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
             })
 
         async def on_tts_event(event_name: str) -> None:
             if event_name == "speaking_started":
-                await self._send(websocket, {"type": "speaking"})
+                await self._send(websocket, {
+                    "type": "assistant_speech_start",
+                    "turn_id": session.state_machine.turn_id,
+                    "generation_id": session.state_machine.active_generation_id,
+                })
+            elif event_name == "tts_error":
+                await self._send(websocket, {"type": "error", "code": "TTS_UNAVAILABLE",
+                                            "message": "Voice is temporarily unavailable. Your reply is shown as text."})
             elif event_name in ("speaking_done", "interrupted"):
                 pass  # handled by state machine transitions
 
@@ -290,15 +422,32 @@ class VoiceWebSocketManager:
             "type": "session_ready",
             "session_id": session.session_id,
         })
-        # SessionRegistry starts the state machine before callbacks are wired.
-        # Explicitly synchronise the client after its ready acknowledgement.
+        # Explicitly synchronise initial state snapshot
         await self._send(websocket, {
             "type": "state_change",
-            "state": session.state.value,
+            **session.state_machine.snapshot(),
         })
 
         logger.info("Voice session ready", session_id=session.session_id)
         return session
+
+    @staticmethod
+    def _is_input_blocked(session) -> bool:
+        return (session.state_machine.state == CommunicationState.SPEAKING
+                or getattr(session, "speaker_playback_active", False)
+                or time.monotonic() < getattr(session, "input_resume_at", 0.0))
+
+    @staticmethod
+    def _should_barge_in(result, client_transcription: bool) -> bool:
+        # Browser transcription performs echo-aware attribution. Server VAD
+        # must not treat an existing noise/speech segment as a new interruption.
+        return (
+            not client_transcription
+            and result.event == VADEvent.SPEECH_STARTED
+            and result.is_speech
+            and result.rms > 110.0
+            and result.snr_db >= 10.0
+        )
 
     # ── VAD Loop ──────────────────────────────────────────────────
 
@@ -316,28 +465,39 @@ class VoiceWebSocketManager:
             async for result in session.vad.process(session.audio_handler.frames()):
                 current_state = session.state_machine.state
 
-                # Only drive STT transitions when in LISTENING/USER_SPEAKING states
-                if current_state in (
-                    CommunicationState.SPEAKING,
-                    CommunicationState.GENERATING,
-                    CommunicationState.DISCONNECTED,
-                ):
-                    # During speaking/generating: check for barge-in
-                    if result.is_speech and current_state in (CommunicationState.SPEAKING, CommunicationState.GENERATING):
-                        logger.info("Barge-in detected", session_id=session.session_id)
-                        await session.interrupt.trigger_interrupt()
-                        await self._send(websocket, {"type": "interrupted"})
-                        session.stt.clear_buffer()
-                        in_speech = True
-                        try:
-                            await session.state_machine.transition(CommunicationState.USER_SPEAKING)
-                        except ValueError:
-                            pass
+                # Send real-time VAD telemetry to client for diagnostics
+                if result.event in (VADEvent.SPEECH_STARTED, VADEvent.SPEAKING, VADEvent.POSSIBLE_END, VADEvent.SPEECH_ENDED):
+                    await self._send(websocket, {
+                        "type": "vad_state",
+                        "turn_id": session.state_machine.turn_id,
+                        "state": result.state.value if hasattr(result.state, "value") else str(result.state),
+                        "event": result.event.value if hasattr(result.event, "value") else str(result.event),
+                        "rms": result.rms,
+                        "snr_db": result.snr_db,
+                    })
+
+                # Speaker playback is protected until the browser drains its
+                # queue. Only an explicit interrupt action stops this turn.
+                if self._is_input_blocked(session):
+                    session.stt.clear_buffer()
+                    in_speech = False
                     continue
+
+                if current_state == CommunicationState.DISCONNECTED:
+                    break
 
                 if result.event == VADEvent.SPEECH_STARTED:
                     in_speech = True
+                    carry_audio = session.pending_utterance_audio
+                    if session.transcription_task and not session.transcription_task.done():
+                        session.transcription_task.cancel()
+                    session.pending_utterance_audio = b""
                     session.stt.clear_buffer()
+                    if carry_audio:
+                        session.stt.accumulate(carry_audio)
+                    # Add pre-speech padding frames before the trigger frame
+                    for pad in result.padding_frames:
+                        session.stt.accumulate(pad)
                     session.stt.accumulate(result.frame)
                     session.metrics.start_stt()
                     try:
@@ -345,65 +505,46 @@ class VoiceWebSocketManager:
                     except ValueError:
                         pass
                     await self._send(websocket, {
+                        "type": "user_speech_start",
+                        "turn_id": session.state_machine.turn_id,
+                    })
+                    await self._send(websocket, {
                         "type": "listening",
                         "active": True,
                     })
 
                 elif result.is_speech and in_speech:
-                    # Keep every VAD-confirmed speech frame for STT.
+                    # Keep every VAD-confirmed speech frame for STT
                     session.stt.accumulate(result.frame)
 
                 elif result.event == VADEvent.SPEECH_ENDED and in_speech:
                     in_speech = False
-
-                    try:
-                        await session.state_machine.transition(
-                            CommunicationState.TRANSCRIBING
-                        )
-                    except ValueError:
-                        continue
-
+                    await self._send(websocket, {
+                        "type": "user_speech_end",
+                        "turn_id": session.state_machine.turn_id,
+                    })
                     await self._send(websocket, {
                         "type": "listening",
                         "active": False,
                     })
 
-                    # Capture raw audio bytes BEFORE clearing for parallel emotion analysis
-                    raw_audio_bytes = bytes(session.stt._buffer)
-
-                    # ── Parallel: STT + Voice Emotion ─────────────────────
-                    async def on_partial(text: str, confidence: float) -> None:
-                        await self._send(websocket, {
-                            "type": "partial_transcript",
-                            "text": text,
-                            "confidence": round(confidence, 3),
-                        })
-
-                    # Launch STT and voice emotion concurrently
-                    transcript, voice_emotion_result = await asyncio.gather(
-                        session.stt.transcribe_buffer(on_partial=on_partial),
-                        _analyze_voice_emotion(raw_audio_bytes),
-                        return_exceptions=False,
-                    )
-                    session.metrics.end_stt()
-
-                    if not transcript.text.strip():
-                        # Nothing intelligible — go back to listening
-                        try:
-                            await session.state_machine.transition(
-                                CommunicationState.LISTENING
-                            )
-                        except ValueError:
-                            pass
+                    try:
+                        await session.state_machine.transition(CommunicationState.THINKING)
+                    except ValueError:
                         continue
 
-                    # Attach voice emotion to transcript for downstream pipeline
-                    transcript.voice_emotion = voice_emotion_result
-
-                    # Hand off to conversation manager for AI pipeline
-                    asyncio.create_task(
-                        session.conversation.process_transcript(transcript),
-                        name=f"turn-{session.session_id}",
+                    # Browser final results are preferred, but their absence must
+                    # never disable server transcription indefinitely. Snapshot audio
+                    # before the next utterance can modify the shared STT buffer.
+                    raw_audio_bytes = bytes(session.stt._buffer)
+                    session.pending_utterance_audio = raw_audio_bytes
+                    session.stt.clear_buffer()
+                    if session.transcription_task and not session.transcription_task.done():
+                        session.transcription_task.cancel()
+                    session.transcription_task = asyncio.create_task(
+                        self._transcribe_utterance(websocket, session, raw_audio_bytes,
+                                                  session.transcript_revision),
+                        name=f"stt-handoff-{session.session_id}",
                     )
 
         except asyncio.CancelledError:
@@ -411,15 +552,87 @@ class VoiceWebSocketManager:
         except Exception as exc:
             logger.error("VAD loop error", session_id=session.session_id, error=str(exc))
 
+    async def _run_conversation_turn(self, websocket, session, transcript) -> None:
+        """Surface failed background turns instead of leaving a silent THINKING state."""
+        try:
+            await session.conversation.process_transcript(transcript)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Spoken conversation turn failed", session_id=session.session_id, error=str(exc))
+            if session.state_machine.state != CommunicationState.DISCONNECTED:
+                await self._send(websocket, {"type": "error", "code": "VOICE_TURN_FAILED",
+                    "message": "I could not finish that reply. Please try again."})
+                await session.state_machine.transition(CommunicationState.LISTENING)
+
+    async def _transcribe_utterance(self, websocket, session, audio: bytes, revision: int) -> None:
+        """Bounded browser-to-Whisper handoff, independent of the PCM receive loop."""
+        try:
+            await asyncio.sleep(1.2 if session.client_transcription else 0.25)
+            if revision != session.transcript_revision:
+                return
+            transcript, voice_emotion = await asyncio.wait_for(asyncio.gather(
+                session.stt._provider.transcribe(audio_bytes=audio, sample_rate=16000,
+                                                language=session.stt.language),
+                _analyze_voice_emotion(audio),
+            ), timeout=15.0)
+            if revision != session.transcript_revision:
+                return
+            session.metrics.end_stt()
+            if not transcript.text.strip():
+                await self._send(websocket, {"type": "error", "code": "NO_TRANSCRIPT",
+                    "message": "I could not make out that audio. Please try speaking again."})
+                await session.state_machine.transition(CommunicationState.LISTENING)
+                return
+            session.transcript_revision += 1
+            session.pending_utterance_audio = b""
+            transcript.voice_emotion = voice_emotion
+            await session.conversation.cancel_active_turn()
+            session.conversation._active_turn_task = asyncio.create_task(
+                self._run_conversation_turn(websocket, session, transcript),
+                name=f"spoken-turn-{session.session_id}",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Speech handoff failed", session_id=session.session_id, error=str(exc))
+            await self._send(websocket, {"type": "error", "code": "STT_UNAVAILABLE",
+                "message": "Speech transcription failed. Please try again or type your message."})
+            if session.state_machine.state == CommunicationState.THINKING:
+                await session.state_machine.transition(CommunicationState.LISTENING)
+
     # ── Interrupt ─────────────────────────────────────────────────
 
-    async def _handle_interrupt(self, websocket: WebSocket, session: VoiceSession) -> None:
-        """Handle a client-initiated interrupt message."""
-        triggered = await session.interrupt.trigger_interrupt()
-        if triggered:
-            await self._send(websocket, {"type": "interrupted"})
+    async def _handle_interrupt(
+        self, websocket: WebSocket, session: VoiceSession
+    ) -> None:
+        """Handle client-initiated barge-in."""
+        old_turn_id = session.state_machine.turn_id
+        interrupted = await session.interrupt.trigger_interrupt()
+        if interrupted:
             session.stt.clear_buffer()
             session.vad.reset()
+            await self._send(websocket, {
+                "type": "interruption",
+                "interrupted_turn_id": old_turn_id,
+                "new_turn_id": session.state_machine.turn_id,
+                "generation_id": session.state_machine.active_generation_id,
+                "reason": "client",
+            })
+            await self._send(websocket, {
+                "type": "generation_cancelled",
+                "generation_id": session.state_machine.active_generation_id,
+                "turn_id": old_turn_id,
+            })
+            await self._send(websocket, {
+                "type": "tts_cancelled",
+                "tts_id": session.state_machine.active_tts_id,
+                "turn_id": old_turn_id,
+            })
+            try:
+                await session.state_machine.transition(CommunicationState.USER_SPEAKING)
+            except ValueError:
+                pass
 
     # ── Transport helpers ─────────────────────────────────────────
 

@@ -52,6 +52,12 @@ class VoiceSession:
     def __init__(self, session_id: str, user_id: int, db: AsyncSession) -> None:
         self.session_id = session_id
         self.user_id = user_id
+        self.client_transcription = False
+        self.speaker_playback_active = False
+        self.input_resume_at = 0.0
+        self.transcript_revision = 0
+        self.pending_utterance_audio = b""
+        self.transcription_task: asyncio.Task | None = None
         self.created_at = datetime.now(timezone.utc)
 
         settings = get_settings()
@@ -67,7 +73,7 @@ class VoiceSession:
         self.vad = VoiceActivityDetector(
             session_id=session_id,
             aggressiveness=settings.vad_aggressiveness,
-            silence_threshold_ms=settings.vad_silence_threshold_ms,
+            silence_threshold_ms=max(650, settings.vad_silence_threshold_ms),
             min_speech_ms=settings.vad_min_speech_ms,
             frame_ms=settings.vad_frame_duration_ms,
         )
@@ -103,6 +109,11 @@ class VoiceSession:
         # VAD processing task (runs as background asyncio Task)
         self._vad_task: asyncio.Task | None = None
 
+        # Automatically synchronize VAD playback-awareness with authoritative SPEAKING state
+        async def _sync_vad_playback(old_state, new_state):
+            self.vad.set_playback_active(new_state == CommunicationState.SPEAKING)
+        self.state_machine.on_state_change(_sync_vad_playback)
+
     async def start(self) -> None:
         """Start the session: initialize DB session and enter LISTENING state."""
         await self.conversation.initialize()
@@ -112,19 +123,39 @@ class VoiceSession:
 
     async def stop(self) -> None:
         """Gracefully stop the session and release resources."""
-        # Cancel VAD loop
+        # 0. Save session snapshot for resilient reconnection
+        try:
+            from app.services.working_memory_service import WorkingMemoryService
+            wm = WorkingMemoryService()
+            state = await wm.get_state(self.conversation._db_session_id or 0, self.user_id)
+            snapshot = state.to_snapshot(summary="Session ended gracefully")
+            snapshot["history"] = self.conversation.history[-6:]  # Last 6 turns for fast restore
+            await wm.save_session_snapshot(self.conversation._db_session_id or 0, snapshot)
+            logger.info("Session snapshot saved for recovery", session_id=self.session_id)
+        except Exception as exc:
+            logger.debug("Session snapshot save skipped", error=str(exc))
+
+        # 1. Close audio handler first so frames() iterator unblocks and exits
+        await self.audio_handler.close()
+
+        # 2. Cancel VAD loop and wait with timeout
         if self._vad_task and not self._vad_task.done():
             self._vad_task.cancel()
             try:
-                await self._vad_task
+                await asyncio.wait_for(asyncio.shield(self._vad_task), timeout=0.5)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            self._vad_task = None
+
+        if self.transcription_task and not self.transcription_task.done():
+            self.transcription_task.cancel()
+            try:
+                await self.transcription_task
             except asyncio.CancelledError:
                 pass
 
-        # Stop TTS
-        await self.tts.stop()
-
-        # Close audio handler
-        await self.audio_handler.close()
+        # Stop active generation as well as speech on disconnect.
+        await self.conversation.cancel_active_turn()
 
         # Close DB session
         await self.conversation.close()

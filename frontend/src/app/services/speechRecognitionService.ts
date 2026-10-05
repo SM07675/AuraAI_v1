@@ -64,6 +64,40 @@ class SpeechRecognitionEngine {
   private consecutiveErrors = 0;
   private isBrowserSupported = true;
   private speechStartTimestamp = 0;
+  private pendingInterim = "";
+  private commitTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastCommitted = "";
+  private lastCommittedAt = 0;
+  private speechBeganDuringPlayback = false;
+  private userInterruptionConfirmed = false;
+
+  private clearCommitTimer() {
+    if (this.commitTimer) clearTimeout(this.commitTimer);
+    this.commitTimer = null;
+  }
+
+  private commitTranscript(text: string) {
+    this.clearCommitTimer();
+    this.pendingInterim = "";
+    const clean = text.trim();
+    if (!clean || !this.isListeningDesired) return;
+    // Recheck at commit time: playback may have begun since the interim result.
+    if (duplexManager.isRecognitionSuppressed() || duplexManager.isTextEcho(clean)) return;
+    if (clean === this.lastCommitted && Date.now() - this.lastCommittedAt < 2500) return;
+    this.lastCommitted = clean;
+    this.lastCommittedAt = Date.now();
+    this.notifyFinal(clean);
+    this.speechStartTimestamp = 0;
+  }
+
+  private scheduleInterimCommit() {
+    this.clearCommitTimer();
+    this.commitTimer = setTimeout(() => {
+      // Some browsers keep every result interim. A quiet transcript window
+      // must still produce a turn instead of leaving the words in the input.
+      this.commitTranscript(this.pendingInterim);
+    }, 1000);
+  }
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -143,6 +177,8 @@ class SpeechRecognitionEngine {
   }
 
   public stop() {
+    this.clearCommitTimer();
+    this.pendingInterim = "";
     this.isListeningDesired = false;
     this.clearRestartTimer();
 
@@ -178,8 +214,36 @@ class SpeechRecognitionEngine {
     }
   }
 
+  private pauseRecognition() {
+    this.clearRestartTimer();
+    this.clearCommitTimer();
+    this.pendingInterim = "";
+    this.speechStartTimestamp = 0;
+    const rec = this.recognition;
+    this.recognition = null;
+    this.isRecognizing = false;
+    if (rec) {
+      rec.onstart = rec.onresult = rec.onerror = rec.onend = null;
+      rec.onspeechstart = rec.onspeechend = null;
+      try { rec.abort(); } catch {}
+    }
+  }
+
+  private scheduleResume() {
+    this.clearRestartTimer();
+    this.restartTimeout = setTimeout(() => {
+      if (this.isListeningDesired) this.recreateAndStart();
+    }, 120);
+  }
+
   private recreateAndStart() {
     this.clearRestartTimer();
+    if (!this.isListeningDesired) return;
+    if (duplexManager.isRecognitionSuppressed()) {
+      this.pauseRecognition();
+      this.scheduleResume();
+      return;
+    }
 
     if (typeof window === "undefined") return;
     const SpeechRecognition =
@@ -205,20 +269,34 @@ class SpeechRecognitionEngine {
       rec.lang = this.language;
 
       rec.onstart = () => {
+        if (this.recognition !== rec) return;
         this.isRecognizing = true;
         this.consecutiveErrors = 0;
       };
 
       rec.onspeechstart = () => {
+        if (this.recognition !== rec || duplexManager.isRecognitionSuppressed()) return;
         this.speechStartTimestamp = Date.now();
+        this.speechBeganDuringPlayback = duplexManager.getPlaybackState().isSpeaking;
+        this.userInterruptionConfirmed = false;
         duplexManager.notifySpeechStart();
       };
 
       rec.onspeechend = () => {
+        if (this.recognition !== rec || duplexManager.isRecognitionSuppressed()) return;
         duplexManager.notifySpeechEnd();
+        if (this.pendingInterim) this.scheduleInterimCommit();
       };
 
       rec.onresult = (event: any) => {
+        if (this.recognition !== rec) return;
+        if (this.speechBeganDuringPlayback && !this.userInterruptionConfirmed &&
+            !duplexManager.getPlaybackState().isSpeaking) return;
+        if (duplexManager.isRecognitionSuppressed()) {
+          this.pendingInterim = "";
+          this.clearCommitTimer();
+          return;
+        }
         const interimParts: string[] = [];
         const finalParts: string[] = [];
         let bestConf = 0.85;
@@ -257,7 +335,13 @@ class SpeechRecognitionEngine {
             });
 
             if (evalResult.decision === "PASS_THROUGH" || evalResult.decision === "USER_INTERRUPT") {
+              if (evalResult.decision === "USER_INTERRUPT") this.userInterruptionConfirmed = true;
+              this.pendingInterim = cleanInterim;
               this.notifyInterim(cleanInterim);
+              this.scheduleInterimCommit();
+            } else {
+              this.pendingInterim = "";
+              this.clearCommitTimer();
             }
           }
         }
@@ -275,14 +359,18 @@ class SpeechRecognitionEngine {
             });
 
             if (evalResult.decision === "PASS_THROUGH" || evalResult.decision === "USER_INTERRUPT") {
-              this.notifyFinal(cleanFinal);
-              this.speechStartTimestamp = 0;
+              if (evalResult.decision === "USER_INTERRUPT") this.userInterruptionConfirmed = true;
+              this.commitTranscript(cleanFinal);
+            } else {
+              this.pendingInterim = "";
+              this.clearCommitTimer();
             }
           }
         }
       };
 
       rec.onerror = (event: any) => {
+        if (this.recognition !== rec) return;
         const err = event.error;
 
         if (err === "no-speech" || err === "aborted") {
@@ -298,17 +386,21 @@ class SpeechRecognitionEngine {
 
         if (err === "network") {
           this.consecutiveErrors++;
+          this.notifyError("Browser speech recognition is unavailable. Switching to server transcription.");
           if (this.consecutiveErrors <= 2) {
             console.warn("[SPEECH SERVICE] SpeechRecognition network glitch, scheduling backoff retry...");
           }
           return;
         }
 
+        this.notifyError("Browser speech recognition failed. Server transcription will handle your voice.");
         console.warn("[SPEECH SERVICE] SpeechRecognition error:", err);
       };
 
       rec.onend = () => {
+        if (this.recognition !== rec) return;
         this.isRecognizing = false;
+        if (this.pendingInterim) this.commitTranscript(this.pendingInterim);
 
         if (this.isListeningDesired) {
           const delay = this.consecutiveErrors > 0 ? Math.min(300 * this.consecutiveErrors, 1500) : 120;
@@ -324,6 +416,7 @@ class SpeechRecognitionEngine {
       this.recognition = rec;
       rec.start();
     } catch (err: any) {
+      this.notifyError("Browser speech recognition could not start. Switching to server transcription.");
       if (this.consecutiveErrors <= 2) {
         console.warn("[SPEECH SERVICE] SpeechRecognition initialization failed, retrying:", err);
       }

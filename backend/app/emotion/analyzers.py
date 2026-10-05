@@ -8,6 +8,8 @@ VoiceEmotionAnalyzer — Voice emotion analysis & audio feature extraction.
 
 from __future__ import annotations
 
+import asyncio
+
 import os
 from pathlib import Path
 from typing import Any, Optional, Dict, List
@@ -231,7 +233,7 @@ class TextEmotionAnalyzer(EmotionAnalyzer):
         # 1. Try local transformer model first (ultra-fast, local weights)
         if self._model_loaded:
             try:
-                result = self._predict_with_transformer(text)
+                result = await asyncio.to_thread(self._predict_with_transformer, text)
             except Exception as e:
                 logger.debug("Local transformer prediction failed, falling back", error=str(e))
 

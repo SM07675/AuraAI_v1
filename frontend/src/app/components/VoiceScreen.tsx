@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play, Check, Globe } from "lucide-react";
+import { Mic, MicOff, Volume2, Sparkles, RefreshCw, AlertCircle, Settings2, Play, Check, Globe, Activity } from "lucide-react";
 import { AuraMascot3D } from "./aura-robot";
 import { useTheme } from "../context/ThemeContext";
 import { voiceService, CURATED_VOICES, VoicePersona } from "../services/voiceService";
@@ -9,6 +9,9 @@ import { getWebSocketUrl } from "../services/wsHelper";
 import { streamingTtsService } from "../services/streamingTtsService";
 import { duplexManager, ConversationState } from "../services/duplexManager";
 import { VoiceDiagnosticsHud } from "./VoiceDiagnosticsHud";
+import { LiveAudioDebugger } from "./LiveAudioDebugger";
+import { liveVoiceClient } from "../services/liveVoiceSocket";
+import { audioEngine } from "../services/audioEngine";
 
 export function VoiceScreen() {
   const { isDark } = useTheme();
@@ -17,7 +20,9 @@ export function VoiceScreen() {
   const [thinking, setThinking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [aiResponse, setAiResponse] = useState("");
   const [showDuplexHud, setShowDuplexHud] = useState(false);
+  const [showDebugger, setShowDebugger] = useState(false);
   const [duplexState, setDuplexState] = useState<ConversationState>(duplexManager.getState());
 
   useEffect(() => {
@@ -36,23 +41,127 @@ export function VoiceScreen() {
     ? "नमस्ते! मैं ऑरा हूँ, आपकी AI कल्याण साथी। मैं सुन रही हूँ—कृपया बताइए आज आप कैसा महसूस कर रहे हैं?"
     : "Hello! I'm Aura, your emotion-aware companion. I'm listening with my natural neural voice—go ahead and talk to me.";
     
-  const [aiResponse, setAiResponse] = useState(defaultInitialGreeting);
   const [sttError, setSttError] = useState<string | null>(null);
 
-  const ws = useRef<WebSocket | null>(null);
-
-  // Speak with neural TTS
-  const speakText = (textToSpeak: string, voiceId?: string) => {
-    setSpeaking(true);
-    voiceService.speak(textToSpeak, {
-      // Read from the service so WebSocket callbacks never retain an old voice
-      // after switching between Swara and Madhur in the same language.
-      voice: voiceId || voiceService.activeVoice,
-      onStart: () => setSpeaking(true),
-      onEnd: () => setSpeaking(false),
-      onError: () => setSpeaking(false),
+  // ── Establish Authoritative Real-Time Full-Duplex Voice Connection ───────────
+  useEffect(() => {
+    liveVoiceClient.setCallbacks({
+      onStateChange: (st) => {
+        if (st === "LISTENING") {
+          setListening(true);
+          setThinking(false);
+          setSpeaking(false);
+        } else if (st === "USER_SPEAKING") {
+          setListening(true);
+          setThinking(false);
+          setSpeaking(false);
+        } else if (st === "THINKING") {
+          setThinking(true);
+          setSpeaking(false);
+        } else if (st === "SPEAKING") {
+          setListening(true); // Full duplex: mic stays active while Aura speaks
+          setThinking(false);
+          setSpeaking(true);
+        } else if (st === "INTERRUPTED") {
+          setSpeaking(false);
+          setThinking(false);
+          setListening(true);
+        }
+      },
+      onTurnStarted: () => {
+        setAiResponse("");
+        setInterimTranscript("");
+      },
+      onPartialTranscript: (text) => {
+        setInterimTranscript(text);
+      },
+      onFinalTranscript: (text) => {
+        setTranscript(text);
+        setInterimTranscript("");
+      },
+      onPartialResponseToken: (token) => {
+        setThinking(false);
+        setAiResponse((prev) => prev + token);
+      },
+      onFullResponse: (text) => {
+        setThinking(false);
+        setAiResponse(text);
+      },
+      onSpeaking: () => {
+        setSpeaking(true);
+        setThinking(false);
+      },
+      onInterrupted: () => {
+        setSpeaking(false);
+        setThinking(false);
+      },
+      onTurnCompleted: () => {
+        setSpeaking(false);
+        setThinking(false);
+        setListening(true);
+      },
+      onError: (err) => {
+        setThinking(false);
+        setSpeaking(false);
+        console.warn("[VOICE SCREEN] Live voice error:", err);
+      },
     });
-  };
+
+    // Attempt microphone pipeline init on mount; if blocked by browser autoplay policy,
+    // toggleListening handles it upon user click.
+    audioEngine.initMicrophonePipeline().then((stream) => {
+      if (stream) {
+        setSttError(null);
+        setListening(true);
+      }
+    }).catch((err) => {
+      console.warn("[VOICE SCREEN] Autoplay/Mount mic init:", err);
+    });
+
+    liveVoiceClient.connect();
+    liveVoiceClient.setClientTranscription(speechService.isSupported);
+
+    // Subscribe to speechService (Web Speech API) for real-time visual transcription feedback
+    const unSpeech = speechService.subscribe({
+      onInterim: (interim) => {
+        const clean = interim.trim();
+        if (clean) {
+          setInterimTranscript(clean);
+        }
+      },
+      onFinal: (final) => {
+        const clean = final.trim();
+        if (clean) {
+          setTranscript(clean);
+          setInterimTranscript("");
+          // Forward via fast client_transcript if live voice is connected,
+          // providing sub-100ms instant response without CPU Whisper latency
+          if (liveVoiceClient.isConnected()) {
+            liveVoiceClient.sendClientTranscript(clean, 0.96);
+          } else {
+            sendToAi(clean);
+          }
+        }
+      },
+      onError: (err) => {
+        liveVoiceClient.setClientTranscription(false);
+        console.warn("[VOICE SCREEN] Web Speech error:", err);
+      },
+    });
+
+    liveVoiceClient.setLanguage(currentLang);
+
+    if (speechService.isSupported) {
+      speechService.start();
+    }
+
+    return () => {
+      unSpeech();
+      speechService.stop();
+      liveVoiceClient.disconnect();
+      audioEngine.stopAllPlayback();
+    };
+  }, []);
   
   // Sync speaking state with global voice service
   useEffect(() => {
@@ -61,85 +170,7 @@ export function VoiceScreen() {
     });
   }, []);
 
-  // ── Establish Resilient WebSocket connection ─────────────────────────────────
-  useEffect(() => {
-    let socket: WebSocket;
-    let isUnmounted = false;
-    let reconnectTimeout: ReturnType<typeof setTimeout>;
-
-    const connect = () => {
-      if (isUnmounted) return;
-      const wsUrl = getWebSocketUrl("/api/v1/ws/chat");
-
-      socket = new WebSocket(wsUrl);
-      ws.current = socket;
-
-      socket.onopen = () => {
-        console.log("VoiceScreen WebSocket connected");
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "start") {
-            setThinking(false);
-            setAiResponse("");
-            streamingTtsService.startStream({
-              voice: selectedVoice,
-              onStart: () => setSpeaking(true),
-              onEnd: () => setSpeaking(false),
-              onError: () => setSpeaking(false),
-            });
-          } else if (data.type === "chunk") {
-            setThinking(false);
-            setAiResponse((prev) => prev + data.content);
-            streamingTtsService.pushChunk(data.content);
-          } else if (data.type === "done" || data.type === "message" || data.type === "agent_response") {
-            setThinking(false);
-            streamingTtsService.finalizeStream();
-            const fullReply = data.response || data.content || data.text;
-            if (fullReply) {
-              setAiResponse(fullReply);
-            }
-          } else if (data.type === "interrupted") {
-            setThinking(false);
-            streamingTtsService.cancel();
-            voiceService.stop();
-            setSpeaking(false);
-          } else if (data.type === "error") {
-            setThinking(false);
-            streamingTtsService.cancel();
-            const fallbackMsg = isHindi
-              ? "मैं आपके साथ हूँ और सुन रही हूँ। आज आपके मन में क्या चल रहा है?"
-              : "I'm right here with you and listening. What's on your mind today?";
-            setAiResponse(fallbackMsg);
-            speakText(fallbackMsg);
-          }
-        } catch (e) {
-          console.error("WS message parse error:", e);
-        }
-      };
-
-      socket.onclose = () => {
-        console.log("VoiceScreen WebSocket disconnected");
-        if (!isUnmounted) {
-          reconnectTimeout = setTimeout(connect, 2000);
-        }
-      };
-    };
-
-    connect();
-
-    return () => {
-      isUnmounted = true;
-      clearTimeout(reconnectTimeout);
-      socket?.close();
-      streamingTtsService.cancel();
-      voiceService.stop();
-    };
-  }, [isHindi]);
-
-  // Send message to AI backend
+  // Send message to AI backend (offline fallback)
   const sendToAi = (userSpeech: string) => {
     if (!userSpeech || userSpeech.trim().length === 0) return;
     if (voiceService.isEcho(userSpeech) || duplexManager.isTextEcho(userSpeech)) return;
@@ -150,95 +181,71 @@ export function VoiceScreen() {
     }
     streamingTtsService.cancel();
 
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      try {
-        ws.current.send(JSON.stringify({ type: "interrupt" }));
-      } catch (e) {}
-    }
-
     setThinking(true);
     setAiResponse("");
 
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ 
-        type: "message", 
-        content: userSpeech, 
-        mode: "voice",
-        language: currentLang 
-      }));
-    } else {
-      // Offline fallback
-      setTimeout(() => {
-        setThinking(false);
-        const lower = userSpeech.toLowerCase();
-        let reply = isHindi
-          ? "मैं समझ रही हूँ। क्या आप इसके बारे में थोड़ा और बता सकते हैं कि आप कैसा महसूस कर रहे हैं?"
-          : "I hear you. Could you share a bit more about how that makes you feel?";
-          
-        if (lower.includes("stress") || lower.includes("तनाव") || lower.includes("pressure") || lower.includes("exam") || lower.includes("काम")) {
-          reply = isHindi
-            ? "यह काफी भारी लग सकता है। चलिए मिलकर एक गहरी सांस लेते हैं। इस समय सबसे ज्यादा तनाव किस बात से है?"
-            : "That sounds like a lot of weight to carry. Let's take a slow breath together. What's the biggest source of pressure right now?";
-        } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("नमस्ते") || lower.includes("प्रणाम") || lower.includes("hey")) {
-          reply = isHindi
-            ? "नमस्ते! मैं पूरी तरह से सुन रही हूँ। आज आपका दिन कैसा जा रहा है?"
-            : "Hello there! I'm completely tuned in. How are you feeling today?";
-        }
-        setAiResponse(reply);
-        speakText(reply);
-      }, 800);
-    }
+    // Offline fallback response
+    setTimeout(() => {
+      setThinking(false);
+      const lower = userSpeech.toLowerCase();
+      let reply = isHindi
+        ? "मैं समझ रही हूँ। क्या आप इसके बारे में थोड़ा और बता सकते हैं कि आप कैसा महसूस कर रहे हैं?"
+        : "I hear you. Could you share a bit more about how that makes you feel?";
+        
+      if (lower.includes("stress") || lower.includes("तनाव") || lower.includes("pressure") || lower.includes("exam") || lower.includes("काम")) {
+        reply = isHindi
+          ? "यह काफी भारी लग सकता है। चलिए मिलकर एक गहरी सांस लेते हैं। इस समय सबसे ज्यादा तनाव किस बात से है?"
+          : "That sounds like a lot of weight to carry. Let's take a slow breath together. What's the biggest source of pressure right now?";
+      } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("नमस्ते") || lower.includes("प्रणाम") || lower.includes("hey")) {
+        reply = isHindi
+          ? "नमस्ते! मैं पूरी तरह से सुन रही हूँ। आज आपका दिन कैसा जा रहा है?"
+          : "Hello there! I'm completely tuned in. How are you feeling today?";
+      }
+      setAiResponse(reply);
+      speakText(reply);
+    }, 800);
   };
 
-  // ── Integrate Dedicated Resilient Speech Recognition Service ───────────────
-  useEffect(() => {
-    const unsubscribe = speechService.subscribe({
-      onInterim: (txt) => {
-        const clean = txt.trim();
-        if (!clean || voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          return;
-        }
-        setInterimTranscript(clean);
-      },
-      onFinal: (txt) => {
-        const clean = txt.trim();
-        if (!clean) return;
-        if (voiceService.isEcho(clean) || duplexManager.isTextEcho(clean)) {
-          return;
-        }
-        setTranscript(clean);
-        setInterimTranscript("");
-        sendToAi(clean);
-      },
-      onError: (err) => {
-        setSttError(err);
-      },
-      onListeningChange: (isList) => {
-        setListening(isList);
-      },
-    });
-
-    // Start continuous listening by default
-    speechService.start();
-
-    return () => {
-      unsubscribe();
-      speechService.stop();
-      voiceService.stop();
-    };
-  }, []);
-
-  const toggleListening = () => {
+  // ── Unified Full-Duplex Microphone & Barge-in Controls ─────────────────────
+  const toggleListening = async () => {
     if (speaking) {
-      voiceService.stop();
+      liveVoiceClient.interrupt();
+      audioEngine.stopAllPlayback();
       setSpeaking(false);
+      return;
     }
-    speechService.toggle();
+    if (listening) {
+      setListening(false);
+      speechService.stop();
+      liveVoiceClient.disconnect();
+      audioEngine.stopAllPlayback();
+    } else {
+      try {
+        const ctx = await audioEngine.getAudioContext();
+        if (ctx.state === "suspended") {
+          await ctx.resume();
+        }
+        const stream = await audioEngine.initMicrophonePipeline();
+        if (!stream) {
+          setSttError("Microphone access was denied or not found. Please allow microphone permissions in your browser to speak with Aura.");
+          return;
+        }
+        setSttError(null);
+        setListening(true);
+        liveVoiceClient.connect();
+        if (speechService.isSupported) {
+          speechService.start();
+        }
+      } catch (err: any) {
+        console.error("[VOICE SCREEN] Mic start failed:", err);
+        setSttError("Could not access microphone. Please check browser settings.");
+      }
+    }
   };
 
   const handleResetSession = () => {
-    voiceService.stop();
-    speechService.stop();
+    liveVoiceClient.interrupt();
+    audioEngine.stopAllPlayback();
     setSpeaking(false);
     setThinking(false);
     setTranscript("");
@@ -247,15 +254,16 @@ export function VoiceScreen() {
       ? "सत्र रीफ्रेश हो गया है। मैं सुन रही हूँ—आज आप किस विषय पर बात करना चाहते हैं?"
       : "Session refreshed. I'm listening—what would you like to talk about?";
     setAiResponse(greeting);
-    speakText(greeting);
-    setTimeout(() => {
+    liveVoiceClient.connect();
+    if (speechService.isSupported) {
       speechService.start();
-    }, 500);
+    }
   };
 
   const handleSelectLanguage = (langCode: SupportedLanguage) => {
     setCurrentLang(langCode);
     speechService.setLanguage(langCode);
+    liveVoiceClient.setLanguage(langCode);
     setShowLangMenu(false);
     
     // Switch voice default for the language
@@ -268,8 +276,19 @@ export function VoiceScreen() {
         ? "नमस्ते! मैंने हिंदी भाषा चुन ली है। मैं सुन रही हूँ, आप बोल सकते हैं।"
         : "Language updated. I'm listening—go ahead and speak.";
       setAiResponse(newGreeting);
-      speakText(newGreeting, langObj.defaultVoice);
     }
+  };
+
+  const speakText = (textToSpeak: string, voiceId?: string) => {
+    audioEngine.stopAllPlayback();
+    voiceService.stop();
+    setSpeaking(true);
+    voiceService.speak(textToSpeak, {
+      voice: voiceId || selectedVoice,
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+      onError: () => setSpeaking(false),
+    });
   };
 
   const handleSelectVoice = (voiceId: string) => {
@@ -284,17 +303,14 @@ export function VoiceScreen() {
     const sample = v.locale.startsWith("hi")
       ? `नमस्ते! मैं ${v.name.split(" ")[0]} हूँ। मेरी आवाज़ ऐसी सुनाई देती है।`
       : `Hello! I'm ${v.name.split(" ")[0]}. This is how my voice sounds.`;
+    audioEngine.stopAllPlayback();
+    voiceService.stop();
     voiceService.speak(sample, {
       voice: v.id,
       onEnd: () => setPreviewingVoice(null),
       onError: () => setPreviewingVoice(null),
     });
   };
-
-  // Speak initial greeting once on mount
-  useEffect(() => {
-    speakText(defaultInitialGreeting);
-  }, []);
 
   const activePersonaObj = CURATED_VOICES.find((v) => v.id === selectedVoice) || CURATED_VOICES[0];
   const activeLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLang) || SUPPORTED_LANGUAGES[0];
@@ -323,28 +339,42 @@ export function VoiceScreen() {
             <button
               onClick={() => setShowDuplexHud(!showDuplexHud)}
               className={`px-2.5 py-1 rounded-full text-[10.5px] font-black tracking-wider uppercase border flex items-center gap-1.5 transition-all cursor-pointer ${
-                duplexState === "AURA_SPEAKING"
+                duplexState === "SPEAKING" || duplexState === "AURA_SPEAKING"
                   ? "bg-purple-500/20 text-purple-600 dark:text-purple-300 border-purple-500/40"
                   : duplexState === "USER_SPEAKING"
                   ? "bg-sky-500/20 text-sky-600 dark:text-sky-300 border-sky-500/40 animate-pulse"
-                  : duplexState === "POSSIBLE_INTERRUPT"
-                  ? "bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40 animate-pulse"
+                  : duplexState === "THINKING" || duplexState === "PROCESSING"
+                  ? "bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40"
+                  : duplexState === "INTERRUPTED" || duplexState === "POSSIBLE_INTERRUPT" || duplexState === "USER_INTERRUPT"
+                  ? "bg-rose-500/20 text-rose-600 dark:text-rose-300 border-rose-500/40 animate-pulse"
                   : "bg-black/5 dark:bg-white/10 text-[#7A748A] dark:text-[#9E98B4] border-transparent"
               }`}
               title="Toggle Full-Duplex Audio Telemetry HUD"
             >
               <div
                 className={`w-1.5 h-1.5 rounded-full ${
-                  duplexState === "AURA_SPEAKING"
+                  duplexState === "SPEAKING" || duplexState === "AURA_SPEAKING"
                     ? "bg-purple-500"
                     : duplexState === "USER_SPEAKING"
                     ? "bg-sky-500"
-                    : duplexState === "POSSIBLE_INTERRUPT"
+                    : duplexState === "THINKING" || duplexState === "PROCESSING"
                     ? "bg-amber-500"
+                    : duplexState === "INTERRUPTED" || duplexState === "POSSIBLE_INTERRUPT" || duplexState === "USER_INTERRUPT"
+                    ? "bg-rose-500"
                     : "bg-emerald-500"
                 }`}
               />
               <span>{duplexState}</span>
+            </button>
+
+            {/* Live Audio Telemetry Debugger Toggle Pill */}
+            <button
+              onClick={() => setShowDebugger(!showDebugger)}
+              className="px-2.5 py-1 rounded-full text-[10.5px] font-black tracking-wider uppercase border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Toggle Live Audio & Pipeline Debugger"
+            >
+              <Activity size={11} className="text-purple-500" />
+              <span>Debug</span>
             </button>
 
             {/* Language Switcher Pill */}
@@ -712,6 +742,7 @@ export function VoiceScreen() {
 
       <AnimatePresence>
         {showDuplexHud && <VoiceDiagnosticsHud onClose={() => setShowDuplexHud(false)} />}
+        {showDebugger && <LiveAudioDebugger onClose={() => setShowDebugger(false)} />}
       </AnimatePresence>
     </div>
   );

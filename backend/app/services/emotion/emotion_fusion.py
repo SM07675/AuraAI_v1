@@ -9,6 +9,8 @@ explicit user statements over inferred non-verbal cues.
 from __future__ import annotations
 
 import time
+import math
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,6 +56,34 @@ def normalize_emotion_label(value: Any) -> str:
     return lowered
 
 
+def _probability(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    if number > 1.0:
+        number /= 100.0
+    return max(0.0, min(1.0, number))
+
+
+def _self_report(message: str) -> str | None:
+    # Require a current first-person statement; negated and quoted statements
+    # must not override the models (e.g. 'I am not sad' or 'she said ...').
+    clean = re.sub(r'"[^"\n]*"|“[^”\n]*”', '', message.lower())
+    labels = {"happy": "happy", "sad": "sad", "depressed": "sad",
+              "anxious": "anxious", "stressed": "anxious", "nervous": "anxious",
+              "angry": "angry", "furious": "angry", "calm": "calm",
+              "scared": "fearful", "afraid": "fearful", "excited": "happy"}
+    matches = re.findall(
+        r"\b(?:i am|i'm|i feel|i’m)(?: feeling)?(?: really| so| very)? "
+        r"(happy|sad|depressed|anxious|stressed|nervous|angry|furious|calm|scared|afraid|excited)\b",
+        clean,
+    )
+    return labels[matches[-1]] if matches else None
+
+
 class EmotionFusionService:
     """Multimodal emotion fusion engine with uncertainty estimation & conflict detection."""
 
@@ -89,37 +119,37 @@ class EmotionFusionService:
         # 1. Evaluate Text Modality
         if text_res:
             t_emo = normalize_emotion_label(text_res.get("primary_emotion") or text_res.get("emotion"))
-            t_conf = float(text_res.get("confidence") or 0.5)
+            t_conf = _probability(text_res.get("confidence"))
             t_conf = t_conf / 100.0 if t_conf > 1.0 else t_conf
             if t_conf > 0.15 and not text_res.get("is_mock", False):
                 sources_valid["text"] = {
                     "emotion": t_emo,
                     "confidence": t_conf,
                     "scores": text_res.get("scores", {}),
-                    "quality": float(text_res.get("quality", 1.0)),
+                    "quality": _probability(text_res.get("quality", 1.0)),
                     "timestamp": text_res.get("timestamp"),
                 }
 
         # 2. Evaluate Voice Modality
         if voice_res:
             v_emo = normalize_emotion_label(voice_res.get("primary_emotion") or voice_res.get("emotion"))
-            v_conf = float(voice_res.get("confidence") or 0.5)
+            v_conf = _probability(voice_res.get("confidence"))
             v_conf = v_conf / 100.0 if v_conf > 1.0 else v_conf
             if v_conf > 0.15 and not voice_res.get("is_mock", False):
                 sources_valid["voice"] = {
                     "emotion": v_emo,
                     "confidence": v_conf,
                     "scores": voice_res.get("scores", {}),
-                    "quality": float(voice_res.get("quality", 1.0)),
+                    "quality": _probability(voice_res.get("quality", 1.0)),
                     "timestamp": voice_res.get("timestamp"),
                 }
 
         # 3. Evaluate Face Modality
         if face_res and face_res.get("face_detected", True) is not False:
             f_emo = normalize_emotion_label(face_res.get("primary_emotion") or face_res.get("emotion"))
-            f_conf = float(face_res.get("confidence") or 0.5)
+            f_conf = _probability(face_res.get("confidence"))
             f_conf = f_conf / 100.0 if f_conf > 1.0 else f_conf
-            f_qual = float(face_res.get("tracking_quality") if face_res.get("tracking_quality") is not None else face_res.get("quality", 1.0))
+            f_qual = _probability(face_res.get("tracking_quality") if face_res.get("tracking_quality") is not None else face_res.get("quality", 1.0))
             if f_conf > 0.15 and f_qual >= 0.30 and not face_res.get("is_mock", False):
                 sources_valid["face"] = {
                     "emotion": f_emo,
@@ -130,21 +160,14 @@ class EmotionFusionService:
                     "timestamp": face_res.get("timestamp"),
                 }
 
-        # If no active modality
+        explicit_override = _self_report(user_message)
+        if explicit_override:
+            sources_valid["text"] = {
+                "emotion": explicit_override, "confidence": 0.95,
+                "scores": {explicit_override: 1.0}, "quality": 1.0,
+            }
         if not sources_valid:
             return self._neutral_fusion_result(time.perf_counter() - t0)
-
-        # Explicit user statement check (priority override)
-        user_lower = user_message.lower() if user_message else ""
-        explicit_override = None
-        if any(ph in user_lower for ph in ["i am feeling happy", "i feel great", "i'm happy", "i am so excited"]):
-            explicit_override = "happy"
-        elif any(ph in user_lower for ph in ["i am sad", "i feel depressed", "i'm crying", "i am so heartbroken"]):
-            explicit_override = "sad"
-        elif any(ph in user_lower for ph in ["i am anxious", "i am stressed", "i feel panicked", "i'm so nervous"]):
-            explicit_override = "anxious"
-        elif any(ph in user_lower for ph in ["i am angry", "i'm furious", "i hate this", "i am so pissed"]):
-            explicit_override = "angry"
 
         # Accumulate weighted probabilities
         aggregated_scores: Dict[str, float] = {e: 0.0 for e in _CANONICAL_EMOTIONS}
@@ -159,15 +182,18 @@ class EmotionFusionService:
             source_contributions[mod_name] = round(eff_w, 4)
             total_effective_weight += eff_w
 
-            # Distribute scores
-            mod_scores = mod_data.get("scores", {})
-            if mod_scores:
-                for emo, score_val in mod_scores.items():
-                    c_emo = normalize_emotion_label(emo)
-                    aggregated_scores[c_emo] = aggregated_scores.get(c_emo, 0.0) + (score_val * eff_w)
-            else:
-                c_emo = mod_data["emotion"]
-                aggregated_scores[c_emo] = aggregated_scores.get(c_emo, 0.0) + (conf * eff_w)
+            # Normalize each source independently: some models return percentages,
+            # others probabilities, and alias labels may collide.
+            distribution: Dict[str, float] = {}
+            for label, value in (mod_data.get("scores") or {}).items():
+                emotion = normalize_emotion_label(label)
+                distribution[emotion] = distribution.get(emotion, 0.0) + _probability(value)
+            mass = sum(distribution.values())
+            if mass <= 0:
+                distribution = {mod_data["emotion"]: 1.0}
+                mass = 1.0
+            for emotion, score in distribution.items():
+                aggregated_scores[emotion] = aggregated_scores.get(emotion, 0.0) + score / mass * eff_w
 
         # Normalize distributions
         if total_effective_weight > 0:
@@ -196,6 +222,7 @@ class EmotionFusionService:
 
         conflict_status = False
         conflict_detail = ""
+        user_lower = (user_message or "").lower()
 
         # Case 1: Positive vs Negative modality collision (e.g. happy text vs sad face)
         if pos_sources and neg_sources:
@@ -235,6 +262,10 @@ class EmotionFusionService:
         if agreeing_modalities >= 2 and not conflict_status:
             primary_conf = min(0.98, primary_conf * 1.20)
 
+        reliability = sum(d["confidence"] * source_contributions[m] for m, d in sources_valid.items())
+        primary_conf = min(0.98, primary_conf * reliability)
+        if explicit_override:
+            primary_conf = 0.95
         uncertainty = round(max(0.02, 1.0 - primary_conf), 4)
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -261,8 +292,8 @@ class EmotionFusionService:
         return {
             "primary_emotion": "neutral",
             "secondary_emotion": None,
-            "confidence": 0.50,
-            "uncertainty": 0.50,
+            "confidence": 0.0,
+            "uncertainty": 1.0,
             "scores": {e: (0.5 if e == "neutral" else 0.0) for e in _CANONICAL_EMOTIONS},
             "source_contributions": {},
             "conflict_status": False,

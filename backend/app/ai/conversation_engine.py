@@ -33,7 +33,7 @@ from app.ai.builders.memory_builder import MemoryBuilder
 from app.ai.builders.question_builder import QuestionBuilder
 from app.ai.builders.response_builder import ResponseBuilder
 from app.ai.gateway import AIGateway
-from app.ai.turn_directive import TurnDirectiveClassifier
+from app.ai.turn_directive import TurnDirective, TurnDirectiveClassifier
 from app.ai.turn_router import RouteDecision, TurnRouter
 from app.core.logging_config import get_logger
 from app.emotion.base import EmotionContext
@@ -162,7 +162,12 @@ class ConversationEngine:
             emotion_task = get_cached_emotion()
 
         # Turn directive
-        directive_task = self._turn_directive.classify(user_message, session.phase, turn)
+        if route_decision.is_fast_path:
+            async def _fast_directive():
+                return TurnDirective.default(phase=session.phase or "explore")
+            directive_task = _fast_directive()
+        else:
+            directive_task = self._turn_directive.classify(user_message, session.phase, turn)
 
         # Hybrid parallel retrieval (or test mock)
         from unittest.mock import AsyncMock
@@ -449,9 +454,16 @@ class ConversationEngine:
                 retrieval_timings=retrieval_timings,
                 prompt_latency_ms=prompt_latency_ms,
             )
-        else:
             t4_llm_start = time.perf_counter()
-            resp: AIResponse = await self._gateway.generate(req)
+            try:
+                resp: AIResponse = await self._gateway.generate(req)
+            except Exception as exc:
+                logger.error("AI gateway generation failed — using resilient fallback", error=str(exc))
+                resp = AIResponse(
+                    content="I'm here with you and listening closely. Please tell me more about how you're feeling right now.",
+                    provider="fallback",
+                    model="fallback",
+                )
             t4_llm_done = time.perf_counter()
             llm_latency_ms = (t4_llm_done - t4_llm_start) * 1000.0
 

@@ -25,20 +25,18 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+import asyncio
+from sqlalchemy.ext.asyncio import AsyncConnection
+from app.db.engine import get_engine
+
 # Set target metadata for auto-generation
 target_metadata = Base.metadata
 
-# Override the URL from settings
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url_sync)
-
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    Generates SQL scripts without connecting to the database.
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    """Run migrations in 'offline' mode."""
+    settings = get_settings()
+    url = settings.database_url
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -50,28 +48,30 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    Creates an engine and connects to the database to apply migrations.
-    """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+def do_run_migrations(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,  # Enables batch mode for SQLite compatibility
     )
+    with context.begin_transaction():
+        context.run_migrations()
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-        )
 
-        with context.begin_transaction():
-            context.run_migrations()
+async def run_async_migrations() -> None:
+    """Creates async connection using app engine and runs migrations."""
+    connectable = get_engine()
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode using async engine."""
+    asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+

@@ -339,11 +339,14 @@ class PromptBuilder:
         # ── Dynamic Per-Turn Language Directive ───────────────────
         if _is_hindi_turn(user_message):
             system_parts.append(
-                "## MANDATORY LANGUAGE FOR THIS TURN: HINDI\n"
-                "The patient's current message is in HINDI. You MUST generate your response entirely "
-                "in natural, fluent HINDI IN DEVANAGARI SCRIPT "
-                "(e.g. 'नमस्ते, मैं समझ सकती हूँ...'). "
-                "Use feminine grammatical agreement (स्त्रीलिंग: 'सकती हूँ', 'करूँगी'). Do NOT reply in English."
+                "## MANDATORY LANGUAGE FOR THIS TURN: NEXT-LEVEL NATURAL HINDI (स्वाभाविक, आत्मीय हिंदी)\n"
+                "The patient's message is in HINDI or HINGLISH. You MUST generate your response entirely "
+                "in fluent, deeply empathetic HINDI IN DEVANAGARI SCRIPT (e.g. 'नमस्ते! मैं समझ सकती हूँ...').\n"
+                "STRICT GUIDELINES:\n"
+                "1. GRAMMATICAL GENDER: Strictly use feminine agreement for yourself (स्त्रीलिंग: 'सकती हूँ', 'करूँगी', 'सुन रही हूँ'). Never use masculine ('सकता हूँ').\n"
+                "2. NATURAL HINDUSTANI: Use warm, everyday conversational phrasing (जैसे: परेशानी, तनाव, राहत, बातचीत, सुकून). Avoid bookish, archaic, artificial textbook Hindi.\n"
+                "3. PHONETICS FOR SPEECH: Write common wellness words phonetically in Devanagari (जैसे: 'स्ट्रेस', 'एंग्जायटी', 'रिलैक्स', 'थेरेपी') so speech synthesis sounds perfectly natural.\n"
+                "4. BREVITY: Keep to 1-3 spoken, melodious sentences with one caring concluding question. Do NOT reply in English."
             )
         else:
             system_parts.append(

@@ -76,6 +76,10 @@ class InterruptManager:
         """Return the asyncio.Event the AI streaming loop checks per token."""
         return self._ai_interrupt_event
 
+    def is_interrupted(self) -> bool:
+        """Return whether an interrupt is currently active."""
+        return self._ai_interrupt_event.is_set()
+
     def clear_interrupt(self) -> None:
         """Clear interrupt state — call before starting a new AI generation."""
         self._ai_interrupt_event.clear()
@@ -94,13 +98,17 @@ class InterruptManager:
 
     # ── Interrupt ─────────────────────────────────────────────────
 
-    async def trigger_interrupt(self) -> bool:
+    async def trigger_interrupt(self, force: bool = False) -> bool:
         """Execute a barge-in interruption.
 
+        Requirement 5: Interruption logic is active ONLY while SPEAKING.
+        User speech during IDLE, LISTENING, USER_SPEAKING, THINKING is a normal turn.
+
         1. Set the AI generation interrupt event.
-        2. Stop the TTS engine immediately.
-        3. Transition state machine: SPEAKING → INTERRUPTED → LISTENING.
-        4. Record interrupt details.
+        2. Invalidate active generation id.
+        3. Stop the TTS engine immediately.
+        4. Transition state machine to INTERRUPTED.
+        5. Record interrupt details and partial text.
 
         Returns:
             True if interruption was executed; False if not in SPEAKING state.
@@ -109,20 +117,27 @@ class InterruptManager:
             current = self._sm.state
             if current != CommunicationState.SPEAKING:
                 logger.debug(
-                    "Interrupt ignored — not in SPEAKING state",
+                    "Interrupt ignored — assistant is not producing audible output",
                     session_id=self._session_id,
                     current_state=current.value,
                 )
                 return False
 
+            old_turn_id = self._sm.turn_id
+            self._sm.mark_interrupted(old_turn_id)
+            new_gen = self._sm.next_generation()
+            self._sm.next_tts()
+
             logger.info(
-                "Barge-in interrupt triggered",
+                "Barge-in interrupt triggered during assistant speech",
                 session_id=self._session_id,
+                interrupted_turn_id=old_turn_id,
+                new_generation_id=new_gen,
                 tokens_generated=self._tokens_generated,
                 tts_chunks_sent=self._tts_chunks_sent,
             )
 
-            # 1. Signal AI streaming to stop
+            # 1. Signal AI streaming to stop immediately
             self._ai_interrupt_event.set()
 
             # 2. Stop TTS immediately
@@ -138,17 +153,15 @@ class InterruptManager:
             )
             self._records.append(record)
 
-            # 4. Transition state
+            # 4. Transition state to INTERRUPTED
             try:
                 await self._sm.transition(CommunicationState.INTERRUPTED)
-                await self._sm.transition(CommunicationState.LISTENING)
             except ValueError as exc:
                 logger.warning(
-                    "State transition failed during interrupt",
+                    "State transition to INTERRUPTED failed",
                     session_id=self._session_id,
                     error=str(exc),
                 )
-                await self._sm.force_state(CommunicationState.LISTENING)
 
             return True
 

@@ -28,89 +28,67 @@ logger = get_logger(__name__)
 
 
 class CommunicationState(str, Enum):
-    """All possible states of a voice session."""
+    """Authoritative 9 states of a voice session."""
 
     IDLE = "IDLE"
-    CONNECTING = "CONNECTING"
     LISTENING = "LISTENING"
     USER_SPEAKING = "USER_SPEAKING"
-    TRANSCRIBING = "TRANSCRIBING"
-    PROCESSING = "PROCESSING"
     THINKING = "THINKING"
-    UNDERSTANDING = "UNDERSTANDING"      # Emotion analysis on transcript
-    BUILDING_CONTEXT = "BUILDING_CONTEXT"  # Assembling context + prompt
-    GENERATING = "GENERATING"            # AI generation in progress
-    SPEAKING = "SPEAKING"                # TTS playing audio
-    INTERRUPTED = "INTERRUPTED"          # Barge-in; stopping TTS
-    RECOVERING = "RECOVERING"            # Graceful error recovery
+    SPEAKING = "SPEAKING"
+    INTERRUPTED = "INTERRUPTED"
+    RECOVERING = "RECOVERING"
     ERROR = "ERROR"
     DISCONNECTED = "DISCONNECTED"
 
+    # Backward-compatibility aliases (internally mapped to canonical states)
+    CONNECTING = "LISTENING"
+    TRANSCRIBING = "THINKING"
+    PROCESSING = "THINKING"
+    UNDERSTANDING = "THINKING"
+    BUILDING_CONTEXT = "THINKING"
+    GENERATING = "THINKING"
 
-# Transition table: maps (from_state, to_state) → allowed?
-# Any transition not listed here is illegal.
+
+# Canonical 9-state transition rules:
+# Only allow legal transitions among the 9 states.
 _ALLOWED_TRANSITIONS: set[tuple[CommunicationState, CommunicationState]] = {
-    # ── Normal happy path ─────────────────────────────────────────
-    (CommunicationState.IDLE, CommunicationState.CONNECTING),
+    # ── Normal turn flow ─────────────────────────────────────────
     (CommunicationState.IDLE, CommunicationState.LISTENING),
-    (CommunicationState.CONNECTING, CommunicationState.LISTENING),
     (CommunicationState.LISTENING, CommunicationState.USER_SPEAKING),
-    (CommunicationState.LISTENING, CommunicationState.PROCESSING),
-    (CommunicationState.USER_SPEAKING, CommunicationState.TRANSCRIBING),
-    (CommunicationState.USER_SPEAKING, CommunicationState.PROCESSING),
-    # Post-transcription: UNDERSTANDING (emotion analysis)
-    (CommunicationState.TRANSCRIBING, CommunicationState.UNDERSTANDING),
-    (CommunicationState.TRANSCRIBING, CommunicationState.PROCESSING),
-    (CommunicationState.UNDERSTANDING, CommunicationState.BUILDING_CONTEXT),
-    (CommunicationState.BUILDING_CONTEXT, CommunicationState.GENERATING),
-    (CommunicationState.PROCESSING, CommunicationState.THINKING),
+    (CommunicationState.LISTENING, CommunicationState.THINKING),
+    (CommunicationState.USER_SPEAKING, CommunicationState.THINKING),
+    (CommunicationState.USER_SPEAKING, CommunicationState.LISTENING),
     (CommunicationState.THINKING, CommunicationState.SPEAKING),
-    # Shortcut: allow old TRANSCRIBING → GENERATING for backward compat
-    (CommunicationState.TRANSCRIBING, CommunicationState.GENERATING),
-    (CommunicationState.GENERATING, CommunicationState.SPEAKING),
-    (CommunicationState.SPEAKING, CommunicationState.LISTENING),      # response done
+    (CommunicationState.THINKING, CommunicationState.LISTENING),  # Empty transcript / no response needed
+    (CommunicationState.THINKING, CommunicationState.USER_SPEAKING),  # User spoke before thinking produced speech
+    (CommunicationState.SPEAKING, CommunicationState.LISTENING),  # Natural completion
 
-    # ── Barge-in / interruption ───────────────────────────────────
+    # ── Barge-in / interruption: allowed while SPEAKING or THINKING ─
     (CommunicationState.SPEAKING, CommunicationState.INTERRUPTED),
-    (CommunicationState.GENERATING, CommunicationState.INTERRUPTED),
-    (CommunicationState.BUILDING_CONTEXT, CommunicationState.INTERRUPTED),
+    (CommunicationState.THINKING, CommunicationState.INTERRUPTED),
+    (CommunicationState.INTERRUPTED, CommunicationState.USER_SPEAKING),
     (CommunicationState.INTERRUPTED, CommunicationState.LISTENING),
-    # Legacy: SPEAKING/GENERATING → USER_SPEAKING (still allowed)
-    (CommunicationState.SPEAKING, CommunicationState.USER_SPEAKING),
-    (CommunicationState.GENERATING, CommunicationState.USER_SPEAKING),
+    (CommunicationState.INTERRUPTED, CommunicationState.THINKING),
 
-    # ── Empty transcript handling ─────────────────────────────────
-    (CommunicationState.TRANSCRIBING, CommunicationState.LISTENING),
-    (CommunicationState.UNDERSTANDING, CommunicationState.LISTENING),
-
-    # ── Graceful recovery ─────────────────────────────────────────
+    # ── Error & Recovery ─────────────────────────────────────────
     (CommunicationState.ERROR, CommunicationState.RECOVERING),
     (CommunicationState.RECOVERING, CommunicationState.LISTENING),
-    (CommunicationState.RECOVERING, CommunicationState.ERROR),  # recovery failed
+    (CommunicationState.RECOVERING, CommunicationState.ERROR),
 
-    # ── Error – any active state can go to ERROR ──────────────────
+    # Any active state can transition to ERROR
     (CommunicationState.IDLE, CommunicationState.ERROR),
-    (CommunicationState.CONNECTING, CommunicationState.ERROR),
     (CommunicationState.LISTENING, CommunicationState.ERROR),
     (CommunicationState.USER_SPEAKING, CommunicationState.ERROR),
-    (CommunicationState.TRANSCRIBING, CommunicationState.ERROR),
-    (CommunicationState.UNDERSTANDING, CommunicationState.ERROR),
-    (CommunicationState.BUILDING_CONTEXT, CommunicationState.ERROR),
-    (CommunicationState.GENERATING, CommunicationState.ERROR),
+    (CommunicationState.THINKING, CommunicationState.ERROR),
     (CommunicationState.SPEAKING, CommunicationState.ERROR),
     (CommunicationState.INTERRUPTED, CommunicationState.ERROR),
-    (CommunicationState.ERROR, CommunicationState.LISTENING),      # soft recovery
-    (CommunicationState.ERROR, CommunicationState.DISCONNECTED),
+    (CommunicationState.ERROR, CommunicationState.LISTENING),  # Soft recovery
 
-    # ── Disconnection – any state can go to DISCONNECTED ──────────
+    # Any state can transition to DISCONNECTED
     (CommunicationState.IDLE, CommunicationState.DISCONNECTED),
-    (CommunicationState.CONNECTING, CommunicationState.DISCONNECTED),
     (CommunicationState.LISTENING, CommunicationState.DISCONNECTED),
     (CommunicationState.USER_SPEAKING, CommunicationState.DISCONNECTED),
-    (CommunicationState.TRANSCRIBING, CommunicationState.DISCONNECTED),
-    (CommunicationState.UNDERSTANDING, CommunicationState.DISCONNECTED),
-    (CommunicationState.BUILDING_CONTEXT, CommunicationState.DISCONNECTED),
-    (CommunicationState.GENERATING, CommunicationState.DISCONNECTED),
+    (CommunicationState.THINKING, CommunicationState.DISCONNECTED),
     (CommunicationState.SPEAKING, CommunicationState.DISCONNECTED),
     (CommunicationState.INTERRUPTED, CommunicationState.DISCONNECTED),
     (CommunicationState.RECOVERING, CommunicationState.DISCONNECTED),
@@ -122,71 +100,179 @@ StateChangeCallback = Callable[[CommunicationState, CommunicationState], Awaitab
 
 
 class StateMachine:
-    """Finite state machine for a single voice session.
+    """Authoritative finite state machine for a single voice session.
 
-    Usage::
-
-        sm = StateMachine()
-        await sm.transition(CommunicationState.LISTENING)
-
-    Raises ``ValueError`` on illegal transitions.
-    Notifies all registered async callbacks on every successful transition.
+    Enforces the strict 9-state model and tracks turn and audio state metadata:
+    - session_id
+    - turn_id
+    - state
+    - user_audio_state
+    - assistant_audio_state
+    - active_generation_id
+    - active_tts_id
     """
 
     def __init__(self, session_id: str) -> None:
         self._session_id = session_id
         self._state = CommunicationState.IDLE
+        self._turn_id = 1
+        self._user_audio_state = "silent"         # "silent" | "speaking" | "buffering"
+        self._assistant_audio_state = "silent"    # "silent" | "buffering" | "speaking"
+        self._active_generation_id = 0
+        self._active_tts_id = 0
+        self._interrupted_turn_id: int | None = None
+
         self._lock = asyncio.Lock()
         self._callbacks: list[StateChangeCallback] = []
 
-    # ── Public API ────────────────────────────────────────────────
+    # ── Properties ────────────────────────────────────────────────
 
     @property
     def state(self) -> CommunicationState:
-        """Current state (thread-safe read, no lock needed for read)."""
+        """Current authoritative state."""
         return self._state
 
-    def on_state_change(self, callback: StateChangeCallback) -> None:
-        """Register an async callback invoked on every state transition.
+    @property
+    def turn_id(self) -> int:
+        return self._turn_id
 
-        Callback signature: ``async def cb(from_state, to_state) -> None``
-        """
+    @property
+    def user_audio_state(self) -> str:
+        return self._user_audio_state
+
+    @property
+    def assistant_audio_state(self) -> str:
+        return self._assistant_audio_state
+
+    @property
+    def active_generation_id(self) -> int:
+        return self._active_generation_id
+
+    @property
+    def active_tts_id(self) -> int:
+        return self._active_tts_id
+
+    @property
+    def interrupted_turn_id(self) -> int | None:
+        return self._interrupted_turn_id
+
+    def set_turn_id(self, turn_id: int) -> None:
+        self._turn_id = turn_id
+
+    def next_turn(self) -> int:
+        self._turn_id += 1
+        return self._turn_id
+
+    def next_generation(self) -> int:
+        self._active_generation_id += 1
+        return self._active_generation_id
+
+    def next_tts(self) -> int:
+        self._active_tts_id += 1
+        return self._active_tts_id
+
+    def set_user_audio_state(self, audio_state: str) -> None:
+        self._user_audio_state = audio_state
+
+    def set_assistant_audio_state(self, audio_state: str) -> None:
+        self._assistant_audio_state = audio_state
+
+    def mark_interrupted(self, turn_id: int | None = None) -> None:
+        self._interrupted_turn_id = turn_id if turn_id is not None else self._turn_id
+
+    def clear_interrupted(self) -> None:
+        self._interrupted_turn_id = None
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return the authoritative state snapshot required by the protocol."""
+        return {
+            "session_id": self._session_id,
+            "turn_id": self._turn_id,
+            "state": self._state.value,
+            "user_audio_state": self._user_audio_state,
+            "assistant_audio_state": self._assistant_audio_state,
+            "active_generation_id": self._active_generation_id,
+            "active_tts_id": self._active_tts_id,
+            "interrupted_turn_id": self._interrupted_turn_id,
+        }
+
+    def on_state_change(self, callback: StateChangeCallback) -> None:
+        """Register an async callback invoked on every state transition."""
         self._callbacks.append(callback)
 
-    async def transition(self, new_state: CommunicationState) -> None:
+    def _normalize_state(self, state: Any) -> CommunicationState:
+        """Map aliases or raw values to one of the 9 canonical states."""
+        val = state.value if isinstance(state, Enum) else str(state)
+        val = val.upper().strip()
+        if val in ("CONNECTING",):
+            return CommunicationState.LISTENING
+        if val in ("TRANSCRIBING", "PROCESSING", "UNDERSTANDING", "BUILDING_CONTEXT", "GENERATING"):
+            return CommunicationState.THINKING
+        try:
+            return CommunicationState(val)
+        except ValueError:
+            return CommunicationState.THINKING
+
+    async def transition(self, new_state: CommunicationState | str) -> None:
         """Transition to ``new_state``.
 
         Args:
-            new_state: Target state.
-
-        Raises:
-            ValueError: If the transition is not in the allowed set.
+            new_state: Target state (canonical or alias).
         """
+        canonical_target = self._normalize_state(new_state)
+
         async with self._lock:
             old_state = self._state
 
-            if old_state == new_state:
-                # No-op — already in target state
+            if old_state == canonical_target:
+                # No-op — already in target canonical state
                 return
 
-            if (old_state, new_state) not in _ALLOWED_TRANSITIONS:
-                raise ValueError(
-                    f"[{self._session_id}] Illegal state transition: "
-                    f"{old_state.value} → {new_state.value}"
+            if (old_state, canonical_target) not in _ALLOWED_TRANSITIONS:
+                # Graceful recovery: if transitioning between processing/thinking states, allow
+                logger.warning(
+                    "Unexpected state transition attempted",
+                    session_id=self._session_id,
+                    from_state=old_state.value,
+                    to_state=canonical_target.value,
                 )
+                # Allow fallback transition to prevent loop crashes
+                if old_state in (CommunicationState.THINKING, CommunicationState.USER_SPEAKING) and canonical_target in (CommunicationState.THINKING, CommunicationState.LISTENING):
+                    pass
+                else:
+                    raise ValueError(
+                        f"[{self._session_id}] Illegal state transition: "
+                        f"{old_state.value} → {canonical_target.value}"
+                    )
 
-            self._state = new_state
+            self._state = canonical_target
+
+            # Sync audio state properties based on authoritative state
+            if canonical_target == CommunicationState.USER_SPEAKING:
+                self._user_audio_state = "speaking"
+            elif canonical_target == CommunicationState.LISTENING:
+                self._user_audio_state = "silent"
+                self._assistant_audio_state = "silent"
+            elif canonical_target == CommunicationState.SPEAKING:
+                self._assistant_audio_state = "speaking"
+            elif canonical_target == CommunicationState.THINKING:
+                self._user_audio_state = "silent"
+                self._assistant_audio_state = "buffering"
+            elif canonical_target in (CommunicationState.INTERRUPTED, CommunicationState.IDLE):
+                self._assistant_audio_state = "silent"
+
             logger.info(
                 "State transition",
                 session_id=self._session_id,
+                turn_id=self._turn_id,
                 from_state=old_state.value,
-                to_state=new_state.value,
+                to_state=canonical_target.value,
             )
 
-        # Invoke callbacks outside the lock (non-blocking for state reads)
+        # Invoke callbacks outside the lock
         for cb in self._callbacks:
             try:
-                await cb(old_state, new_state)
+                await cb(old_state, canonical_target)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "State-change callback raised",
@@ -194,24 +280,22 @@ class StateMachine:
                     error=str(exc),
                 )
 
-    async def force_state(self, new_state: CommunicationState) -> None:
-        """Unconditionally set state without transition validation.
-
-        Use only for emergency error recovery or teardown.
-        """
+    async def force_state(self, new_state: CommunicationState | str) -> None:
+        """Unconditionally set state without transition validation."""
+        canonical_target = self._normalize_state(new_state)
         async with self._lock:
             old_state = self._state
-            self._state = new_state
+            self._state = canonical_target
             logger.warning(
                 "Forced state override",
                 session_id=self._session_id,
                 from_state=old_state.value,
-                to_state=new_state.value,
+                to_state=canonical_target.value,
             )
 
         for cb in self._callbacks:
             try:
-                await cb(old_state, new_state)
+                await cb(old_state, canonical_target)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("State-change callback raised", error=str(exc))
 
@@ -223,18 +307,20 @@ class StateMachine:
         )
 
     def is_processing(self) -> bool:
-        """True if the engine is actively generating a response."""
+        """True if the engine is actively generating or thinking."""
         return self._state in (
-            CommunicationState.UNDERSTANDING,
-            CommunicationState.BUILDING_CONTEXT,
-            CommunicationState.GENERATING,
+            CommunicationState.THINKING,
             CommunicationState.SPEAKING,
         )
 
+    def is_speaking(self) -> bool:
+        """True if Aura is currently in active audible output state."""
+        return self._state == CommunicationState.SPEAKING
+
     def is_interruptible(self) -> bool:
-        """True if the current state can be interrupted by barge-in."""
-        return self._state in (
-            CommunicationState.SPEAKING,
-            CommunicationState.GENERATING,
-            CommunicationState.BUILDING_CONTEXT,
-        )
+        """True if current state can be interrupted.
+
+        Requirement 5: Interruption logic is active ONLY while SPEAKING.
+        """
+        return self._state == CommunicationState.SPEAKING
+

@@ -37,6 +37,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.tts import router as tts_router
 from app.api.v1.behavioral import router as behavioral_router
 from app.api.v1.feedback import router as feedback_router
+# live_ws_router removed — broken mock; all live voice uses /ws/voice pipeline
 
 
 settings = get_settings()
@@ -73,6 +74,25 @@ async def lifespan(app: FastAPI):
         "Aura AI 2.0 ready",
         docs=f"http://{settings.backend_host}:{settings.backend_port}/docs",
     )
+
+    # ── Non-blocking Background Model Warmup ────────────────────
+    async def _warmup_models():
+        try:
+            import asyncio
+            from app.emotion.service import get_text_analyzer, get_face_analyzer
+            from app.communication.speech_to_text import STTEngine
+            logger.info("Starting background model warmup...")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, get_text_analyzer)
+            await loop.run_in_executor(None, get_face_analyzer)
+            stt = STTEngine.from_settings()
+            await stt._provider._get_model()
+            logger.info("Background model warmup complete — all models ready in memory.")
+        except Exception as exc:
+            logger.warning("Background model warmup warning", error=str(exc))
+
+    import asyncio
+    asyncio.create_task(_warmup_models())
 
     yield
 

@@ -16,18 +16,24 @@
 
 import { audioEngine, AcousticTelemetry } from "./audioEngine";
 
-import { devanagariToLatin } from "./voiceService";
+import { devanagariToLatin } from "./speechText";
 
 export type ConversationState =
   | "IDLE"
+  | "CONNECTING"
   | "LISTENING"
   | "USER_SPEAKING"
+  | "THINKING"
+  | "SPEAKING"
+  | "INTERRUPTED"
+  | "RECOVERING"
+  | "ERROR"
+  | "DISCONNECTED"
   | "PROCESSING"
   | "AURA_SPEAKING"
   | "POSSIBLE_INTERRUPT"
   | "USER_INTERRUPT"
-  | "CANCELLING_TTS"
-  | "ERROR";
+  | "CANCELLING_TTS";
 
 export interface PlaybackMetadata {
   isSpeaking: boolean;
@@ -109,6 +115,7 @@ export class FullDuplexManager {
   private pendingCandidate: { text: string; startTime: number; conf: number; vadEnergy: number } | null = null;
   private recentDecisionHistory: InterruptionScoreDetails[] = [];
   private onInterruptCallbacks: Set<() => void> = new Set();
+  private echoGuardUntil = 0;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -146,14 +153,14 @@ export class FullDuplexManager {
     if (prev === newState) return;
 
     // Prevent illegal transitions
-    if (prev === "AURA_SPEAKING" && newState === "LISTENING" && this.playbackState.isSpeaking) {
+    if ((prev === "AURA_SPEAKING" || prev === "SPEAKING") && newState === "LISTENING" && this.playbackState.isSpeaking) {
       return;
     }
 
     // Ducking side effects
     if (newState === "POSSIBLE_INTERRUPT") {
       audioEngine.duckAudio(0.25, 30);
-    } else if (prev === "POSSIBLE_INTERRUPT" && (newState === "AURA_SPEAKING" || newState === "LISTENING")) {
+    } else if (prev === "POSSIBLE_INTERRUPT" && (newState === "AURA_SPEAKING" || newState === "SPEAKING" || newState === "LISTENING")) {
       audioEngine.restoreAudio(60);
     } else if (newState === "USER_INTERRUPT" || newState === "CANCELLING_TTS") {
       audioEngine.stopAllPlaybackImmediate(15);
@@ -199,6 +206,9 @@ export class FullDuplexManager {
   // ── TTS Playback State Tracking ──────────────────────────────────────────────
 
   public notifyTtsStart(text: string, audioId: string, genId: number) {
+    this.clearPendingInterrupt();
+    this.echoGuardUntil = Infinity;
+    audioEngine.setAssistantOutputActive(true);
     this.playbackState = {
       isSpeaking: true,
       currentAudioId: audioId,
@@ -214,24 +224,36 @@ export class FullDuplexManager {
   public notifyTtsEnd(genId: number) {
     if (this.playbackState.generationId === genId) {
       this.playbackState.isSpeaking = false;
+      audioEngine.setAssistantOutputActive(false);
+      this.echoGuardUntil = Date.now() + 1800;
+      audioEngine.markPlaybackEnded();
       this.playbackState.currentAudioId = null;
-      if (this.state === "AURA_SPEAKING" || this.state === "POSSIBLE_INTERRUPT") {
+      if (this.state === "AURA_SPEAKING" || this.state === "SPEAKING" || this.state === "POSSIBLE_INTERRUPT") {
         this.transitionTo("LISTENING", "TTS playback ended naturally");
       }
     }
   }
 
   public notifyTtsStopped() {
+    if (this.playbackState.isSpeaking) {
+      this.echoGuardUntil = Date.now() + 1800;
+      audioEngine.markPlaybackEnded();
+    }
     this.playbackState.isSpeaking = false;
+    audioEngine.setAssistantOutputActive(false);
     this.playbackState.currentAudioId = null;
     this.clearPendingInterrupt();
-    if (this.state === "AURA_SPEAKING" || this.state === "POSSIBLE_INTERRUPT" || this.state === "CANCELLING_TTS") {
+    if (this.state === "AURA_SPEAKING" || this.state === "SPEAKING" || this.state === "POSSIBLE_INTERRUPT" || this.state === "CANCELLING_TTS") {
       this.transitionTo("LISTENING", "TTS playback halted");
     }
   }
 
   public getPlaybackState(): PlaybackMetadata {
     return { ...this.playbackState };
+  }
+
+  public isRecognitionSuppressed(): boolean {
+    return !this.playbackState.isSpeaking && audioEngine.shouldSuppressMicrophone();
   }
 
   /**
@@ -241,9 +263,12 @@ export class FullDuplexManager {
    */
   public notifySpeechStart(): void {
     const telem = audioEngine.getTelemetry();
+
+    if (this.isRecognitionSuppressed()) return;
     const isAuraActive =
       this.playbackState.isSpeaking ||
       this.state === "AURA_SPEAKING" ||
+      this.state === "SPEAKING" ||
       this.state === "POSSIBLE_INTERRUPT" ||
       telem.isTtsActive === 1;
 
@@ -252,27 +277,15 @@ export class FullDuplexManager {
       return;
     }
 
-    this.clearPendingInterrupt();
-    this.transitionTo("POSSIBLE_INTERRUPT", "Speech onset; ducking while attribution is confirmed");
-    this.pendingInterruptTimer = setTimeout(() => {
-      if (this.state !== "POSSIBLE_INTERRUPT") return;
-      const latest = audioEngine.getTelemetry();
-      const aboveNoiseFloor = latest.micRms > Math.max(0.008, latest.noiseFloor * 1.6);
-      if (
-        aboveNoiseFloor &&
-        latest.userSpeechProb >= 0.58 &&
-        latest.acousticEchoProb < this.config.echoThreshold
-      ) {
-        this.triggerBargeIn("acoustic speech onset");
-      }
-    }, Math.min(140, this.config.confirmationWindowMs));
+    // A speech-onset event alone cannot distinguish speaker bleed from a person.
+    // Keep playback steady until transcript attribution confirms an interruption.
   }
 
   public notifySpeechEnd(): void {
     if (this.state === "POSSIBLE_INTERRUPT") {
       this.clearPendingInterrupt();
       this.transitionTo(
-        this.playbackState.isSpeaking ? "AURA_SPEAKING" : "LISTENING",
+        this.playbackState.isSpeaking ? "SPEAKING" : "LISTENING",
         "Speech onset ended without a confirmed interruption"
       );
     } else if (this.state === "USER_SPEAKING" && !this.playbackState.isSpeaking) {
@@ -294,6 +307,19 @@ export class FullDuplexManager {
     const clean = transcript.trim();
     const telem = audioEngine.getTelemetry();
 
+    if (this.isRecognitionSuppressed()) {
+      const diag: InterruptionScoreDetails = {
+        timestamp: Date.now(), state: this.state, vadScore: 0,
+        acousticEchoProb: telem.acousticEchoProb, textEchoProb: 0,
+        combinedEchoProb: 1, speechDurationMs: 0, asrConfidence: params.confidence ?? 0,
+        humanSpeechLikelihood: 0, interruptScore: 0, decision: "IGNORE_ECHO",
+        reason: "Speaker playback lock: tap to interrupt before speaking",
+        transcript: clean, telemetry: telem
+      };
+      this.clearPendingInterrupt();
+      this.logDiagnostic(diag);
+      return diag;
+    }
     if (!clean) {
       return {
         timestamp: now,
@@ -317,8 +343,24 @@ export class FullDuplexManager {
     const isAuraActive =
       this.playbackState.isSpeaking ||
       this.state === "AURA_SPEAKING" ||
+      this.state === "SPEAKING" ||
       this.state === "POSSIBLE_INTERRUPT" ||
       telem.isTtsActive === 1;
+
+    // ASR finals can arrive well after playback or cancellation. Keep the last
+    // spoken text available briefly instead of accepting that delayed echo.
+    if (Date.now() < this.echoGuardUntil && this.calculateTextEchoProbability(clean) >= 0.6) {
+      const diag: InterruptionScoreDetails = {
+        timestamp: now, state: this.state, vadScore: vadEnergy,
+        acousticEchoProb: telem.acousticEchoProb, textEchoProb: 0.95,
+        combinedEchoProb: 0.95, speechDurationMs, asrConfidence: confidence,
+        humanSpeechLikelihood: 0, interruptScore: 0, decision: "IGNORE_ECHO",
+        reason: "Recognized text matches recent assistant speech", transcript: clean, telemetry: telem
+      };
+      this.clearPendingInterrupt();
+      this.logDiagnostic(diag);
+      return diag;
+    }
 
     if (!isAuraActive) {
       const diag: InterruptionScoreDetails = {
@@ -372,39 +414,17 @@ export class FullDuplexManager {
       decision = "BACKCHANNEL";
       reason = `Passive backchannel ("${clean}") — Aura continues speaking`;
     }
-    // 2. High-priority barge-in trigger word ("wait", "stop", "ruko", "suno", "doctor") -> Instant halt!
-    else if (this.isBargeInKeyword(clean)) {
-      decision = "USER_INTERRUPT";
-      reason = `Explicit barge-in keyword ("${clean}") -> Instant interruption`;
-      this.triggerBargeIn(clean);
-    }
-    // 3. User speech dominance in acoustic overlap
-    else if (telem.userSpeechProb > 0.70 && combinedEchoProb < 0.35) {
-      decision = "USER_INTERRUPT";
-      reason = `Acoustic user speech dominance (${(telem.userSpeechProb * 100).toFixed(0)}% speech vs ${(combinedEchoProb * 100).toFixed(0)}% echo)`;
-      this.triggerBargeIn(clean);
-    }
-    // 4. Confident user speech with high score & low echo -> Trigger interrupt!
-    else if (interruptScore >= this.config.interruptThreshold && combinedEchoProb < this.config.echoThreshold) {
-      decision = "USER_INTERRUPT";
-      reason = `High-confidence user barge-in (Score: ${(interruptScore * 100).toFixed(1)}%, Echo: ${(combinedEchoProb * 100).toFixed(1)}%)`;
-      this.triggerBargeIn(clean);
-    }
-    // 5. Strong acoustic echo from speaker bleed -> Suppress immediately!
-    else if (combinedEchoProb >= this.config.echoThreshold || acousticEchoProb > 0.60) {
+    else if (combinedEchoProb >= this.config.echoThreshold) {
       decision = "IGNORE_ECHO";
-      reason = `Acoustic/text echo bleed rejected (AcousticEcho: ${(acousticEchoProb * 100).toFixed(0)}%, TextEcho: ${(textEchoProb * 100).toFixed(0)}%)`;
-    }
-    // 6. Ambiguous interim signal -> Duck audio and start confirmation window
-    else if (!isFinal) {
-      decision = "PENDING_CONFIRMATION";
-      reason = `Ambiguous speech onset (Score: ${(interruptScore * 100).toFixed(1)}%), ducking Aura volume for ${this.config.confirmationWindowMs}ms confirmation window`;
-      this.scheduleConfirmationWindow(clean, confidence, vadEnergy);
-    }
-    // 7. Ambiguous final result with low score -> Drop safely
-    else {
+      reason = "Speaker echo rejected before interruption scoring";
+    } else if (audioEngine.hasNearEndSpeechEvidence() && confidence >= 0.65 &&
+               speechDurationMs >= 180 && humanSpeechLikelihood >= 0.8) {
+      decision = "USER_INTERRUPT";
+      reason = "Novel recognized speech and sustained near-end acoustic evidence";
+      this.triggerBargeIn(clean);
+    } else {
       decision = "IGNORE_ECHO";
-      reason = `Low-confidence utterance during TTS playback (Score: ${(interruptScore * 100).toFixed(1)}%), dropped safely`;
+      reason = "Awaiting near-end speech evidence; recognition confidence alone is insufficient";
     }
 
     const diag: InterruptionScoreDetails = {
@@ -435,7 +455,7 @@ export class FullDuplexManager {
   }
 
   private calculateTextEchoProbability(incomingText: string): number {
-    if (!this.playbackState.isSpeaking || !this.playbackState.currentText) {
+    if ((!this.playbackState.isSpeaking && Date.now() >= this.echoGuardUntil) || !this.playbackState.currentText) {
       return 0;
     }
 
@@ -466,7 +486,9 @@ export class FullDuplexManager {
     if (inTokens.size === 1 && overlap === 1) {
       return 0.95; // Single word echo match (e.g. "namaste")
     }
-    if (tokenOverlapRatio >= 0.3) {
+    // Shared conversational words ("please", "you", "hai") do not make a
+    // different user sentence an echo of the assistant.
+    if (overlap >= 2 && tokenOverlapRatio >= 0.7) {
       return Math.min(1.0, 0.4 + tokenOverlapRatio * 0.6);
     }
 
@@ -525,10 +547,12 @@ export class FullDuplexManager {
 
   // ── Barge-In Action Execution ──────────────────────────────────────────────
 
-  private triggerBargeIn(triggerText: string) {
+  public triggerBargeIn(triggerText: string) {
     this.clearPendingInterrupt();
     this.nextGeneration();
     this.playbackState.isSpeaking = false;
+    this.echoGuardUntil = Date.now() + 1800;
+    audioEngine.setAssistantOutputActive(false);
     
     this.transitionTo("USER_INTERRUPT", `Barge-in by "${triggerText}"`);
     this.transitionTo("CANCELLING_TTS", "Flushing active audio");
@@ -541,27 +565,7 @@ export class FullDuplexManager {
         console.warn("[DUPLEX] onInterrupt callback error:", e);
       }
     });
-  }
-
-  private scheduleConfirmationWindow(candidateText: string, confidence: number, vadEnergy: number) {
-    this.clearPendingInterrupt();
-    this.pendingCandidate = { text: candidateText, startTime: Date.now(), conf: confidence, vadEnergy };
-    this.transitionTo("POSSIBLE_INTERRUPT", "Evaluating confirmation window");
-
-    this.pendingInterruptTimer = setTimeout(() => {
-      if (this.state === "POSSIBLE_INTERRUPT" && this.pendingCandidate) {
-        const textEchoProb = this.calculateTextEchoProbability(this.pendingCandidate.text);
-        const telem = audioEngine.getTelemetry();
-        const combinedEcho = Math.max(telem.acousticEchoProb, textEchoProb);
-
-        if (combinedEcho < this.config.echoThreshold && (telem.userSpeechProb > 0.4 || this.pendingCandidate.conf > 0.6)) {
-          this.triggerBargeIn(this.pendingCandidate.text);
-        } else {
-          this.transitionTo("AURA_SPEAKING", "Confirmation window resolved as echo");
-        }
-      }
-      this.clearPendingInterrupt();
-    }, this.config.confirmationWindowMs);
+    audioEngine.releasePlaybackLockForUser();
   }
 
   private clearPendingInterrupt() {

@@ -82,3 +82,33 @@ async def test_response_streamer_interruption():
     # The interrupt was set before " Three" was processed, so we expect "One Two"
     assert full == "One Two"
     assert text_received == ["One", " Two"]
+
+
+@pytest.mark.asyncio
+async def test_punctuation_only_tail_does_not_create_invalid_tts_request():
+    spoken = []
+    async def on_text(text):
+        pass
+    async def on_speak(text):
+        spoken.append(text)
+    streamer = ResponseStreamer("punctuation", on_text, on_speak, sentence_buffer_chars=4)
+    full, interrupted = await streamer.stream(_mock_token_stream(["Hello.", " More words", "."]), asyncio.Event())
+    assert full == "Hello. More words."
+    assert not interrupted
+    assert "." not in spoken
+
+
+@pytest.mark.asyncio
+async def test_tts_does_not_split_words_between_provider_tokens():
+    spoken = []
+    async def on_text(text):
+        pass
+    async def on_speak(text):
+        spoken.append(text)
+    streamer = ResponseStreamer("words", on_text, on_speak, sentence_buffer_chars=60)
+    tokens = ["Here is a clear explanation with enough words to reach the limit ", "extraordi", "nary", " pronunciation."]
+    full, interrupted = await streamer.stream(_mock_token_stream(tokens), asyncio.Event())
+    assert not interrupted
+    assert "extraordinary" in full
+    assert any("extraordinary" in phrase for phrase in spoken)
+    assert not any(phrase.endswith("extraordi") for phrase in spoken)

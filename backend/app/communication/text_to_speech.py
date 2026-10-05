@@ -300,20 +300,24 @@ class TTSEngine:
         self._session_id = session_id
 
         self._active_task: asyncio.Task | None = None
+        self._worker_task: asyncio.Task | None = None
+        self._sentence_queue: asyncio.Queue[tuple[str, int, int]] = asyncio.Queue()
         self._interrupt_event = asyncio.Event()
 
-        self._on_audio_chunk: AudioChunkCallback | None = None
+        self._on_audio_chunk: Callable[..., Awaitable[None]] | None = None
         self._on_event: TTSEventCallback | None = None
 
         self._is_speaking = False
         self._sequence = 0
         self._chunks_sent = 0
+        self._current_turn_id = 0
+        self._current_generation_id = 0
 
     @classmethod
     def from_settings(cls, session_id: str) -> "TTSEngine":
         """Construct TTSEngine from application settings."""
         settings = get_settings()
-        
+
         if settings.tts_provider in ("nvidia_magpie", "nvidia_tts"):
             provider = NvidiaTTSProvider()
             voice = settings.tts_voice if settings.tts_voice != "en-US-AriaNeural" else "English-US.Female-1"
@@ -323,7 +327,7 @@ class TTSEngine:
         else:
             provider = EdgeTTSProvider()
             voice = settings.tts_voice
-            
+
         return cls(
             provider=provider,
             voice=voice,
@@ -332,8 +336,11 @@ class TTSEngine:
 
     # ── Callbacks ─────────────────────────────────────────────────
 
-    def on_audio_chunk(self, callback: AudioChunkCallback) -> None:
-        """Register callback invoked for every MP3 chunk produced."""
+    def on_audio_chunk(self, callback: Callable[..., Awaitable[None]]) -> None:
+        """Register callback invoked for every MP3 chunk produced.
+
+        Callback accepts (audio_bytes, sequence) or (audio_bytes, sequence, turn_id, generation_id).
+        """
         self._on_audio_chunk = callback
 
     def on_event(self, callback: TTSEventCallback) -> None:
@@ -342,70 +349,117 @@ class TTSEngine:
 
     # ── Public API ────────────────────────────────────────────────
 
-    async def speak(self, text: str) -> None:
-        """Convert text to audio and stream it.
+    async def speak(self, text: str, turn_id: int = 0, generation_id: int = 0) -> None:
+        """Enqueue phrase/sentence for speech output.
 
-        Cancels any in-progress speech before starting new speech.
-        Returns when audio stream is complete or interrupted.
-
-        Args:
-            text: Text to synthesise. May be a sentence or a paragraph;
-                  shorter inputs produce lower first-audio latency.
+        Phrases belonging to the same turn/generation are played sequentially
+        without cutting off earlier phrases.
         """
         if not text.strip():
             return
+        if self._interrupt_event.is_set():
+            if generation_id <= self._current_generation_id:
+                return
+            self._interrupt_event.clear()
 
-        # Cancel any previous speech
-        await self.stop()
+        self._current_turn_id = turn_id
+        self._current_generation_id = generation_id
 
-        self._interrupt_event.clear()
-        self._is_speaking = True
-        self._sequence += 1
-        run_seq = self._sequence
+        # Start worker loop if not running
+        if self._worker_task is None or self._worker_task.done():
+            self._interrupt_event.clear()
+            self._worker_task = asyncio.create_task(
+                self._queue_worker(),
+                name=f"tts-worker-{self._session_id}",
+            )
 
-        logger.debug(
-            "TTS speak start",
-            session_id=self._session_id,
-            text_preview=text[:80],
-            voice=self._voice,
-        )
+        await self._sentence_queue.put((text.strip(), turn_id, generation_id))
 
-        if self._on_event:
-            await self._on_event("speaking_started")
-
-        self._active_task = asyncio.create_task(
-            self._stream_loop(text, run_seq),
-            name=f"tts-{self._session_id}-{run_seq}",
-        )
-
+    async def _queue_worker(self) -> None:
+        """Worker loop that sequentially synthesizes and streams queued phrases."""
         try:
-            await self._active_task
+            while not self._interrupt_event.is_set():
+                try:
+                    text, turn_id, gen_id = await asyncio.wait_for(
+                        self._sentence_queue.get(), timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    if self._sentence_queue.empty():
+                        break
+                    continue
+
+                if self._interrupt_event.is_set() or (self._current_generation_id != 0 and gen_id != self._current_generation_id):
+                    self._sentence_queue.task_done()
+                    continue
+
+                self._is_speaking = True
+                self._sequence += 1
+                run_seq = self._sequence
+
+                if self._on_event:
+                    await self._on_event("speaking_started")
+
+                self._active_task = asyncio.create_task(
+                    self._stream_loop(text, run_seq, turn_id, gen_id),
+                    name=f"tts-{self._session_id}-{run_seq}",
+                )
+
+                try:
+                    await asyncio.wait_for(self._active_task, timeout=12.0)
+                except asyncio.TimeoutError:
+                    logger.warning("TTS synthesis timed out", session_id=self._session_id)
+                    if self._on_event:
+                        await self._on_event("tts_error")
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    self._active_task = None
+                    self._sentence_queue.task_done()
+
         except asyncio.CancelledError:
             pass
         finally:
             self._is_speaking = False
-            self._active_task = None
+            if self._on_event and not self._interrupt_event.is_set():
+                await self._on_event("speaking_done")
 
-    async def _stream_loop(self, text: str, run_seq: int) -> None:
-        """Internal streaming loop — runs inside a Task so it can be cancelled."""
+    async def _stream_loop(self, text: str, run_seq: int, turn_id: int = 0, gen_id: int = 0) -> None:
+        """Internal streaming loop for a single phrase."""
         chunk_idx = 0
         try:
+            chunks: list[bytes] = []
             async for audio_bytes in self._provider.stream_audio(text, self._voice):
-                # Check for barge-in between chunks
-                if self._interrupt_event.is_set():
+                # Check for barge-in or generation invalidation between chunks
+                if self._interrupt_event.is_set() or (self._current_generation_id != 0 and gen_id != self._current_generation_id):
                     logger.info(
-                        "TTS stream interrupted",
+                        "TTS stream interrupted or invalidated",
                         session_id=self._session_id,
+                        turn_id=turn_id,
+                        generation_id=gen_id,
                         chunks_sent=chunk_idx,
                     )
                     if self._on_event:
                         await self._on_event("interrupted")
                     return
 
-                if self._on_audio_chunk and audio_bytes:
-                    await self._on_audio_chunk(audio_bytes, chunk_idx)
-                    chunk_idx += 1
-                    self._chunks_sent += 1
+                if audio_bytes:
+                    chunks.append(audio_bytes)
+
+            full_audio = b"".join(chunks)
+            if self._on_audio_chunk and full_audio and not self._interrupt_event.is_set():
+                if self._current_generation_id != 0 and gen_id != self._current_generation_id:
+                    return
+                try:
+                    import inspect
+                    sig = inspect.signature(self._on_audio_chunk)
+                    if len(sig.parameters) >= 4:
+                        await self._on_audio_chunk(full_audio, chunk_idx, turn_id, gen_id)
+                    else:
+                        await self._on_audio_chunk(full_audio, chunk_idx)
+                except Exception as e:
+                    logger.warning("TTS audio chunk callback error", error=str(e))
+
+                self._chunks_sent += 1
 
         except asyncio.CancelledError:
             logger.debug("TTS task cancelled", session_id=self._session_id)
@@ -422,25 +476,38 @@ class TTSEngine:
                 await self._on_event("tts_error")
             return
 
-        logger.debug(
-            "TTS speak done",
-            session_id=self._session_id,
-            chunks_sent=chunk_idx,
-        )
-        if self._on_event:
-            await self._on_event("speaking_done")
+    async def drain(self) -> None:
+        """Wait until every queued phrase has been synthesized and sent."""
+        await self._sentence_queue.join()
 
     async def stop(self) -> None:
-        """Immediately stop any in-progress TTS stream."""
+        """Immediately stop any in-progress TTS stream and purge sentence queue."""
         self._interrupt_event.set()
+
+        # Purge queue
+        while not self._sentence_queue.empty():
+            try:
+                self._sentence_queue.get_nowait()
+                self._sentence_queue.task_done()
+            except (asyncio.QueueEmpty, ValueError):
+                break
+
         if self._active_task and not self._active_task.done():
             self._active_task.cancel()
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(self._active_task), timeout=0.5
-                )
+                await asyncio.wait_for(asyncio.shield(self._active_task), timeout=0.2)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+            self._active_task = None
+
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(self._worker_task), timeout=0.2)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            self._worker_task = None
+
         self._is_speaking = False
 
     # ── Properties ────────────────────────────────────────────────
