@@ -1,0 +1,9 @@
+# Aura AI — Robots.txt
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /docs
+Disallow: /redoc
+Disallow: /openapi.json
+
+Sitemap: http://localhost:3000/sitemap.xml

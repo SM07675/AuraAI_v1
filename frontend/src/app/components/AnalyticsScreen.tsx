@@ -86,64 +86,8 @@ export function AnalyticsScreen() {
       setData(json);
     } catch (err: any) {
       console.error("Analytics fetch error:", err);
-      setError("Unable to load real-time analytics. Using fallback baseline.");
-      // Fallback data if server endpoint is offline
-      setData({
-        kpis: {
-          avg_mood: 78,
-          mood_shift: "+6% vs last week",
-          total_sessions: 24,
-          duration: "12h 40m total",
-          streak_days: 9,
-          dominant_emotion: "Calm",
-          active_goals: 3,
-        },
-        weekly_wellbeing: [
-          { d: "Mon", v: 62 }, { d: "Tue", v: 74 }, { d: "Wed", v: 58 },
-          { d: "Thu", v: 82 }, { d: "Fri", v: 69 }, { d: "Sat", v: 88 }, { d: "Sun", v: 92 }
-        ],
-        focus_rhythm: [
-          { d: "Mon", v: 60, focus: 65 }, { d: "Tue", v: 70, focus: 78 }, { d: "Wed", v: 65, focus: 62 },
-          { d: "Thu", v: 80, focus: 85 }, { d: "Fri", v: 75, focus: 72 }, { d: "Sat", v: 85, focus: 90 }, { d: "Sun", v: 90, focus: 94 }
-        ],
-        emotion_distribution: [
-          { name: "Calm", count: 12, percentage: 50 },
-          { name: "Joy", count: 6, percentage: 25 },
-          { name: "Focus", count: 4, percentage: 17 },
-          { name: "Stress", count: 2, percentage: 8 }
-        ],
-        interaction_modes: [
-          { mode: "Voice Mode", count: 14 },
-          { mode: "Chat Conversation", count: 7 },
-          { mode: "Face-to-Face Session", count: 3 }
-        ],
-        insights: [
-          {
-            id: "1",
-            category: "EMOTIONAL REGULATION",
-            title: "Exceptional Calm Stability",
-            description: "Your emotional baseline remained in the Calm/Balanced quadrant for 78% of all monitored sessions.",
-            type: "positive",
-            icon: "Sparkles",
-          },
-          {
-            id: "2",
-            category: "CONSISTENCY MILESTONE",
-            title: "9-Day Reflection Streak",
-            description: "Consistent check-ins have boosted your focus clarity scores by 14% compared to your previous baseline.",
-            type: "achievement",
-            icon: "Flame",
-          },
-          {
-            id: "3",
-            category: "RECOMMENDED ACTION",
-            title: "Pre-Work Centering Routine",
-            description: "Consider scheduling a 2-minute breathing session around 10:00 AM to maintain peak cognitive focus.",
-            type: "recommendation",
-            icon: "Compass",
-          }
-        ]
-      });
+      setError("Unable to load real-time analytics. Please check your backend connection.");
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -210,6 +154,40 @@ export function AnalyticsScreen() {
         </div>
       </div>
 
+      {error && (
+        <div className="clay-card p-6 mb-8 text-center border-l-4 border-l-amber-500">
+          <p className="text-sm font-bold text-amber-600 dark:text-amber-400 m-0 mb-3">{error}</p>
+          <button
+            onClick={() => fetchAnalytics(timeframe)}
+            className="clay-button py-2 px-5 rounded-full text-xs font-bold text-[#7B59DC] cursor-pointer"
+          >
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {(!data || data.kpis.total_sessions === 0) && !error && !loading && (
+        <div className="clay-card p-10 text-center rounded-[32px] my-6">
+          <div className="text-4xl mb-3">🌱</div>
+          <h3 className="text-xl font-extrabold text-[#2E2544] dark:text-[#FFFFFF] mb-2">
+            No Session Data Recorded Yet
+          </h3>
+          <p className="text-sm text-[#7A748A] dark:text-[#9E98B4] max-w-md mx-auto mb-6 font-medium leading-relaxed">
+            Your emotional journey starts with your first consultation. Complete a session in Face-to-Face, Voice, or Chat mode to track your mood shifts, calm streaks, and affective trends.
+          </p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("aura-navigate", { detail: "Face-to-Face" }))}
+              className="clay-button py-2.5 px-6 rounded-full text-xs font-bold text-[#7B59DC] cursor-pointer"
+            >
+              Start Face-to-Face Consult
+            </button>
+          </div>
+        </div>
+      )}
+
+      {data && data.kpis.total_sessions > 0 && (
+      <>
       {/* KPI Cards Grid */}
       <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <div className="clay-card p-5 rounded-[28px]">
@@ -515,6 +493,8 @@ export function AnalyticsScreen() {
           ))}
         </div>
       </div>
+      </>
+      )}
       </div>
     </div>
   );

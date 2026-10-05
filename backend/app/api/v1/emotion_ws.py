@@ -29,6 +29,21 @@ _MAX_FPS = 5
 _MIN_FRAME_INTERVAL = 1.0 / _MAX_FPS
 
 
+def _sanitize_for_json(val: Any) -> Any:
+    """Recursively convert numpy types (float32/int64) to native Python types for JSON serialization."""
+    if isinstance(val, dict):
+        return {k: _sanitize_for_json(v) for k, v in val.items()}
+    elif isinstance(val, (list, tuple)):
+        return [_sanitize_for_json(v) for v in val]
+    elif hasattr(val, "item"):
+        return val.item()
+    elif isinstance(val, float):
+        return round(float(val), 4)
+    elif isinstance(val, int):
+        return int(val)
+    return val
+
+
 @router.websocket("/ws")
 async def face_emotion_websocket(
     websocket: WebSocket,
@@ -88,7 +103,7 @@ async def face_emotion_websocket(
             now = time.monotonic()
             if (now - last_process_time) < _MIN_FRAME_INTERVAL:
                 if last_result:
-                    await websocket.send_json(last_result)
+                    await websocket.send_json(_sanitize_for_json(last_result))
                 continue
 
             last_process_time = now
@@ -166,7 +181,7 @@ async def face_emotion_websocket(
                     }
 
             last_result = result
-            await websocket.send_json(result)
+            await websocket.send_json(_sanitize_for_json(result))
 
     except WebSocketDisconnect:
         logger.info("Face emotion WebSocket disconnected", user_id=user_id)

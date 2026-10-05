@@ -93,6 +93,9 @@ class FaceBehaviorService:
                 self._last_openface_result = openface_data
 
         if not landmarks or len(landmarks) < 68:
+            if landmarks and len(landmarks) >= 5:
+                pts_5 = np.array([[lm["x"] * w, lm["y"] * h, lm.get("z", 0.0) * w] for lm in landmarks[:5]], dtype=np.float32)
+                return self._extract_action_units_5pt(pts_5, w, h, emotion_scores, time.perf_counter() - t0)
             if emotion_scores:
                 return self._fallback_test_result(emotion_scores, time.perf_counter() - t0)
             return self._empty_behavior_result(time.perf_counter() - t0)
@@ -498,6 +501,84 @@ class FaceBehaviorService:
             "head_pose": {"pitch": 0.0, "yaw": 0.0, "roll": 0.0},
             "facial_movement": {"velocity": 0.0, "state": "still", "is_blinking": False, "blink_rate_bpm": 12},
             "facial_expression": "fallback_estimation",
+            "latency_ms": round(latency_sec * 1000.0, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _extract_action_units_5pt(
+        self,
+        pts: np.ndarray,
+        w: int,
+        h: int,
+        emotion_scores: Optional[Dict[str, float]] = None,
+        latency_sec: float = 0.001,
+    ) -> Dict[str, Any]:
+        """Extract FACS Action Units, Gaze, and Head Pose from 5-point facial landmarks (YuNet)."""
+        # pts[0]=right eye, pts[1]=left eye, pts[2]=nose tip, pts[3]=right mouth, pts[4]=left mouth
+        eye_mid = (pts[0][:2] + pts[1][:2]) / 2.0
+        mouth_mid = (pts[3][:2] + pts[4][:2]) / 2.0
+        eye_dx = pts[1][0] - pts[0][0]
+        eye_dy = pts[1][1] - pts[0][1]
+        roll = round(float(np.degrees(np.arctan2(eye_dy, eye_dx))), 1)
+
+        eye_dist = float(np.linalg.norm(pts[1][:2] - pts[0][:2])) + 1e-6
+        nose_x = pts[2][0]
+        yaw = round(float(np.clip(((nose_x - eye_mid[0]) / (eye_dist / 2.0)) * 45.0, -60.0, 60.0)), 1)
+
+        eye_to_nose = pts[2][1] - eye_mid[1]
+        nose_to_mouth = mouth_mid[1] - pts[2][1]
+        vert_ratio = (eye_to_nose - nose_to_mouth) / (eye_dist + 1e-6)
+        pitch = round(float(np.clip(vert_ratio * 40.0, -60.0, 60.0)), 1)
+
+        head_pose = {"pitch": pitch, "yaw": yaw, "roll": roll}
+
+        mouth_width = float(np.linalg.norm(pts[4][:2] - pts[3][:2]))
+        mouth_ratio = mouth_width / eye_dist
+        au12_geo = max(0.0, (mouth_ratio - 0.68) / 0.28 * 4.5)
+
+        happy_s = float((emotion_scores or {}).get("happy", 0.0))
+        sad_s = float((emotion_scores or {}).get("sad", 0.0))
+        surprise_s = float((emotion_scores or {}).get("surprised", 0.0))
+
+        au12_val = round(min(5.0, max(au12_geo, happy_s * 4.8)), 2)
+        au04_val = round(min(5.0, sad_s * 4.2), 2)
+        au01_val = round(min(5.0, surprise_s * 4.5), 2)
+        au06_val = round(min(5.0, au12_val * 0.72), 2)
+
+        eye_contact = abs(yaw) < 18.0 and abs(pitch) < 18.0
+
+        return {
+            "action_units": {
+                "presence": {
+                    "AU12": 1 if au12_val >= 1.2 else 0,
+                    "AU04": 1 if au04_val >= 1.2 else 0,
+                    "AU01": 1 if au01_val >= 1.2 else 0,
+                    "AU06": 1 if au06_val >= 1.2 else 0,
+                    "AU45": 0,
+                },
+                "intensity": {
+                    "AU12": au12_val,
+                    "AU04": au04_val,
+                    "AU01": au01_val,
+                    "AU06": au06_val,
+                    "AU45": 0.0,
+                },
+                "AU12_LipCornerPuller": au12_val,
+                "AU04_BrowLowerer": au04_val,
+                "AU01_InnerBrowRaiser": au01_val,
+                "AU06_CheekRaiser": au06_val,
+                "AU45_Blink": 0.0,
+            },
+            "gaze": {
+                "gaze_angle_x": round(yaw * 0.75, 1),
+                "gaze_angle_y": round(pitch * 0.75, 1),
+                "eye_contact": eye_contact,
+                "ear": 0.28,
+                "blink_rate_bpm": 14,
+            },
+            "head_pose": head_pose,
+            "facial_movement": {"velocity": 0.0, "state": "active", "is_blinking": False, "blink_rate_bpm": 14},
+            "facial_expression": "5pt_geometric",
             "latency_ms": round(latency_sec * 1000.0, 2),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

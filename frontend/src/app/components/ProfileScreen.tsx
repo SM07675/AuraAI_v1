@@ -2,73 +2,96 @@ import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { User as UserIcon, Save, Sparkles, Target, Compass, MessageSquare, Check, LogOut, ShieldAlert } from "lucide-react";
 import { GlassCard } from "./glass-card";
+import { useUser } from "../context/UserContext";
+import { apiClient } from "../services/apiClient";
 
 interface ProfileScreenProps {
   onLogout?: () => void;
+  user?: { name: string; email: string } | null;
 }
 
-export function ProfileScreen({ onLogout }: ProfileScreenProps) {
-  const [name, setName] = useState("Rahul");
-  const [email, setEmail] = useState("rahul@example.com");
-  const [commStyle, setCommStyle] = useState("balanced");
-  const [interestsStr, setInterestsStr] = useState("Football, AI & Psychology, Coding");
-  const [goalsStr, setGoalsStr] = useState("Placement Preparation, Stress Reduction");
+export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) {
+  const { user: authUser, updateUserLocally, refreshUser } = useUser();
+  const effectiveUser = authUser || propUser;
+  const [loading, setLoading] = useState(false);
+
+  const [name, setName] = useState(() => {
+    if (effectiveUser?.name && effectiveUser.name !== "User") return effectiveUser.name;
+    try {
+      const u = localStorage.getItem("aura_user");
+      const parsed = u ? JSON.parse(u) : null;
+      if (parsed?.name && parsed.name !== "User") return parsed.name;
+    } catch {}
+    return "atharvpalekar";
+  });
+
+  const [email, setEmail] = useState(() => {
+    if (effectiveUser?.email && effectiveUser.email !== "user@aura.ai") return effectiveUser.email;
+    try {
+      const u = localStorage.getItem("aura_user");
+      const parsed = u ? JSON.parse(u) : null;
+      if (parsed?.email && parsed.email !== "user@aura.ai") return parsed.email;
+    } catch {}
+    return "atharv@aura.ai";
+  });
+
+  const [commStyle, setCommStyle] = useState(() => (authUser as any)?.communication_style || "balanced");
+  const [interestsStr, setInterestsStr] = useState(() => (authUser?.interests && authUser.interests.length > 0 ? authUser.interests.join(", ") : ""));
+  const [goalsStr, setGoalsStr] = useState(() => (authUser?.goals && authUser.goals.length > 0 ? authUser.goals.join(", ") : "Boost Teamwork Momentum"));
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/users/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.name) setName(data.name);
-        if (data.email) setEmail(data.email);
-        if (data.communication_style) setCommStyle(data.communication_style);
-        if (data.interests) setInterestsStr(data.interests.join(", "));
-        if (data.goals) setGoalsStr(data.goals.join(", "));
-      })
-      .catch(() => {
-        // Fallback to local storage user
-        try {
-          const savedUser = localStorage.getItem("aura_user");
-          if (savedUser) {
-            const parsed = JSON.parse(savedUser);
-            if (parsed.name) setName(parsed.name);
-            if (parsed.email) setEmail(parsed.email);
-          }
-        } catch (e) {}
-      });
-  }, []);
+    const activeU = authUser || propUser;
+    if (activeU) {
+      if (activeU.name && activeU.name !== "User") setName(activeU.name);
+      if (activeU.email && activeU.email !== "user@aura.ai") setEmail(activeU.email);
+      if ("communication_style" in activeU && (activeU as any).communication_style) {
+        setCommStyle((activeU as any).communication_style);
+      }
+      if ("interests" in activeU && Array.isArray((activeU as any).interests) && (activeU as any).interests.length > 0) {
+        setInterestsStr((activeU as any).interests.join(", "));
+      }
+      if ("goals" in activeU && Array.isArray((activeU as any).goals) && (activeU as any).goals.length > 0) {
+        setGoalsStr((activeU as any).goals.join(", "));
+      }
+    }
 
-  const handleSave = () => {
+    apiClient.get<any>("/api/v1/users/me")
+      .then((data) => {
+        if (data) {
+          if (data.name && data.name !== "User") setName(data.name);
+          if (data.email && data.email !== "user@aura.ai") setEmail(data.email);
+          if (data.communication_style) setCommStyle(data.communication_style);
+          if (Array.isArray(data.interests) && data.interests.length > 0) {
+            setInterestsStr(data.interests.join(", "));
+          }
+          if (Array.isArray(data.goals) && data.goals.length > 0) {
+            setGoalsStr(data.goals.join(", "));
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [authUser]);
+
+  const handleSave = async () => {
     const interests = interestsStr.split(",").map((i) => i.trim()).filter(Boolean);
     const goals = goalsStr.split(",").map((g) => g.trim()).filter(Boolean);
 
-    // Update profile
-    fetch("/api/v1/users/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, communication_style: commStyle }),
-    }).catch(() => {});
+    try {
+      await apiClient.patch("/api/v1/users/me", { name, communication_style: commStyle });
+      await apiClient.put("/api/v1/users/me/interests", { interests });
+      await apiClient.put("/api/v1/users/me/goals", { goals });
+    } catch (e) {
+      console.warn("Could not sync profile with backend:", e);
+    }
 
-    // Update interests
-    fetch("/api/v1/users/me/interests", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interests }),
-    }).catch(() => {});
-
-    // Update goals
-    fetch("/api/v1/users/me/goals", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goals }),
-    }).catch(() => {});
-
-    // Update local storage
+    // Update local state and storage
+    updateUserLocally({ name, email, communication_style: commStyle, interests, goals });
     try {
       const savedUser = localStorage.getItem("aura_user");
-      const updated = savedUser ? { ...JSON.parse(savedUser), name } : { name, email };
+      const updated = savedUser ? { ...JSON.parse(savedUser), name, email } : { name, email };
       localStorage.setItem("aura_user", JSON.stringify(updated));
-      localStorage.setItem(`aura_profile_${email}`, JSON.stringify({ name, email, communication_style: commStyle, interests, goals }));
       localStorage.setItem("aura_user_interests", JSON.stringify(interests));
       localStorage.setItem("aura_user_goals", JSON.stringify(goals));
       localStorage.setItem("aura_user_style", commStyle);

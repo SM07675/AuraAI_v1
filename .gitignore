@@ -54,8 +54,8 @@ tts_outputs/
 *.wav
 
 # ML Models — large binary files, do not push to GitHub
-model/
-models/
+/model/
+/models/
 backend/models/
 *.onnx
 *.tflite

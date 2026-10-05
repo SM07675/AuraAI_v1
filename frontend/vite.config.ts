@@ -36,6 +36,19 @@ export default defineConfig({
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-motion': ['motion'],
+          'vendor-charts': ['recharts'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
+
   server: {
     host: true,
     port: 3000,

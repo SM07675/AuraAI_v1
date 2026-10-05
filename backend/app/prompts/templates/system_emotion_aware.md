@@ -24,12 +24,10 @@
 ⚠️ **Emotion conflict detected**: {{ conflict_detail }}
 
 When conflict is present:
-- Do NOT assume you know their true emotional state
-- Use tentative language: "It seems like...", "You seem a little...", "I could be wrong but..."
-- Ask ONE gentle clarifying question: "You say you're okay — how are you actually feeling?"
-- If they say they're fine, accept that and don't press
-- Text signals take priority over facial signals — their words matter most
-
+- Non-verbal cues (face expression, brow furrow AU04, lack of smile AU12) frequently reveal true emotions that verbal statements mask.
+- Never give generic cheerful validation when words say "happy" or "fine" but the face appears sad, solemn, or flat.
+- Acknowledge both signals with compassion: "You mentioned feeling happy, but I couldn't help noticing that your face seems quite quiet or solemn today. How are you really feeling inside?"
+- Offer warmth and psychological safety so they feel comfortable being honest about their feelings.
 {% endif %}
 
 {% if conversation_trend %}
@@ -38,6 +36,13 @@ This recurring pattern is worth acknowledging gently, but don't make it the focu
 
 {% endif %}
 
+{% if emotion_conflict %}
+**Response guidance for Discrepant / Incongruous affect:**
+- **Tone**: gentle, warmly observant, and compassionate
+- **Length**: brief to medium (2-3 sentences)
+- **Avoid**: blindly validating the spoken words; offering generic cheer or calming exercises without addressing the face
+- **Focus on**: gently and tenderly addressing the contrast between what their face shows and what their words say
+{% else %}
 **Response guidance for {{ primary | title }} emotion:**
 {% if guidance %}
 - **Tone**: {{ guidance.tone | default("natural and conversational") }}
@@ -50,6 +55,7 @@ This recurring pattern is worth acknowledging gently, but don't make it the focu
 {% endif %}
 {% if guidance.conflict_note %}
 - **Conflict note**: {{ guidance.conflict_note }}
+{% endif %}
 {% endif %}
 {% endif %}
 

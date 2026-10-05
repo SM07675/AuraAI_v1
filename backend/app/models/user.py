@@ -22,7 +22,13 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Auth & Role fields
+    auth_provider: Mapped[str] = mapped_column(String(50), default="email")
+    google_sub: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(default=False)
 
     # Profile fields
     preferred_language: Mapped[Optional[str]] = mapped_column(String(10), default="en")

@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Aura AI 2.0 — Technical Explanation</title>
+  <!-- KaTeX for math formulas -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false}
+            ]
+          });"></script>
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm 12mm 16mm 12mm;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      width: 100%;
+    }
+    h1 {
+      font-size: 23px;
+      color: #0f172a;
+      border-bottom: 2px solid #7c3aed;
+      padding-bottom: 6px;
+      margin-top: 22px;
+      margin-bottom: 14px;
+      page-break-after: avoid;
+    }
+    h2 {
+      font-size: 18px;
+      color: #1e1b4b;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 5px;
+      margin-top: 24px;
+      margin-bottom: 12px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 15px;
+      color: #4338ca;
+      margin-top: 18px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+    }
+    h4 {
+      font-size: 13.5px;
+      color: #334155;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      page-break-after: avoid;
+    }
+    p, li {
+      color: #334155;
+    }
+    ul, ol {
+      padding-left: 20px;
+      margin-bottom: 10px;
+    }
+    li {
+      margin-bottom: 3px;
+    }
+    code {
+      font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+      font-size: 11.5px;
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 1.5px 4.5px;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }
+    pre {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 8px;
+      overflow: hidden !important;
+      font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+      font-size: 10.5px;
+      line-height: 1.38;
+      margin: 14px 0;
+      page-break-inside: avoid;
+      white-space: pre;
+    }
+    pre.pre-wide-md {
+      font-size: 9px !important;
+      line-height: 1.3 !important;
+      padding: 10px 12px !important;
+    }
+    pre.pre-wide-xl {
+      font-size: 7.6px !important;
+      line-height: 1.23 !important;
+      letter-spacing: -0.15px !important;
+      padding: 12px 10px !important;
+      border-radius: 6px;
+    }
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      border: none;
+      font-size: inherit;
+      font-family: inherit;
+      white-space: pre;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 12px;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background: #f8fafc;
+      color: #0f172a;
+      font-weight: 700;
+    }
+    tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    blockquote {
+      border-left: 4px solid #7c3aed;
+      background: #f5f3ff;
+      padding: 8px 14px;
+      margin: 12px 0;
+      border-radius: 0 8px 8px 0;
+      color: #4c1d95;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #e2e8f0;
+      margin: 20px 0;
+    }
+    @media print {
+      body {
+        padding: 0;
+      }
+      h1, h2, h3 {
+        page-break-after: avoid;
+      }
+      pre, table, blockquote {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+<h1 id="aura-ai-20-comprehensive-technical-explanation-system-reference">🌸 Aura AI 2.0 — Comprehensive Technical Explanation &amp; System Reference</h1>
+<hr />
+<h2 id="1-executive-summary-mission">1. Executive Summary &amp; Mission</h2>
+<p><strong>Aura AI 2.0</strong> is an <strong>emotion-aware, multimodal AI clinical companion and cognitive counseling platform</strong>. Traditional conversational AI agents operate exclusively in the textual or acoustic domain; they cannot perceive non-verbal cues, micro-expressions, facial action units, or physiological markers of distress. Furthermore, typical chatbots suffer from conversational amnesia and tend to deliver generic, unsolicited advice prematurely.</p>
+<p>Aura AI 2.0 bridges this gap by unifying:
+1. <strong>Real-time Computer Vision</strong>: 478 3D facial landmarks, 52 ARKit blendshapes, and FACS (Facial Action Coding System) Action Units running at sub-10ms CPU latency.
+2. <strong>Full-Duplex Speech &amp; Acoustic Intelligence</strong>: Live Web Audio echo cancellation, RMS energy tracking, speech-to-text with continuous background resilience, and sub-200ms conversational barge-in / interruption handling.
+3. <strong>Cognitive Memory &amp; Knowledge Graph</strong>: PostgreSQL-backed episodic memory, entity-relationship triples, and hybrid vector retrieval for long-term therapeutic continuity.
+4. <strong>Clinical Phase-Context Engine (APCE)</strong>: Therapeutic state progression (<code>check_in</code> $\rightarrow$ <code>explore</code> $\rightarrow$ <code>identify</code> $\rightarrow$ <code>offer</code> $\rightarrow$ <code>wrap_up</code>) with a strict <strong>Context Sufficiency Gate</strong> ensuring clinical interventions (CBT reframing, somatic pacing, grounding) are delivered only when substantial context is established.
+5. <strong>Hardware Lifecycle &amp; Privacy Protection</strong>: Automatic, hardware-level shutdown of camera and microphone streams when the session concludes.
+6. <strong>Tactile 3D Claymorphic Interface</strong>: An intuitive, calming user experience utilizing soft-clay depth, custom 3D iconography, and responsive telemetry HUDs.</p>
+<hr />
+<h2 id="2-end-to-end-system-architecture">2. End-to-End System Architecture</h2>
+<pre class="pre-wide-xl"><code>                                  USER DEVICE (Webcam &amp; Microphone)
+                                                  │
+                 ┌────────────────────────────────┴────────────────────────────────┐
+                 │                                                                 │
+                 ▼ (2 FPS Canvas 480x360 Frames)                                   ▼ (Full-Duplex Speech &amp; Audio)
+┌──────────────────────────────────────────────────┐             ┌──────────────────────────────────────────────────┐
+│          Visual Emotion Pipeline                 │             │            Acoustic &amp; Speech Pipeline            │
+│  - MediaPipe Tasks Vision (478 3D Mesh)          │             │  - WebAudioEngine (AEC, RMS Energy Correlator)   │
+│  - FACS Action Units (AU04, AU06, AU12, AU45)    │             │  - SpeechRecognitionService (Auto-restart STT)   │
+│  - Head Pose (OpenCV SolvePnP: Pitch, Yaw, Roll) │             │  - DuplexManager (Barge-in / Interruption engine)│
+│  - Gaze Vector &amp; Attention Scoring               │             │  - StreamingTtsService (Microsoft Edge-TTS)      │
+│  - FERPlus ONNX 8-Class Deep Emotion Network     │             │  - Hardware Stream Teardown (Mic Track Stop)     │
+└────────────────────────┬─────────────────────────┘             └────────────────────────┬─────────────────────────┘
+                         │                                                                │
+                         ▼ (Base64 JPEG / WebSocket)                                      ▼ (Text Utterance &amp; Events)
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       FastAPI Gateway &amp; WebSocket Server (:8000)                                  │
+│         /api/v1/emotion/ws (Vision Stream)                            /api/v1/ws/chat (Duplex Streaming Chat)     │
+└────────────────────────┬────────────────────────────────────────────────────────────────┬─────────────────────────┘
+                         │                                                                │
+                         ▼                                                                ▼
+┌──────────────────────────────────────────────────┐             ┌──────────────────────────────────────────────────┐
+│           FaceBehaviorService (Backend)          │             │         ConversationService (Turn Orchestrator)  │
+│  - 7-Factor Quality Calibration                  │             │  - User Authentication &amp; Session Validation      │
+│  - EMA Temporal Smoothing (alpha = 0.35)         │             │  - WebSocket streaming generator &amp; chunking      │
+│  - Affective Discrepancy Detection               │             │  - Solution card &amp; crisis event dispatch         │
+└────────────────────────┬─────────────────────────┘             └────────────────────────┬─────────────────────────┘
+                         │                                                                │
+                         └────────────────────────────────┬───────────────────────────────┘
+                                                          │
+                                                          ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                         AI Core &amp; Clinical Reasoning Layer                                        │
+│  ┌─────────────────────────────────┐   ┌──────────────────────────────────┐   ┌────────────────────────────────┐  │
+│  │   ContextSufficiencyTracker     │   │     TurnDirectiveClassifier      │   │        SolutionEngine          │  │
+│  │  - 6 clinical context dimensions│   │   - Active clinical phase routing│   │  - Structured Solution Schema  │  │
+│  │  - Gate: Turn &gt;= 3, domains,    │   │   - Emotion discrepancy handling │   │  - CBT Cognitive Reframing     │  │
+│  │    blockers known, score &gt;= 0.65│   │   - Empathetic counselor steering│   │  - 4-4-4-4 Box Breathing       │  │
+│  │  - Instant panic/request paths  │   │   - Mandatory session closing dir│   │  - 5-4-3-2-1 Sensory Grounding │  │
+│  └─────────────────────────────────┘   └──────────────────────────────────┘   └────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────┘
+                                                          │
+                         ┌────────────────────────────────┴────────────────────────────────┐
+                         │                                                                 │
+                         ▼                                                                 ▼
+┌──────────────────────────────────────────────────┐             ┌──────────────────────────────────────────────────┐
+│       Cognitive Memory &amp; Knowledge Graph         │             │           Resilient Multi-LLM Gateway            │
+│  - PostgreSQL 16 Relational &amp; Graph Storage      │             │  - Primary: NVIDIA NIM (Llama-3.2/Nemotron-70B)  │
+│  - Entity-Relationship Engine (Triples)          │             │  - Fallbacks: Google Gemini 1.5, OpenAI GPT-4o   │
+│  - Hybrid Retrieval (Dense Vectors + BM25)       │             │  - Autonomous Circuit Breaker (Auto-failover)    │
+│  - Rolling Session Summarizer (Turn count &gt;= 6)  │             │  - Dynamic Clinical Prompt Builder               │
+└──────────────────────────────────────────────────┘             └──────────────────────────────────────────────────┘
+</code></pre>
+<hr />
+<h2 id="3-visual-emotion-facs-telemetry-pipeline">3. Visual Emotion &amp; FACS Telemetry Pipeline</h2>
+<p>The visual perception system operates across client-side canvas capture and backend neural inference.</p>
+<h3 id="31-google-mediapipe-tasks-3d-mesh-alignment">3.1 Google MediaPipe Tasks 3D Mesh Alignment</h3>
+<ul>
+<li><strong>Frame Ingestion</strong>: Captured from the webcam via an off-screen HTML5 <code>&lt;canvas&gt;</code> at 480x360 resolution and 2 FPS, encoded to Base64 JPEG.</li>
+<li><strong>Landmark Extraction</strong>: Detects <strong>478 3D facial landmarks</strong> ($X, Y, Z$) normalized to camera coordinates with sub-10ms CPU inference.</li>
+<li><strong>Blendshapes</strong>: Extracts <strong>52 ARKit-compatible blendshape scores</strong> ($0.0$ to $1.0$), capturing subtle muscular displacements (e.g., <code>eyeBlinkLeft</code>, <code>jawOpen</code>, <code>mouthSmileRight</code>).</li>
+</ul>
+<h3 id="32-facs-action-unit-facial-action-coding-system-computation">3.2 FACS Action Unit (Facial Action Coding System) Computation</h3>
+<p>The system translates geometric distances and blendshapes into standardized clinical Action Units:
+- <strong>AU12 (Lip Corner Puller / Zygomaticus Major)</strong>:
+  Measures smile activation intensity ($0.0$ to $5.0$). Computed from the Euclidean distance between outer lip corners (landmarks 61 and 291) normalized by inter-canthal distance (landmarks 33 and 263), cross-referenced with <code>mouthSmileLeft</code> and <code>mouthSmileRight</code> blendshapes.
+- <strong>AU06 (Cheek Raiser / Orbicularis Oculi)</strong>:
+  Distinguishes a genuine <strong>Duchenne smile</strong> from a social or masked smile. Measures the narrowing of the eye aperture and elevation of the infraorbital cheek fold.
+- <strong>AU04 (Brow Lowerer / Corrugator Supercilii)</strong>:
+  Measures medial brow furrowing, indexing cognitive strain, confusion, frustration, or negative valence. Computed via vertical distance reduction between medial brow points (landmarks 55, 285) and the nasal bridge (landmark 168).
+- <strong>AU45 (Blink Rate &amp; EAR)</strong>:
+  Computes the <strong>Eye Aspect Ratio (EAR)</strong>:
+  $$\text{EAR} = \frac{|p_2 - p_6| + |p_3 - p_5|}{2 |p_1 - p_4|}$$
+  Monitors blinks per minute (BPM), prolonged closures ($&gt; 400\text{ms}$ flagging fatigue or distress), and micro-flutters.
+- <strong>AU01 (Inner Brow Raiser)</strong> &amp; <strong>AU26 (Jaw Drop)</strong>:
+  Indicators of surprise, shock, and vocal engagement.</p>
+<h3 id="33-3d-head-pose-estimation-opencv-solvepnp">3.3 3D Head Pose Estimation (OpenCV <code>SolvePnP</code>)</h3>
+<p>By registering 6 key 3D anatomical points (nose tip, chin, left eye pupil, right eye pupil, left mouth corner, right mouth corner) against a canonical 3D facial model, the system solves the Perspective-n-Point problem using Levenberg-Marquardt optimization. It derives 3 Euler angles:
+- <strong>Pitch</strong>: Head nod up/down ($\pm 45^\circ$). Indicates agreement or downward withdrawal.
+- <strong>Yaw</strong>: Head turn left/right ($\pm 60^\circ$). Indicates distraction or looking away.
+- <strong>Roll</strong>: Head tilt lateral ($\pm 30^\circ$). Indicates empathy, curiosity, or confusion.</p>
+<h3 id="34-gaze-attention-vector-scoring">3.4 Gaze &amp; Attention Vector Scoring</h3>
+<p>Calculates horizontal and vertical pupil displacement relative to the internal and external eye canthi, categorizing user gaze into:
+- <strong>Attentive / Direct Eye Contact</strong>: Fostering therapeutic alliance.
+- <strong>Averted / Downcast</strong>: Associated with shame, sadness, or intense memory recall.
+- <strong>Distracted / Sideways</strong>: Tracking attention drift.</p>
+<h3 id="35-ferplus-onnx-deep-neural-classification">3.5 FERPlus ONNX Deep Neural Classification</h3>
+<ul>
+<li>Frames are cropped to the face bounding box, converted to $64 \times 64$ grayscale, normalized, and evaluated using the <strong>FERPlus ONNX</strong> deep convolutional network.</li>
+<li>Outputs probabilities across 8 discrete emotions: <em>Joy, Calm, Sadness, Anger, Surprise, Fear, Disgust, Neutral</em>.</li>
+<li><strong>Temporal EMA Smoothing</strong>: To avoid erratic label flipping, output probabilities are smoothed across frames:
+  $$P_t = \alpha \cdot P_{\text{raw}} + (1 - \alpha) \cdot P_{t-1} \quad (\alpha = 0.35)$$</li>
+</ul>
+<h3 id="36-7-factor-tracking-quality-calibration">3.6 7-Factor Tracking Quality Calibration</h3>
+<p>Before telemetry is accepted as valid, the frame is scored against 7 physical criteria:
+1. <strong>Luminance</strong>: Detects under-exposure or washed-out lighting.
+2. <strong>Contrast</strong>: Validates dynamic range across face pixels.
+3. <strong>Sharpness / Laplacian Variance</strong>: Flags motion blur and out-of-focus webcams.
+4. <strong>Face Scale</strong>: Ensures face occupies at least $15\%$ of frame area.
+5. <strong>Head Angle Limits</strong>: Discards frames where extreme yaw ($&gt; 45^\circ$) obscures key landmarks.
+6. <strong>Detection Confidence</strong>: MediaPipe threshold $&gt; 0.65$.
+7. <strong>Temporal Landmark Jitter</strong>: Discards erratic sensor blips.</p>
+<hr />
+<h2 id="4-acoustic-voice-full-duplex-engine">4. Acoustic, Voice &amp; Full-Duplex Engine</h2>
+<p>Located in <code>frontend/src/app/services/</code> and <code>backend/app/services/</code>:</p>
+<h3 id="41-acoustic-echo-cancellation-energy-correlation">4.1 Acoustic Echo Cancellation &amp; Energy Correlation</h3>
+<p><code>audioEngine.ts</code> implements a Web Audio processing pipeline:
+- Holds an active <code>MediaStream</code> and routes it through a <code>MediaStreamAudioSourceNode</code> into an <code>AnalyserNode</code>.
+- Runs a 50 Hz analysis loop computing root-mean-square (RMS) energy.
+- Enables hardware-accelerated acoustic echo cancellation (<code>echoCancellation: true</code>, <code>noiseSuppression: true</code>, <code>autoGainControl: true</code>).</p>
+<h3 id="42-resilient-speech-to-text-speechrecognitionengine">4.2 Resilient Speech-to-Text (<code>SpeechRecognitionEngine</code>)</h3>
+<ul>
+<li>Manages the browser's <code>webkitSpeechRecognition</code> / <code>SpeechRecognition</code> interface.</li>
+<li>Employs an intentional desired-state flag (<code>isListeningDesired</code>). If the browser closes the recognition stream due to network or silence timeouts, an exponential backoff loop automatically restarts it without user intervention.</li>
+<li>Delivers interim transcripts for real-time visual feedback and final transcripts for turn submission.</li>
+</ul>
+<h3 id="43-sub-200ms-barge-in-interruption-handling-duplexmanager">4.3 Sub-200ms Barge-In &amp; Interruption Handling (<code>DuplexManager</code>)</h3>
+<p>The state machine coordinates 4 operational states:
+$$\text{IDLE} \longleftrightarrow \text{LISTENING} \longleftrightarrow \text{PROCESSING} \longleftrightarrow \text{SPEAKING}$$
+- When Dr. Aura is in the <code>SPEAKING</code> state and user speech energy crosses the VAD threshold, <code>duplexManager</code>:
+  1. Triggers immediate local cancellation of <code>StreamingTtsService</code> audio playback.
+  2. Dispatches a WebSocket <code>{ "type": "interrupt" }</code> packet to the backend.
+  3. The backend halts LLM generation and discards remaining unstreamed tokens.
+  4. Transitions state machine immediately to <code>LISTENING</code>.</p>
+<h3 id="44-hardware-lifecycle-privacy-teardown">4.4 Hardware Lifecycle &amp; Privacy Teardown</h3>
+<p>To protect user privacy, the platform enforces strict hardware teardown:
+- <code>audioEngine.stopMicrophonePipeline()</code> disconnects Web Audio nodes, clears analysis intervals, and calls <code>.stop()</code> on every <code>MediaStreamTrack</code> in <code>micStream</code>. The browser's recording indicator turns completely off.
+- <code>FaceToFaceScreen.tsx</code>'s <code>stopCamera()</code> iterates over video tracks and calls <code>.stop()</code>, clearing <code>videoRef.current.srcObject</code> and halting the 2 FPS frame capture timer.
+- Both devices remain completely offline until the user explicitly clicks <strong>"Start Camera"</strong> or the <strong>Microphone</strong> button.</p>
+<hr />
+<h2 id="5-cognitive-architecture-memory-knowledge-graph">5. Cognitive Architecture: Memory &amp; Knowledge Graph</h2>
+<p>Located in <code>backend/app/memory/</code> and <code>backend/app/knowledge/</code>:</p>
+<h3 id="51-relational-semantic-memory-schema-postgresql-16">5.1 Relational &amp; Semantic Memory Schema (PostgreSQL 16)</h3>
+<p>Memories are stored in structured database tables:
+- <strong><code>Memory</code> Table</strong>:
+  - <code>user_id</code>: Foreign key to user record.
+  - <code>category</code>: <code>goal</code>, <code>relationship</code>, <code>health</code>, <code>work</code>, <code>emotional_pattern</code>, <code>preference</code>.
+  - <code>content</code>: Natural language description of the remembered fact.
+  - <code>importance</code>: Float $0.0$ to $1.0$.
+  - <code>access_count</code>: Increments upon each retrieval.
+  - <code>last_accessed_at</code>: Timestamp tracking memory recency.
+  - <code>created_at</code>: Creation timestamp.</p>
+<h3 id="52-entity-relationship-knowledge-graph">5.2 Entity-Relationship Knowledge Graph</h3>
+<p>Aura constructs a continuous semantic graph from user interactions:
+- <strong><code>KnowledgeNode</code></strong>: Represents distinct entities (e.g., <code>"Sarah"</code>, <code>"Stanford Medical School"</code>, <code>"Anxiety"</code>, <code>"Late-Night Coding"</code>).
+- <strong><code>KnowledgeEdge</code></strong>: Represents directed relationships with confidence weights (e.g., <code>User</code> $\xrightarrow{\text{stressed_by}}$ <code>Job Interview</code>, <code>User</code> $\xrightarrow{\text{coping_mechanism}}$ <code>Box Breathing</code>).
+- <strong>Graph Traversal</strong>: During turn routing, the engine executes multi-hop graph queries to resolve contextual references (e.g., when the user says <em>"She called me again today"</em>, the graph identifies <em>"She"</em> refers to <em>"Sarah (ex-partner)"</em>).</p>
+<h3 id="53-hybrid-vector-lexical-retrieval">5.3 Hybrid Vector &amp; Lexical Retrieval</h3>
+<p>When a user turn arrives:
+1. Dense vector embeddings are generated for the user's message.
+2. Cosine similarity matches the message against historical memories.
+3. BM25 sparse keyword search queries entity tables for specific named mentions.
+4. Top results are combined via Reciprocal Rank Fusion (RRF) and formatted into concise memory prompts injected into the LLM context.</p>
+<h3 id="54-rolling-session-summarizer-conversationsummarizer">5.4 Rolling Session Summarizer (<code>ConversationSummarizer</code>)</h3>
+<p>Every 6–8 turns (or upon session close), an async background worker summarizes the dialogue into a clinical progress note:
+- <strong>Identified Issues</strong>: Core themes discussed.
+- <strong>Emotional Trajectory</strong>: Progression of affective states from opening to close.
+- <strong>Agreed Interventions</strong>: Techniques practiced (e.g., 4-3-5 breathing).
+- <strong>Open Threads</strong>: Topics to revisit during the next consultation.
+Stored in <code>Session.summary</code> for instant restoration across visits.</p>
+<hr />
+<h2 id="6-clinical-reasoning-adaptive-phase-engine-apce">6. Clinical Reasoning &amp; Adaptive Phase Engine (APCE)</h2>
+<p>Located in <code>backend/app/ai/</code>:</p>
+<h3 id="61-clinical-phase-progression">6.1 Clinical Phase Progression</h3>
+<p>Aura models therapeutic stages:
+1. <strong><code>check_in</code></strong>: Warm, non-demanding opening. Focuses on rapport and present-moment check-in.
+2. <strong><code>explore</code></strong>: Open-ended questions exploring feelings, recent events, and thoughts.
+3. <strong><code>identify</code></strong>: Clarifying specific stressors, cognitive distortions, or somatic tension.
+4. <strong><code>offer</code></strong>: Providing structured, evidence-based tools (CBT reframing, somatic pacing).
+5. <strong><code>wrap_up</code></strong>: Reviewing takeaways, reinforcing positive coping, and closing warmly.</p>
+<h3 id="62-context-sufficiency-tracker-context_trackerpy">6.2 Context Sufficiency Tracker (<code>context_tracker.py</code>)</h3>
+<p>To prevent premature or inappropriate solution delivery, Aura computes a <strong>Sufficiency Score</strong> ($0.0$ to $1.0$) across 6 clinical dimensions:
+1. <code>emotion_state</code>: Primary emotion verified (via text or FACS).
+2. <code>problem_domain</code>: Clear stressor domain identified (work, relationship, health, grief, academics).
+3. <code>blockers_known</code>: Specific causal obstacle articulated (e.g., <em>"because my manager rejected my proposal"</em>).
+4. <code>coping_history</code>: Prior coping efforts or current support system explored.
+5. <code>user_goal</code>: The user's desired outcome for the interaction established.
+6. <code>severity_level</code>: Stress and emotional intensity calibrated.</p>
+<h4 id="substantial-context-gate-mandatory-rules-for-unsolicited-solutions">Substantial Context Gate (Mandatory Rules for Unsolicited Solutions):</h4>
+<pre><code class="language-python">substantial_context_met = (
+    turn_count &gt;= 3
+    and resolved[&quot;problem_domain&quot;]
+    and resolved[&quot;blockers_known&quot;]
+    and score &gt;= 0.65
+)
+</code></pre>
+<ul>
+<li>On <strong>Turn 1 or 2</strong>, Aura <strong>never</strong> offers unsolicited solutions, preventing jarring interventions (such as prescribing teamwork advice for general sadness).</li>
+<li>Static database profile goals do not count as active context on Turn 1.</li>
+<li><strong>Fast-Paths</strong>: The gate is bypassed immediately if:</li>
+<li>The user explicitly requests advice (<em>"What should I do?"</em>, <em>"Help me calm down"</em>).</li>
+<li>Acute somatic panic is detected (<em>"I'm having a panic attack"</em>, <em>"Can't breathe"</em>).</li>
+</ul>
+<h3 id="63-structured-solution-schema-sss-solution_enginepy">6.3 Structured Solution Schema (SSS - <code>solution_engine.py</code>)</h3>
+<p>When triggered, <code>SolutionEngine</code> generates structured JSON solution cards parsed into interactive UI elements:
+- <strong>CBT Cognitive Restructuring</strong>:
+  Identifies the automatic negative thought (e.g., <em>"I'm going to fail this interview and ruin my career"</em>), labels the cognitive distortion (<em>Catastrophizing</em>), and provides an actionable rational reframe.
+- <strong>4-3-5 Vagus Nerve Regulation</strong>:
+  Clinical somatic breathing protocol (4s Inhale, 3s Hold, 5s Exhale) that activates parasympathetic vagal braking.
+- <strong>5-4-3-2-1 Sensory Grounding</strong>:
+  Multi-sensory engagement protocol (5 things you see, 4 you feel, 3 you hear, 2 you smell, 1 you taste) to interrupt acute dissociative anxiety.
+- <strong>Behavioral Activation</strong>:
+  Deconstructs overwhelming obligations into a single, low-friction 5-minute action step.</p>
+<h3 id="64-safety-self-harm-crisis-interceptor">6.4 Safety, Self-Harm &amp; Crisis Interceptor</h3>
+<p>Aura continuously monitors for suicide risk, self-harm, and violence. If detected:
+1. Normal LLM generation is immediately aborted.
+2. The turn directive triggers an emergency protocol.
+3. Empathetic, de-escalating text is output along with verified crisis resources (e.g., <em>988 Suicide &amp; Crisis Lifeline</em>, <em>Crisis Text Line</em>).
+4. The conversation is flagged in the database for clinician review.</p>
+<h3 id="65-session-closing-detection-directive-override">6.5 Session Closing Detection &amp; Directive Override</h3>
+<p>Recognizes ending phrases (e.g., <em>"nothing more for today"</em>, <em>"end the conversation"</em>, <em>"close session"</em>, <em>"goodbye"</em>):
+- Switches session phase to <code>wrap_up</code>.
+- Enforces <code>SESSION CLOSING DIRECTIVE (MANDATORY OVERRIDE)</code>: Dr. Aura is instructed to <strong>never ask follow-up questions</strong>, validate progress, and deliver a clean, supportive farewell.
+- Emits a WebSocket <code>session_closing</code> event, prompting the frontend to shut down camera and microphone hardware.</p>
+<hr />
+<h2 id="7-resilient-multi-provider-ai-gateway">7. Resilient Multi-Provider AI Gateway</h2>
+<p>Located in <code>backend/app/providers/</code>:</p>
+<pre><code>               Prompt + FACS Telemetry + Memory Context
+                                  │
+                                  ▼
+                 ┌────────────────────────────────┐
+                 │    Circuit Breaker Engine      │
+                 └──────────────┬─────────────────┘
+                                │
+         ┌──────────────────────┼──────────────────────┐
+         ▼ (State: CLOSED)      ▼ (State: OPEN/TRIP)   ▼ (Fallback 2)
+┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐
+│    NVIDIA NIM     │  │   Google Gemini   │  │    OpenAI GPT     │
+│   (Meta-Llama)    │  │    (1.5-Flash)    │  │      (GPT-4o)     │
+└───────────────────┘  └───────────────────┘  └───────────────────┘
+</code></pre>
+<ol>
+<li><strong>NVIDIA NIM Microservices</strong>:</li>
+<li>Primary provider for enterprise streaming performance, utilizing <code>meta/llama-3.2-11b-vision-instruct</code> or <code>nvidia/llama-3.1-nemotron-70b-instruct</code>.</li>
+<li><strong>Autonomous Circuit Breaker</strong>:</li>
+<li>Evaluates consecutive failures, HTTP 429 rate limits, and latency spikes.</li>
+<li>If the failure threshold is exceeded, the circuit trips (<code>OPEN</code>) and immediately routes requests to <strong>Google Gemini</strong> or <strong>OpenAI</strong>.</li>
+<li>After a 60-second cooldown, sends a canary request (<code>HALF-OPEN</code>) to test primary provider recovery.</li>
+<li><strong>SSE &amp; WebSocket Token Streaming</strong>:</li>
+<li>Chunks are yielded word-by-word with sequence counters over WebSocket, driving real-time typewriter typography and neural text-to-speech audio synthesis.</li>
+</ol>
+<hr />
+<h2 id="8-frontend-architecture-tactile-3d-claymorphic-interface">8. Frontend Architecture &amp; Tactile 3D Claymorphic Interface</h2>
+<p>Built using <strong>React 18.3</strong>, <strong>TypeScript 5.0</strong>, <strong>Tailwind CSS 4</strong>, and <strong>Framer Motion</strong>, the frontend implements a custom <strong>3D Tactile Claymorphism</strong> design system.</p>
+<h3 id="81-claymorphic-visual-system">8.1 Claymorphic Visual System</h3>
+<ul>
+<li><strong>Dual Lighting &amp; Specular Profiles</strong>:</li>
+<li><em>Light Theme</em>: Warm pastel cream base (<code>#F8F3F0</code>), diffuse specular glints (<code>inset 0 1.5px 3px rgba(255,255,255,0.9)</code>), and soft drop shadows (<code>0 8px 22px rgba(120,95,140,0.12)</code>).</li>
+<li><em>Dark Theme</em>: Deep obsidian midnight palette (<code>#12101B</code> / <code>#171424</code>), subtle edge luminescence, and high-contrast pastel accent badges.</li>
+<li><strong>Organic Micro-Interactions</strong>: Spring physics (<code>stiffness: 400</code>, <code>damping: 28</code>) on buttons, tiles, and modals.</li>
+</ul>
+<h3 id="82-application-consoles-screens">8.2 Application Consoles &amp; Screens</h3>
+<ol>
+<li><strong>Dashboard (<code>HomeScreen</code> / <code>DashboardScreen</code>)</strong>:</li>
+<li><strong>Hero Greeting</strong>: Personalized greeting with interactive 3D robot mascot (<code>AuraMascot3D</code>).</li>
+<li><strong>Mood Trajectory Card</strong>: 7-day mood score graph with calm streaks.</li>
+<li><strong>Today's Insights</strong>: Interactive donut chart visualizing affective distribution.</li>
+<li><strong>4 Quick Action Tiles</strong>: <strong>Journal</strong> (Chat), <strong>Breathing</strong> (Voice), <strong>Focus</strong> (Pomodoro), and <strong>Consult</strong> (Face-to-Face).</li>
+<li><strong>Face-to-Face Consultation (<code>FaceToFaceScreen.tsx</code>)</strong>:</li>
+<li><strong>Patient Visual Stream</strong>: 480x360 webcam feed with landmark canvas, live FPS meter, and offline state placeholder.</li>
+<li><strong>FACS Debug Panel &amp; Telemetry HUD</strong>: Expandable clinical overlay displaying AU12 smile intensity, AU04 brow furrow, AU45 blink rate/EAR, and 3D head pose Euler angles (Pitch, Yaw, Roll).</li>
+<li><strong>Doctor Aura 3D Avatar</strong>: Responsive 3D mascot with animated facial expressions matching conversational tone.</li>
+<li><strong>Dynamic Transcription &amp; Chat Stream</strong>: Real-time transcript with inline SSS Solution Cards.</li>
+<li><strong>Automatic Privacy Banner</strong>: Appears when the session closes, confirming hardware shutdown.</li>
+<li><strong>Voice Mode (<code>VoiceScreen.tsx</code>)</strong>:</li>
+<li>Hands-free speech consultation with reactive audio wave visualizers, language selectors (English, Hindi, Spanish, French, German, Japanese), and edge-to-edge voice streaming.</li>
+<li><strong>Chat Mode (<code>ChatScreen</code>)</strong>:</li>
+<li>Empathetic text dialogue featuring memory tags, clinical phase badges, interactive CBT solution cards, and crisis safety alerts.</li>
+<li><strong>Memory Console (<code>MemoryScreen.tsx</code>)</strong>:</li>
+<li>Knowledge repository displaying long-term memories, entity connections, category filters, importance meters, and manual memory creation tools.</li>
+<li><strong>Analytics Console (<code>AnalyticsScreen.tsx</code>)</strong>:</li>
+<li>Deep affective telemetry: weekly mood charts, calm streaks, emotion distribution bars, and diagnostic reports powered by Recharts.</li>
+<li><strong>Debug Telemetry Panel (<code>DebugScreen.tsx</code>)</strong>:</li>
+<li>Diagnostic console for clinicians and developers: real-time Action Unit sliders, raw WebSocket payload inspectors, and provider circuit breaker status indicators.</li>
+</ol>
+<hr />
+<h2 id="9-api-websocket-specifications">9. API &amp; WebSocket Specifications</h2>
+<h3 id="91-rest-endpoints">9.1 REST Endpoints</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/health</code></td>
+<td>System health check (PostgreSQL, Redis, AI Gateway).</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/sessions</code></td>
+<td>Initializes a new clinical consultation session.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/sessions/{id}</code></td>
+<td>Retrieves session details and rolling summary.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/memory</code></td>
+<td>Lists user episodic memories with category and importance filters.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/memory</code></td>
+<td>Creates a new explicit user memory.</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/v1/memory/{id}</code></td>
+<td>Deletes a stored memory.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/analytics/overview</code></td>
+<td>Retrieves mood index, dominant emotions, and weekly calm streaks.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/analytics/emotion_history</code></td>
+<td>Historical timeline of fused multimodal emotion states.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/users/me</code></td>
+<td>Current authenticated user profile, goals, and clinical preferences.</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/v1/users/me</code></td>
+<td>Updates user goals, name, and notification settings.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/tts/synthesize</code></td>
+<td>Fallback REST neural text-to-speech synthesis (WAV/MP3).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="92-websocket-protocols">9.2 WebSocket Protocols</h3>
+<h4 id="chat-duplex-websocket-apiv1wschat">Chat &amp; Duplex WebSocket: <code>/api/v1/ws/chat</code></h4>
+<ul>
+<li><strong>Client $\rightarrow$ Server</strong>:
+  <code>json
+  {
+    "type": "message",
+    "content": "I'm feeling really stressed about tomorrow's presentation",
+    "session_id": 42,
+    "client_turn_id": 1,
+    "mode": "face_to_face",
+    "language": "en-US",
+    "emotion_data": {
+      "face_emotion": "fear",
+      "confidence": 0.84,
+      "action_units": { "AU04": 2.4, "AU12": 0.1, "AU45": 28.0 },
+      "head_pose": { "pitch": -4.2, "yaw": 2.1, "roll": 0.8 }
+    }
+  }</code>
+  <em>(Or <code>{"type": "interrupt"}</code> for user barge-in)</em></li>
+<li><strong>Server $\rightarrow$ Client</strong>:</li>
+<li><code>{"type": "chunk", "content": "I hear ", "sequence": 1}</code></li>
+<li><code>{"type": "solution_card", "solution": { "category": "cbt_reframe", ... }}</code></li>
+<li><code>{"type": "session_closing", "phase": "wrap_up"}</code></li>
+<li><code>{"type": "done", "response": "...", "is_closing": true, "phase": "wrap_up"}</code></li>
+</ul>
+<h4 id="emotion-vision-stream-websocket-apiv1emotionws">Emotion Vision Stream WebSocket: <code>/api/v1/emotion/ws</code></h4>
+<ul>
+<li><strong>Client $\rightarrow$ Server</strong>:
+  <code>json
+  {
+    "type": "frame",
+    "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+    "session_id": 42,
+    "timestamp": 1725400000000
+  }</code></li>
+<li><strong>Server $\rightarrow$ Client</strong>:
+  <code>json
+  {
+    "type": "emotion",
+    "face_detected": true,
+    "primary_emotion": "calm",
+    "confidence": 0.88,
+    "tracking_quality": 0.94,
+    "action_units": {
+      "AU12": 0.2,
+      "AU04": 0.0,
+      "AU06": 0.1,
+      "AU45_blink_rate": 16.5
+    },
+    "head_pose": { "pitch": 1.2, "yaw": -0.8, "roll": 0.3 },
+    "gaze": { "eye_contact": true, "gaze_angle_x": 1.4 }
+  }</code></li>
+</ul>
+<hr />
+<h2 id="10-database-schema-data-models">10. Database Schema &amp; Data Models</h2>
+<p>PostgreSQL 16 relational tables defined via SQLAlchemy Async (<code>backend/app/models/</code>):</p>
+<ol>
+<li><strong><code>User</code></strong>: Core patient/user model (<code>id</code>, <code>email</code>, <code>name</code>, <code>hashed_password</code>, <code>goals</code>, <code>interests</code>, <code>created_at</code>).</li>
+<li><strong><code>Session</code></strong>: Interaction sessions (<code>id</code>, <code>user_id</code>, <code>mode</code>, <code>phase</code>, <code>summary</code>, <code>created_at</code>, <code>closed_at</code>).</li>
+<li><strong><code>Message</code></strong>: Conversational turns (<code>id</code>, <code>session_id</code>, <code>user_id</code>, <code>role</code>, <code>content</code>, <code>ai_provider</code>, <code>sentiment</code>, <code>emotion</code>, <code>created_at</code>).</li>
+<li><strong><code>Memory</code></strong>: Long-term semantic facts (<code>id</code>, <code>user_id</code>, <code>category</code>, <code>content</code>, <code>importance</code>, <code>access_count</code>, <code>last_accessed_at</code>).</li>
+<li><strong><code>KnowledgeNode</code></strong>: Graph entities (<code>id</code>, <code>user_id</code>, <code>name</code>, <code>entity_type</code>, <code>properties</code>, <code>created_at</code>).</li>
+<li><strong><code>KnowledgeEdge</code></strong>: Graph relationships (<code>id</code>, <code>user_id</code>, <code>source_node_id</code>, <code>target_node_id</code>, <code>relation_type</code>, <code>weight</code>).</li>
+<li><strong><code>EmotionLog</code></strong>: Time-series biometric logs (<code>id</code>, <code>session_id</code>, <code>user_id</code>, <code>primary_emotion</code>, <code>confidence</code>, <code>action_units</code>, <code>head_pose</code>, <code>tracking_quality</code>, <code>timestamp</code>).</li>
+</ol>
+<hr />
+<h2 id="11-codebase-directory-map">11. Codebase Directory Map</h2>
+<pre class="pre-wide-xl"><code>d:\AuraAI_v1\
+├── backend/
+│   ├── app/
+│   │   ├── ai/
+│   │   │   ├── context_tracker.py       # Context Sufficiency Tracker (Substantial context gate)
+│   │   │   ├── conversation_engine.py   # Multi-turn dialogue coordinator &amp; safety interceptor
+│   │   │   ├── solution_engine.py       # Structured Solution Schema (CBT, somatic pacing)
+│   │   │   └── turn_directive.py        # Clinical phase routing &amp; classification
+│   │   ├── api/v1/
+│   │   │   ├── analytics.py             # Telemetry &amp; mood overview endpoints
+│   │   │   ├── dashboard.py             # Dashboard aggregations
+│   │   │   ├── emotion_ws.py            # Real-time WebSocket vision frame processor
+│   │   │   ├── memory.py                # Memory CRUD endpoints
+│   │   │   ├── users.py                 # Profile &amp; user management
+│   │   │   └── ws_chat.py               # Full-duplex chat WebSocket endpoint
+│   │   ├── memory/
+│   │   │   ├── memory_service.py        # Semantic memory storage &amp; retrieval
+│   │   │   └── summarizer.py            # Rolling session summarizer
+│   │   ├── providers/
+│   │   │   ├── circuit_breaker.py       # Autonomous multi-provider circuit breaker
+│   │   │   ├── nim_provider.py          # NVIDIA NIM microservice client
+│   │   │   ├── gemini_provider.py       # Google Gemini client
+│   │   │   └── openai_provider.py       # OpenAI client
+│   │   ├── services/
+│   │   │   ├── conversation_service.py  # WebSocket turn streaming &amp; lifecycle manager
+│   │   │   └── face_behavior_service.py # Quality scoring &amp; FACS normalization
+│   │   ├── vision/
+│   │   │   ├── face_mesh_detector.py    # MediaPipe 478 3D landmark extractor
+│   │   │   ├── head_pose_estimator.py   # OpenCV SolvePnP Euler angle calculator
+│   │   │   ├── gaze_tracker.py          # Pupil-to-canthi gaze tracker
+│   │   │   └── ferplus_classifier.py    # FERPlus ONNX deep emotion model
+│   │   └── main.py                      # FastAPI application bootstrap &amp; router registration
+│   └── tests/
+│       ├── test_context_tracker.py      # Unit tests for SSS context gating &amp; panic paths
+│       └── test_solution_engine.py      # Unit tests for CBT &amp; somatic solution generation
+│
+└── frontend/
+    └── src/
+        ├── app/
+        │   ├── components/
+        │   │   ├── FaceToFaceScreen.tsx     # Flagship 3-column clinical consultation station
+        │   │   ├── VoiceScreen.tsx          # Full-duplex audio consultation screen
+        │   │   ├── screens.tsx              # DashboardScreen, ChatScreen, EmotionScreen
+        │   │   ├── MemoryScreen.tsx         # Long-term memory &amp; knowledge cards
+        │   │   ├── AnalyticsScreen.tsx      # Mood trajectories &amp; calm streaks
+        │   │   ├── DebugScreen.tsx          # FACS Action Unit sliders &amp; system telemetry
+        │   │   ├── FaceDebugPanel.tsx       # Live clinical facial HUD overlay
+        │   │   ├── SolutionCard.tsx         # Interactive SSS CBT &amp; breathing card renderer
+        │   │   ├── quick-actions-fab.tsx    # Floating quick action button tray
+        │   │   ├── clay-icons.tsx           # Custom 3D SVG claymorphic icons
+        │   │   └── aura-robot.tsx           # 3D robot mascot avatar component
+        │   ├── services/
+        │   │   ├── audioEngine.ts           # Web Audio AEC, RMS energy, and mic teardown
+        │   │   ├── speechRecognitionService.ts # Resilient continuous STT &amp; closing phrases
+        │   │   ├── duplexManager.ts         # Barge-in state machine &amp; interruption coordinator
+        │   │   ├── streamingTtsService.ts   # Edge-TTS streaming audio player
+        │   │   └── wsHelper.ts              # WebSocket URL resolvers
+        │   ├── context/
+        │   │   ├── ThemeContext.tsx         # Light cream / dark midnight clay theme provider
+        │   │   └── UserContext.tsx          # User session &amp; profile provider
+        │   ├── App.tsx                      # Root navigation &amp; layout orchestrator
+        │   └── main.tsx                     # React application entry point
+        └── styles/
+            └── globals.css                  # Claymorphic CSS system &amp; lighting models
+</code></pre>
+<hr />
+<h2 id="12-deployment-execution-guide">12. Deployment &amp; Execution Guide</h2>
+<h3 id="121-quick-start-development-mode">12.1 Quick Start (Development Mode)</h3>
+<ul>
+<li><strong>Windows 1-Click Launch</strong>:
+  <code>powershell
+  .\start_dev.bat</code>
+  <em>(Starts PostgreSQL, Redis, FastAPI Uvicorn server on <code>:8000</code>, and Vite development server on <code>:5173</code>)</em></li>
+<li><strong>Using Unified CLI Manager</strong>:
+  <code>powershell
+  .\run.bat start</code></li>
+</ul>
+<h3 id="122-verification-test-execution">12.2 Verification &amp; Test Execution</h3>
+<ul>
+<li><strong>Run Backend Clinical Test Suite</strong>:
+  <code>powershell
+  backend\.venv\Scripts\python.exe -m pytest backend/tests/test_context_tracker.py backend/tests/test_solution_engine.py -v</code></li>
+<li><strong>Compile Frontend Production Build</strong>:
+  <code>powershell
+  cd frontend
+  npm run build</code></li>
+</ul>
+<hr />
+<p><em>Document version: 2.0.0 • Last updated: September 2026 • Aura AI Cognitive Architecture Team</em></p>
+</body>
+</html>

@@ -49,12 +49,7 @@ export function MemoryScreen() {
         setMemories(data.memories || []);
       })
       .catch(() => {
-        setMemories([
-          { id: 1, type: "goal", key: "Placement Preparation", value: "Preparing for software engineering campus placements", importance: 0.95, confidence: 0.95, version: 1, created_at: "2026-07-30T10:00:00Z" },
-          { id: 2, type: "interest", key: "Football", value: "Enjoys playing and watching football on weekends", importance: 0.85, confidence: 0.9, version: 1, created_at: "2026-07-30T11:30:00Z" },
-          { id: 3, type: "preference", key: "Communication Style", value: "Prefers direct, balanced feedback without heavy jargon", importance: 0.9, confidence: 0.95, version: 1, created_at: "2026-07-29T14:20:00Z" },
-          { id: 4, type: "project", key: "Aura AI", value: "Building Aura AI real-time wellness companion", importance: 1.0, confidence: 1.0, version: 1, created_at: "2026-07-28T09:15:00Z" },
-        ]);
+        setMemories([]);
       });
 
     fetch("/api/v1/memory/graph")
@@ -64,19 +59,7 @@ export function MemoryScreen() {
         setLoading(false);
       })
       .catch(() => {
-        setGraphData({
-          entities: [
-            { id: 1, name: "User", entity_type: "USER" },
-            { id: 2, name: "Aura AI", entity_type: "PROJECT" },
-            { id: 3, name: "NVIDIA NIM", entity_type: "TECHNOLOGY" },
-            { id: 4, name: "Placement Preparation", entity_type: "GOAL" },
-          ],
-          relationships: [
-            { id: 1, source_name: "User", target_name: "Aura AI", relation_type: "WORKING_ON", weight: 0.95 },
-            { id: 2, source_name: "Aura AI", target_name: "NVIDIA NIM", relation_type: "USES", weight: 0.9 },
-            { id: 3, source_name: "User", target_name: "Placement Preparation", relation_type: "HAS_GOAL", weight: 1.0 },
-          ]
-        });
+        setGraphData({ entities: [], relationships: [] });
         setLoading(false);
       });
   };
@@ -223,9 +206,41 @@ export function MemoryScreen() {
             </div>
 
             {/* Timeline Grid */}
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((m) => (
-                <motion.div key={m.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+            {loading ? (
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3, 4, 5, 6].map((idx) => (
+                  <div key={idx} className="clay-card p-5 rounded-[28px] space-y-3 min-h-[140px] flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
+                      <div className="clay-shimmer w-16 h-5 rounded-full bg-slate-200 dark:bg-slate-700/40" />
+                      <div className="clay-shimmer w-12 h-5 rounded-md bg-slate-200 dark:bg-slate-700/40" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="clay-shimmer w-3/4 h-4 rounded-md bg-slate-200 dark:bg-slate-700/40" />
+                      <div className="clay-shimmer w-full h-3 rounded-md bg-slate-200 dark:bg-slate-700/40" />
+                    </div>
+                    <div className="clay-shimmer w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700/40" />
+                  </div>
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="clay-card p-8 rounded-[28px] text-center max-w-md mx-auto my-8">
+                <Brain size={44} className="mx-auto text-[#9A80E5] mb-3 opacity-80" />
+                <h3 className="text-base font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] mb-1">
+                  No Memories Yet
+                </h3>
+                <p className="text-xs text-[#7A7A96] dark:text-[#9E98B4] leading-relaxed">
+                  Aura automatically captures your emotional patterns, goals, and personal preferences as you talk. They will appear here dynamically.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {filtered.map((m, idx) => (
+                  <motion.div
+                    key={m.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 25, delay: idx * 0.04 }}
+                  >
                   <div className="clay-card p-5 rounded-[28px] space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -265,8 +280,9 @@ export function MemoryScreen() {
                 </motion.div>
               ))}
             </div>
-          </>
-        )}
+          )}
+        </>
+      )}
 
         {/* View Mode 2: Knowledge Graph View */}
         {viewMode === "graph" && (

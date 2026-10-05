@@ -1,59 +1,51 @@
 """
-EmotionLog model.
-
-Records emotion analysis results for each message, including
-individual modality results and the fused outcome.
+Emotion Log ORM Model — Longitudinal Affect Tracking & Behavioral Analytics.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin
-from app.utils.encryption import EncryptedText
+from app.db.base import Base
 
 
-class EmotionLog(Base, TimestampMixin):
-    """Emotion analysis record for a message.
-
-    Stores results from text, voice, and face emotion analysis,
-    plus the fused result and confidence scores.
-    """
-
+class EmotionLog(Base):
     __tablename__ = "emotion_logs"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
-    )
-    session_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("sessions.id", ondelete="SET NULL"), default=None, index=True,
-    )
-    message_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("messages.id", ondelete="SET NULL"), default=None,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
 
-    # Individual modality results
-    text_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
-    voice_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
-    face_emotion: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
+    primary_emotion: Mapped[str] = mapped_column(String(50), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.85)
+    stress_level: Mapped[str] = mapped_column(String(30), default="low")
+    sentiment: Mapped[str] = mapped_column(String(30), default="neutral")
+    domain: Mapped[str] = mapped_column(String(50), default="wellness")
+    sources: Mapped[str] = mapped_column(String(100), default="text")
 
-    # Fused result
-    fused_emotion: Mapped[str] = mapped_column(EncryptedText, nullable=False)
-    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
-    # Raw scores from each modality (stored as JSON for flexibility)
-    raw_scores: Mapped[Optional[dict]] = mapped_column(
-        JSONB, default=None,
-        comment="Full probability scores from each modality",
-    )
+    user = relationship("User")
+    session = relationship("Session", back_populates="emotion_logs")
 
-    # Relationships
-    session: Mapped[Optional["Session"]] = relationship("Session", back_populates="emotion_logs")  # noqa: F821
+    @property
+    def fused_emotion(self) -> str:
+        return self.primary_emotion
 
-    def __repr__(self) -> str:
-        return f"<EmotionLog(id={self.id}, fused='{self.fused_emotion}', confidence={self.confidence})>"
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "primary_emotion": self.primary_emotion,
+            "confidence": self.confidence,
+            "stress_level": self.stress_level,
+            "sentiment": self.sentiment,
+            "domain": self.domain,
+            "sources": self.sources,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

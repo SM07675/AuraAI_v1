@@ -6,6 +6,7 @@ Request and response models for registration, login, and token management.
 
 from __future__ import annotations
 
+from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -66,3 +67,6 @@ class UserInToken(BaseModel):
     id: int
     name: str
     email: str
+    is_admin: bool = False
+    avatar_url: Optional[str] = None
+    auth_provider: str = "email"

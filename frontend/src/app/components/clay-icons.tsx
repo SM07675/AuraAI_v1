@@ -52,6 +52,78 @@ export function ClayAuraFlowerIcon({ size = 38, className = "", style = {} }: Cl
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   0.1 BRAND LOGO — 3D Glossy Violet Torus / Donut Ring (Reference Image Branding)
+   ───────────────────────────────────────────────────────────────────────────── */
+export function ClayAuraTorusIcon({ size = 36, className = "", style = {} }: ClayIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ filter: "drop-shadow(0 4px 10px rgba(124, 58, 237, 0.45))", ...style }}
+    >
+      <defs>
+        <radialGradient id="torusOuterGrad" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#C084FC" />
+          <stop offset="35%" stopColor="#8B5CF6" />
+          <stop offset="80%" stopColor="#6D28D9" />
+          <stop offset="100%" stopColor="#4C1D95" />
+        </radialGradient>
+        <linearGradient id="torusInnerHoleGrad" x1="18" y1="18" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#240E54" />
+          <stop offset="100%" stopColor="#3B1278" />
+        </linearGradient>
+        <filter id="torusHighlightBlur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="0.8" />
+        </filter>
+      </defs>
+
+      {/* Main 3D Torus Body */}
+      <circle
+        cx="24"
+        cy="24"
+        r="18"
+        fill="url(#torusOuterGrad)"
+        stroke="rgba(255, 255, 255, 0.45)"
+        strokeWidth="1.2"
+      />
+      {/* Torus Hole */}
+      <circle
+        cx="24"
+        cy="24"
+        r="7.5"
+        fill="url(#torusInnerHoleGrad)"
+        stroke="rgba(255, 255, 255, 0.25)"
+        strokeWidth="1"
+      />
+
+      {/* Top Glossy Highlight Arc */}
+      <path
+        d="M13 18C15 12 21 9 27 10C31 10.7 34 12.5 36 15"
+        stroke="#FFFFFF"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        strokeOpacity="0.85"
+        filter="url(#torusHighlightBlur)"
+      />
+      <circle cx="15" cy="16" r="1.5" fill="#FFFFFF" fillOpacity="0.9" />
+
+      {/* Subtle Inner Hole Rim Light */}
+      <path
+        d="M21 28C22 30 25 31 28 30"
+        stroke="#FFFFFF"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeOpacity="0.4"
+      />
+    </svg>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    SIDEBAR ICONS (9 Items) — Handcrafted 3D Tactile Clay SVGs
    ───────────────────────────────────────────────────────────────────────────── */
 
@@ -729,34 +801,7 @@ export function ClayFocusIcon({ size = 28, className = "", style = {} }: ClayIco
   );
 }
 
-export function ClayMusicIcon({ size = 28, className = "", style = {} }: ClayIconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      style={{ filter: "drop-shadow(0 3px 6px rgba(210, 70, 90, 0.28)) drop-shadow(0 0 2px rgba(255,255,255,0.6))", ...style }}
-    >
-      <defs>
-        <linearGradient id="music3DGrad" x1="10" y1="8" x2="38" y2="40" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FADBD8" />
-          <stop offset="35%" stopColor="#F1948A" />
-          <stop offset="100%" stopColor="#C0392B" />
-        </linearGradient>
-      </defs>
-      <path d="M16 15L34 10V17L16 22V15Z" fill="url(#music3DGrad)" />
-      <rect x="15" y="15" width="4.5" height="19" rx="2.25" fill="url(#music3DGrad)" />
-      <rect x="33" y="10" width="4.5" height="19" rx="2.25" fill="url(#music3DGrad)" />
-      <ellipse cx="13.5" cy="33.5" rx="6" ry="4.8" transform="rotate(-20 13.5 33.5)" fill="url(#music3DGrad)" />
-      <ellipse cx="31.5" cy="28.5" rx="6" ry="4.8" transform="rotate(-20 31.5 28.5)" fill="url(#music3DGrad)" />
-      <ellipse cx="11.5" cy="32" rx="2" ry="1.2" fill="#FFFFFF" fillOpacity="0.85" />
-      <ellipse cx="29.5" cy="27" rx="2" ry="1.2" fill="#FFFFFF" fillOpacity="0.85" />
-    </svg>
-  );
-}
+
 
 /* ─────────────────────────────────────────────────────────────────────────────
    CHAT INTERFACE SPECIFIC 3D CLAY ELEMENTS (Matching TARGET Image)
@@ -844,45 +889,7 @@ export function ClayAuraAvatar({ size = 38, className = "", style = {} }: ClayIc
 export const ClayAuraAvatarBead = ClayAuraAvatar;
 
 
-// 2. 3D Purple Music Tile Icon (For Bottom Music Bar)
-export function ClayMusicTileIcon({ size = 44, className = "", style = {} }: ClayIconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      style={{ filter: "drop-shadow(0 4px 10px rgba(160, 135, 225, 0.35))", flexShrink: 0, ...style }}
-    >
-      <defs>
-        <linearGradient id="musicTileGrad" x1="8" y1="4" x2="40" y2="44" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#D8CBFA" />
-          <stop offset="40%" stopColor="#C4B0F3" />
-          <stop offset="100%" stopColor="#9E7EE6" />
-        </linearGradient>
-      </defs>
 
-      {/* Rounded Purple Clay Cushion */}
-      <rect x="3" y="3" width="42" height="42" rx="16" fill="url(#musicTileGrad)" stroke="#FFFFFF" strokeWidth="1.5" />
-
-      {/* Top Specular Glint */}
-      <ellipse cx="18" cy="9" rx="10" ry="3.5" transform="rotate(-15 18 9)" fill="#FFFFFF" fillOpacity="0.75" />
-
-      {/* 3D White Musical Notes */}
-      <path
-        d="M17 18L33 13.5V21L17 25.5V18Z"
-        fill="#FFFFFF"
-        filter="drop-shadow(0 1.5px 2px rgba(90, 60, 150, 0.3))"
-      />
-      <rect x="16.5" y="18" width="3.5" height="15" rx="1.75" fill="#FFFFFF" />
-      <rect x="30.5" y="13.5" width="3.5" height="15" rx="1.75" fill="#FFFFFF" />
-      <ellipse cx="15.5" cy="32.5" rx="4.5" ry="3.5" transform="rotate(-20 15.5 32.5)" fill="#FFFFFF" filter="drop-shadow(0 2px 4px rgba(90, 60, 150, 0.25))" />
-      <ellipse cx="29.5" cy="28" rx="4.5" ry="3.5" transform="rotate(-20 29.5 28)" fill="#FFFFFF" filter="drop-shadow(0 2px 4px rgba(90, 60, 150, 0.25))" />
-    </svg>
-  );
-}
 
 // 3. Double Checkmarks for User Messages (10:31 AM ✓✓)
 export function ClayDoubleCheckIcon({ size = 13, color = "#8F87A0", className = "" }: { size?: number; color?: string; className?: string }) {

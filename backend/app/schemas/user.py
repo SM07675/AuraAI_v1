@@ -15,6 +15,9 @@ class UserProfileResponse(BaseModel):
     id: int
     name: str
     email: str
+    is_admin: bool = False
+    avatar_url: Optional[str] = None
+    auth_provider: str = "email"
     preferred_language: Optional[str] = "en"
     timezone: Optional[str] = "UTC"
     communication_style: Optional[str] = "balanced"

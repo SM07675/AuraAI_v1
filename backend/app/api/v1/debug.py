@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.gateway import AIGateway
 from app.communication.session_manager import SessionRegistry
 from app.core.config import get_settings
-from app.core.deps import get_db
+from app.core.deps import get_db, get_current_admin_user
 from app.core.logging_config import get_logger
 from app.models.graph import GraphEntity, GraphRelationship
 from app.models.latency_metric import LatencyMetric
@@ -49,7 +49,10 @@ def _require_debug_mode() -> None:
 
 
 @router.get("/status")
-async def get_debug_status(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_debug_status(
+    db: AsyncSession = Depends(get_db),
+    admin: Any = Depends(get_current_admin_user),
+) -> dict[str, Any]:
     """Return real comprehensive snapshot of system, memory, graph, and latency metrics."""
     _require_debug_mode()
 
