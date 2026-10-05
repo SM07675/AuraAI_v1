@@ -148,6 +148,18 @@ export class FullDuplexManager {
     this.onInterruptCallbacks.add(cb);
   }
 
+  public stop(): void {
+    this.notifyTtsStopped();
+    this.transitionTo("IDLE", "Duplex manager stopped");
+    try {
+      audioEngine.stopAllPlaybackImmediate(10);
+    } catch {}
+  }
+
+  public reset(): void {
+    this.stop();
+  }
+
   public transitionTo(newState: ConversationState, reason: string = ""): void {
     const prev = this.state;
     if (prev === newState) return;

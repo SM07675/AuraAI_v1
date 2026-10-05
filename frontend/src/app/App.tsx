@@ -115,10 +115,10 @@ function MainApp() {
 
   // Stop any ongoing voice generation, speech recognition, and streaming audio on tab switch
   useEffect(() => {
-    voiceService.stop();
-    speechService.stop();
-    streamingTtsService.cancel();
-    duplexManager.stop();
+    try { voiceService?.stop?.(); } catch {}
+    try { speechService?.stop?.(); } catch {}
+    try { streamingTtsService?.cancel?.(); } catch {}
+    try { duplexManager?.stop?.(); } catch {}
   }, [active]);
 
   const handleLoginSuccess = (userData: AuthUser) => {
@@ -212,7 +212,8 @@ function MainApp() {
   };
 
   const handleNavigateScreen = (screenName: string) => {
-    voiceService.stop();
+    try { voiceService?.stop?.(); } catch {}
+    try { duplexManager?.stop?.(); } catch {}
     setActive(screenName);
   };
 
