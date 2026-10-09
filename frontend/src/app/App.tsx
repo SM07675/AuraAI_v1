@@ -65,8 +65,14 @@ function MainApp() {
   const [user, setUser] = useState<AuthUser | null>(() => {
     return authService.getUser();
   });
+  const [portalMode, setPortalMode] = useState<"patient" | "clinician">(() => {
+    return authService.getActivePortal();
+  });
   const [active, setActive] = useState<string>(() => {
-    return authService.getUser() ? "Dashboard" : "Landing";
+    const currentUser = authService.getUser();
+    if (!currentUser) return "Landing";
+    const initialPortal = authService.getActivePortal();
+    return initialPortal === "clinician" ? "Clinician" : "Dashboard";
   });
   const [initialChatQuery, setInitialChatQuery] = useState<string>("");
 
@@ -105,6 +111,7 @@ function MainApp() {
       Memory: "Cognitive Memory • Aura AI",
       Emotion: "Emotion Insight • Aura AI",
       Analytics: "Affective Analytics • Aura AI",
+      Clinician: "Clinician Workstation • Aura AI",
       Debug: "System Telemetry • Aura AI",
       Profile: "User Profile • Aura AI",
       Settings: "Preferences • Aura AI",
@@ -135,9 +142,50 @@ function MainApp() {
     return () => window.removeEventListener("aura-navigate", handleNavigate);
   }, []);
 
+  // Global portal switch event listener
+  useEffect(() => {
+    const handlePortalSwitchEvent = (e: any) => {
+      if (e?.detail) {
+        const next = e.detail as "patient" | "clinician";
+        setPortalMode(next);
+        if (next === "clinician") {
+          setActive("Clinician");
+        } else {
+          setActive("Dashboard");
+        }
+      }
+    };
+    window.addEventListener("aura-portal-switched", handlePortalSwitchEvent);
+    return () => window.removeEventListener("aura-portal-switched", handlePortalSwitchEvent);
+  }, []);
+
+  const handleSwitchPortal = async (target: "patient" | "clinician") => {
+    try {
+      await authService.switchRole(target);
+    } catch (e) {
+      console.warn("Could not sync role change with server:", e);
+      authService.setActivePortal(target);
+    }
+    setPortalMode(target);
+    if (user) {
+      setUser({ ...user, role: target });
+    }
+    if (target === "clinician") {
+      setActive("Clinician");
+      toast.success("Switched to Clinician Workstation 🩺");
+    } else {
+      setActive("Dashboard");
+      toast.success("Switched to Patient Sanctuary 🧘");
+    }
+  };
+
   const handleLoginSuccess = (userData: AuthUser) => {
     setUser(userData);
     analytics.identify(userData.id, { name: userData.name, email: userData.email });
+
+    const userPortal = userData.role === "clinician" ? "clinician" : "patient";
+    setPortalMode(userPortal);
+    authService.setActivePortal(userPortal);
 
     // Sync profile name with backend
     authService.authFetch("/api/v1/users/me", {
@@ -155,7 +203,7 @@ function MainApp() {
       setIsOnboarded(true);
       localStorage.setItem("aura_onboarded", "true");
       localStorage.setItem(`aura_onboarded_${userData.email}`, "true");
-      setActive("Dashboard");
+      setActive(userPortal === "clinician" ? "Clinician" : "Dashboard");
     } else {
       setIsOnboarded(false);
       localStorage.setItem("aura_onboarded", "false");
@@ -214,7 +262,7 @@ function MainApp() {
     }).catch(() => {});
 
     analytics.track("onboarding_completed", { interests_count: data.interests.length });
-    setActive("Dashboard");
+    setActive(portalMode === "clinician" ? "Clinician" : "Dashboard");
   };
 
   const handleLogout = () => {
@@ -380,6 +428,8 @@ function MainApp() {
           onSelect={handleNavigateScreen}
           user={user}
           onLogout={handleLogout}
+          portalMode={portalMode}
+          onSwitchPortal={handleSwitchPortal}
         />
       )}
 
@@ -398,6 +448,8 @@ function MainApp() {
               setActive("Chat");
             }}
             onAvatarClick={() => setActive("Settings")}
+            portalMode={portalMode}
+            onSwitchPortal={handleSwitchPortal}
           />
         )}
 
@@ -424,7 +476,11 @@ function MainApp() {
 
       {/* Mobile & Tablet Bottom Navigation Bar */}
       {user && isOnboarded && active !== "Privacy" && !isLandingView && (
-        <ClayBottomNav active={active} onSelect={handleNavigateScreen} />
+        <ClayBottomNav
+          active={active}
+          onSelect={handleNavigateScreen}
+          portalMode={portalMode}
+        />
       )}
     </div>
   );

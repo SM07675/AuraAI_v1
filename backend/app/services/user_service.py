@@ -42,6 +42,7 @@ class UserService:
         user_id: int,
         *,
         name: str | None = None,
+        role: str | None = None,
         preferred_language: str | None = None,
         timezone: str | None = None,
         communication_style: str | None = None,
@@ -51,6 +52,10 @@ class UserService:
 
         if name is not None:
             user.name = name.strip()
+        if role is not None:
+            clean_role = role.strip().lower()
+            if clean_role in ["patient", "clinician"]:
+                user.role = clean_role
         if preferred_language is not None:
             user.preferred_language = preferred_language
         if timezone is not None:
@@ -60,7 +65,7 @@ class UserService:
 
         await self._db.commit()
         await self._db.refresh(user)
-        logger.info("Profile updated", user_id=user_id)
+        logger.info("Profile updated", user_id=user_id, role=user.role)
         return user
 
     async def update_interests(self, user_id: int, interests: list[str]) -> User:

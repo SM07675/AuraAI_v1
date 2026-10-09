@@ -58,6 +58,7 @@ async def register(
         name=body.name,
         email=body.email,
         password=body.password,
+        role=getattr(body, "role", "patient") or "patient",
     )
 
     return {
@@ -66,6 +67,7 @@ async def register(
             name=user.name,
             email=user.email,
             is_admin=getattr(user, "is_admin", False) or False,
+            role=getattr(user, "role", "patient") or "patient",
             avatar_url=getattr(user, "avatar_url", None),
             auth_provider=getattr(user, "auth_provider", "email") or "email",
         ),
@@ -95,6 +97,7 @@ async def login(
             name=user.name,
             email=user.email,
             is_admin=getattr(user, "is_admin", False) or False,
+            role=getattr(user, "role", "patient") or "patient",
             avatar_url=getattr(user, "avatar_url", None),
             auth_provider=getattr(user, "auth_provider", "email") or "email",
         ),
@@ -140,6 +143,10 @@ async def get_me(
         id=user.id,
         name=user.name,
         email=user.email,
+        is_admin=getattr(user, "is_admin", False) or False,
+        role=getattr(user, "role", "patient") or "patient",
+        avatar_url=getattr(user, "avatar_url", None),
+        auth_provider=getattr(user, "auth_provider", "email") or "email",
         preferred_language=user.preferred_language,
         timezone=user.timezone,
         communication_style=user.communication_style,

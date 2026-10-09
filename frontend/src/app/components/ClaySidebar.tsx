@@ -17,22 +17,40 @@ import {
 interface ClaySidebarProps {
   active: string;
   onSelect: (screen: string) => void;
-  user: { name: string; email: string; is_admin?: boolean } | null;
+  user: { name: string; email: string; is_admin?: boolean; role?: "patient" | "clinician" } | null;
   onLogout?: () => void;
   isConnected?: boolean;
+  portalMode?: "patient" | "clinician";
+  onSwitchPortal?: (portal: "patient" | "clinician") => void;
 }
 
-const BASE_NAV_ITEMS = [
-  { id: "Dashboard", label: "Home", IconComponent: ClayHomeIcon },
-  { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
+const PATIENT_NAV_ITEMS = [
+  { id: "Dashboard", label: "Sanctuary", IconComponent: ClayHomeIcon },
+  { id: "Chat", label: "Companion", IconComponent: ClayChatSidebarIcon },
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
+  { id: "Face-to-Face", label: "Face-to-Face", IconComponent: ClayCameraSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
   { id: "Analytics", label: "Insights", IconComponent: ClayAnalyticsSidebarIcon },
-  { id: "Clinician", label: "Clinician", IconComponent: ClayBrainIcon },
   { id: "Settings", label: "Settings", IconComponent: ClaySettingsSidebarIcon },
 ];
 
-export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = true }: ClaySidebarProps) {
+const CLINICIAN_NAV_ITEMS = [
+  { id: "Clinician", label: "EEG Lab", IconComponent: ClayBrainIcon },
+  { id: "Analytics", label: "Biomarkers", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Chat", label: "Simulation", IconComponent: ClayChatSidebarIcon },
+  { id: "Memory", label: "Patient Graph", IconComponent: ClayHeartSidebarIcon },
+  { id: "Settings", label: "Clinical Config", IconComponent: ClaySettingsSidebarIcon },
+];
+
+export function ClaySidebar({
+  active,
+  onSelect,
+  user,
+  onLogout,
+  isConnected = true,
+  portalMode = "patient",
+  onSwitchPortal,
+}: ClaySidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(() => {
     try {
@@ -46,6 +64,12 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
   const isExpanded = isHovered || isPinned;
   const userName = user?.name || "Friend";
   const avatarChar = userName.charAt(0).toUpperCase();
+
+  const isClinician = portalMode === "clinician";
+  const baseItems = isClinician ? CLINICIAN_NAV_ITEMS : PATIENT_NAV_ITEMS;
+  const navItems = user?.is_admin
+    ? [...baseItems, { id: "Debug", label: "Debug HUD", IconComponent: ClaySettingsSidebarIcon }]
+    : baseItems;
 
   return (
     <motion.aside
@@ -66,18 +90,18 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
       {/* ── Top: Branding ── */}
       <div className="flex flex-col min-h-0 flex-1">
         <div
-          className={`flex items-center ${isExpanded ? "gap-2.5 px-1.5" : "justify-center px-0"} mb-4 cursor-pointer shrink-0 transition-all`}
+          className={`flex items-center ${isExpanded ? "gap-2.5 px-1.5" : "justify-center px-0"} mb-3 cursor-pointer shrink-0 transition-all`}
           onClick={() => {
-            onSelect("Dashboard");
+            onSelect(isClinician ? "Clinician" : "Dashboard");
           }}
-          title="Aura AI"
+          title={isClinician ? "Aura AI Clinician Workstation" : "Aura AI Patient Sanctuary"}
         >
           <motion.div
             whileHover={{ rotate: 15, scale: 1.08 }}
             whileTap={{ scale: 0.92 }}
             className="shrink-0 flex items-center justify-center"
           >
-            <ClayAuraTorusIcon size={32} />
+            {isClinician ? <ClayBrainIcon size={30} /> : <ClayAuraTorusIcon size={32} />}
           </motion.div>
           <AnimatePresence>
             {isExpanded && (
@@ -88,14 +112,25 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
                 transition={{ duration: 0.18 }}
                 className="flex flex-col whitespace-nowrap overflow-hidden leading-tight"
               >
-                <span
-                  className="text-[17px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF]"
-                  style={{ letterSpacing: "-0.4px" }}
-                >
-                  Aura AI
-                </span>
-                <span className="text-[10.5px] font-semibold text-[#8E88A4] dark:text-[#9E98B4]">
-                  A more human AI
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="text-[16px] font-black text-[#2E2544] dark:text-[#FFFFFF]"
+                    style={{ letterSpacing: "-0.4px" }}
+                  >
+                    Aura AI
+                  </span>
+                  <span
+                    className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full uppercase ${
+                      isClinician
+                        ? "bg-[#7C3AED]/20 text-[#7C3AED] dark:text-[#C7B5F3]"
+                        : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    {isClinician ? "Clinician" : "Sanctuary"}
+                  </span>
+                </div>
+                <span className="text-[10px] font-semibold text-[#8E88A4] dark:text-[#9E98B4]">
+                  {isClinician ? "Electrophysiology Lab" : "Empathetic companion"}
                 </span>
               </motion.div>
             )}
@@ -104,10 +139,7 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
 
         {/* ── Navigation Items ── */}
         <nav className="flex flex-col gap-1 overflow-y-auto scrollbar-none min-h-0 flex-1 pr-0.5">
-          {(user?.is_admin
-            ? [...BASE_NAV_ITEMS, { id: "Debug", label: "Debug HUD", IconComponent: ClaySettingsSidebarIcon }]
-            : BASE_NAV_ITEMS
-          ).map((item) => {
+          {navItems.map((item) => {
             const isActive =
               active === item.id ||
               (item.id === "Dashboard" && active === "Home");
@@ -164,12 +196,46 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
       </div>
 
       {/* ── Bottom: Tagline, Profile & Collapse Toggle ── */}
-      <div className="mt-2 pt-2.5 border-t border-white/60 dark:border-white/10 shrink-0 flex flex-col gap-2">
+      <div className="mt-2 pt-2 border-t border-white/60 dark:border-white/10 shrink-0 flex flex-col gap-2">
+        {/* ── 1-Click Role-Based Portal Switcher ── */}
+        <motion.button
+          whileHover={{ scale: 1.02, y: -1 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onSwitchPortal?.(isClinician ? "patient" : "clinician")}
+          title={isClinician ? "Switch to Patient Sanctuary" : "Switch to Clinician Workstation"}
+          className={`w-full flex items-center ${
+            isExpanded ? "justify-between px-2.5 py-2" : "justify-center p-2"
+          } rounded-2xl cursor-pointer border-none outline-none transition-all shadow-sm ${
+            isClinician
+              ? "bg-gradient-to-r from-emerald-500/15 to-teal-500/10 hover:from-emerald-500/25 hover:to-teal-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+              : "bg-gradient-to-r from-purple-500/15 to-indigo-500/10 hover:from-purple-500/25 hover:to-indigo-500/20 text-[#7C3AED] dark:text-[#C7B5F3] border border-purple-500/20"
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base shrink-0">{isClinician ? "🧘" : "🩺"}</span>
+            {isExpanded && (
+              <div className="flex flex-col text-left leading-tight min-w-0">
+                <span className="text-[10.5px] font-extrabold truncate">
+                  {isClinician ? "Patient Sanctuary" : "Clinician Lab"}
+                </span>
+                <span className="text-[9px] opacity-75 font-semibold">
+                  {isClinician ? "Switch to Companion" : "Switch to EEG Lab"}
+                </span>
+              </div>
+            )}
+          </div>
+          {isExpanded && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 shrink-0">
+              ⇄
+            </span>
+          )}
+        </motion.button>
+
         {/* Tagline from reference image */}
         {isExpanded && (
           <div className="px-1 text-left">
             <p className="text-[11px] font-medium text-[#8E88A4] dark:text-[#9E98B4] leading-tight m-0">
-              A kinder AI for brighter tomorrows.
+              {isClinician ? "Objective clinical telemetry." : "A kinder AI for brighter tomorrows."}
             </p>
           </div>
         )}
@@ -304,18 +370,34 @@ export function ClaySidebar({ active, onSelect, user, onLogout, isConnected = tr
 /* ─────────────────────────────────────────────────────────────────────────────
    MOBILE & TABLET BOTTOM NAVIGATION BAR
    ───────────────────────────────────────────────────────────────────────────── */
-const MOBILE_NAV_ITEMS = [
+const MOBILE_PATIENT_ITEMS = [
   { id: "Dashboard", label: "Home", IconComponent: ClayHomeIcon },
   { id: "Chat", label: "Chat", IconComponent: ClayChatSidebarIcon },
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
   { id: "Face-to-Face", label: "Face", IconComponent: ClayCameraSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
-  { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
-  { id: "Clinician", label: "Clinician", IconComponent: ClayBrainIcon },
   { id: "Analytics", label: "Stats", IconComponent: ClayAnalyticsSidebarIcon },
 ];
 
-export function ClayBottomNav({ active, onSelect }: { active: string; onSelect: (screen: string) => void }) {
+const MOBILE_CLINICIAN_ITEMS = [
+  { id: "Clinician", label: "EEG Lab", IconComponent: ClayBrainIcon },
+  { id: "Analytics", label: "Biomarkers", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Chat", label: "Simulate", IconComponent: ClayChatSidebarIcon },
+  { id: "Memory", label: "Graph", IconComponent: ClayHeartSidebarIcon },
+  { id: "Settings", label: "Config", IconComponent: ClaySettingsSidebarIcon },
+];
+
+export function ClayBottomNav({
+  active,
+  onSelect,
+  portalMode = "patient",
+}: {
+  active: string;
+  onSelect: (screen: string) => void;
+  portalMode?: "patient" | "clinician";
+}) {
+  const items = portalMode === "clinician" ? MOBILE_CLINICIAN_ITEMS : MOBILE_PATIENT_ITEMS;
+
   return (
     <nav
       className="clay-card fixed bottom-2.5 left-3 right-3 lg:hidden flex items-center justify-around py-1.5 px-2 z-50 rounded-3xl"
@@ -323,8 +405,10 @@ export function ClayBottomNav({ active, onSelect }: { active: string; onSelect: 
         boxShadow: "0 10px 30px rgba(180, 160, 200, 0.45)",
       }}
     >
-      {MOBILE_NAV_ITEMS.map((item) => {
-        const isActive = active === item.id || (item.id === "Dashboard" && active === "Home");
+      {items.map((item) => {
+        const isActive =
+          active === item.id ||
+          (item.id === "Dashboard" && active === "Home");
         const Icon = item.IconComponent;
 
         return (

@@ -16,6 +16,7 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, examples=["Alex Johnson"])
     email: EmailStr = Field(..., examples=["alex@example.com"])
     password: str = Field(..., min_length=8, max_length=128, examples=["SecurePass123"])
+    role: Optional[str] = Field("patient", description="patient or clinician", examples=["patient"])
 
     @field_validator("name")
     @classmethod
@@ -68,5 +69,6 @@ class UserInToken(BaseModel):
     name: str
     email: str
     is_admin: bool = False
+    role: str = "patient"
     avatar_url: Optional[str] = None
     auth_provider: str = "email"

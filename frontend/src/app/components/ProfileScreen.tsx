@@ -1,19 +1,26 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { User as UserIcon, Save, Sparkles, Target, Compass, MessageSquare, Check, LogOut, ShieldAlert } from "lucide-react";
+import { User as UserIcon, Save, Sparkles, Target, Compass, MessageSquare, Check, LogOut, ShieldAlert, Stethoscope } from "lucide-react";
 import { GlassCard } from "./glass-card";
 import { useUser } from "../context/UserContext";
 import { apiClient } from "../services/apiClient";
+import { authService } from "../services/authService";
+import { toast } from "sonner";
 
 interface ProfileScreenProps {
   onLogout?: () => void;
-  user?: { name: string; email: string } | null;
+  user?: { name: string; email: string; role?: "patient" | "clinician" } | null;
 }
 
 export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) {
   const { user: authUser, updateUserLocally, refreshUser } = useUser();
   const effectiveUser = authUser || propUser;
   const [loading, setLoading] = useState(false);
+  const [roleUpdating, setRoleUpdating] = useState(false);
+
+  const [role, setRole] = useState<"patient" | "clinician">(() => {
+    return authService.getActivePortal();
+  });
 
   const [name, setName] = useState(() => {
     if (effectiveUser?.name && effectiveUser.name !== "User") return effectiveUser.name;
@@ -99,6 +106,24 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
 
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleRoleSwitch = async (newRole: "patient" | "clinician") => {
+    if (newRole === role || roleUpdating) return;
+    setRoleUpdating(true);
+    try {
+      await authService.switchRole(newRole);
+      setRole(newRole);
+      updateUserLocally({ role: newRole });
+      toast.success(
+        `Switched to ${newRole === "clinician" ? "Clinician Workstation 🩺" : "Patient Sanctuary 🧘"}`
+      );
+      window.dispatchEvent(new CustomEvent("aura-portal-switched", { detail: newRole }));
+    } catch (err: any) {
+      toast.error("Could not update portal role.");
+    } finally {
+      setRoleUpdating(false);
+    }
   };
 
   return (
@@ -202,6 +227,81 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Role & Portal Workstation Access */}
+      <div className="clay-card p-6 rounded-[32px]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-2xl bg-[#EDE7FB] dark:bg-[#2F274A] grid place-items-center text-[#7B59DC] dark:text-[#C7B5F3] shadow-sm">
+            <Stethoscope size={18} />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base m-0">
+              Role & Portal Preference
+            </h3>
+            <p className="text-xs text-[#7A748A] dark:text-[#9E98B4] font-medium m-0 mt-0.5">
+              Select your primary workstation. You can switch between views anytime with 1-click.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+          <button
+            type="button"
+            disabled={roleUpdating}
+            onClick={() => handleRoleSwitch("patient")}
+            className={`p-4 rounded-2xl flex items-start gap-3 border-none cursor-pointer text-left transition-all ${
+              role === "patient"
+                ? "clay-card ring-2 ring-emerald-500 bg-emerald-500/10"
+                : "clay-card-flat opacity-70 hover:opacity-100"
+            }`}
+          >
+            <span className="text-2xl">🧘</span>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-[#2D2D42] dark:text-[#FFFFFF]">
+                  Patient Sanctuary
+                </span>
+                {role === "patient" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500 text-white font-bold">
+                    Active
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-[#7A748A] dark:text-[#9E98B4] mt-1 font-medium">
+                Conversational companion, real-time FACS video mirror, affective memory graph, and self wellness tracking.
+              </span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            disabled={roleUpdating}
+            onClick={() => handleRoleSwitch("clinician")}
+            className={`p-4 rounded-2xl flex items-start gap-3 border-none cursor-pointer text-left transition-all ${
+              role === "clinician"
+                ? "clay-card ring-2 ring-[#7B59DC] bg-purple-500/10"
+                : "clay-card-flat opacity-70 hover:opacity-100"
+            }`}
+          >
+            <span className="text-2xl">🩺</span>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-[#2D2D42] dark:text-[#FFFFFF]">
+                  Clinician Workstation
+                </span>
+                {role === "clinician" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#7B59DC] text-white font-bold">
+                    Active
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-[#7A748A] dark:text-[#9E98B4] mt-1 font-medium">
+                10-20 EEG topomap, Mumtaz dataset ingestion, Frontal Alpha Asymmetry, Theta/Beta ratios, and triangulation matrix.
+              </span>
+            </div>
+          </button>
         </div>
       </div>
 

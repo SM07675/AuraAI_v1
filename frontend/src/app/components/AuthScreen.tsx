@@ -20,6 +20,7 @@ export function AuthScreen({
   initialMode = "login",
 }: AuthScreenProps) {
   const [mode, setMode] = useState<"login" | "signup">(initialMode);
+  const [role, setRole] = useState<"patient" | "clinician">("patient");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -54,7 +55,7 @@ export function AuthScreen({
 
     try {
       if (mode === "signup") {
-        const { user } = await authService.register(name, email, password);
+        const { user } = await authService.register(name, email, password, role);
         analytics.trackRegister("email");
         onLoginSuccess(user);
       } else {
@@ -153,25 +154,72 @@ export function AuthScreen({
             <AnimatePresence mode="wait">
               {mode === "signup" && (
                 <motion.div
-                  key="name-input"
+                  key="signup-fields"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
+                  className="flex flex-col gap-3.5"
                 >
-                  <label className="block text-[10.5px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1">
-                    Full Name
-                  </label>
-                  <div className="relative flex items-center">
-                    <User size={15} className="absolute left-3 text-[#9E9EB2]" />
-                    <input
-                      type="text"
-                      placeholder="e.g. Atharva Palekar"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="clay-input w-full pl-9 pr-4 py-2 text-xs font-semibold"
-                      required={mode === "signup"}
-                    />
+                  <div>
+                    <label className="block text-[10.5px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1">
+                      Full Name
+                    </label>
+                    <div className="relative flex items-center">
+                      <User size={15} className="absolute left-3 text-[#9E9EB2]" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Atharva Palekar"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="clay-input w-full pl-9 pr-4 py-2 text-xs font-semibold"
+                        required={mode === "signup"}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Role Selector Pill */}
+                  <div>
+                    <label className="block text-[10.5px] font-bold text-[#4B4B60] dark:text-[#C7B5F3] uppercase tracking-wider mb-1.5">
+                      Select Portal Purpose
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRole("patient")}
+                        className={`p-2.5 rounded-2xl flex flex-col items-center text-center gap-1 border-none cursor-pointer transition-all ${
+                          role === "patient"
+                            ? "clay-button ring-2 ring-[#7B59DC]"
+                            : "clay-card-flat opacity-75 hover:opacity-100"
+                        }`}
+                      >
+                        <span className="text-lg">🧘</span>
+                        <span className="text-xs font-extrabold text-[#2D2D42] dark:text-[#F3F0FF]">
+                          Patient Sanctuary
+                        </span>
+                        <span className="text-[10px] text-[#7A7A96] dark:text-[#A9A4BC] leading-tight font-medium">
+                          Affective wellness & companion
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRole("clinician")}
+                        className={`p-2.5 rounded-2xl flex flex-col items-center text-center gap-1 border-none cursor-pointer transition-all ${
+                          role === "clinician"
+                            ? "clay-button ring-2 ring-[#7B59DC]"
+                            : "clay-card-flat opacity-75 hover:opacity-100"
+                        }`}
+                      >
+                        <span className="text-lg">🩺</span>
+                        <span className="text-xs font-extrabold text-[#2D2D42] dark:text-[#F3F0FF]">
+                          Clinician Lab
+                        </span>
+                        <span className="text-[10px] text-[#7A7A96] dark:text-[#A9A4BC] leading-tight font-medium">
+                          EEG topomap & triage
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               )}

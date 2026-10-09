@@ -5,6 +5,7 @@ export interface UserProfile {
   id: number;
   name: string;
   email: string;
+  role?: "patient" | "clinician";
   preferred_language?: string;
   timezone?: string;
   communication_style?: string;
@@ -85,6 +86,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       id: userData.id || 1,
       name: userData.name || (typeof window !== "undefined" && localStorage.getItem("aura_user") ? JSON.parse(localStorage.getItem("aura_user") || "{}").name : "") || "atharvpalekar",
       email: userData.email || (typeof window !== "undefined" && localStorage.getItem("aura_user") ? JSON.parse(localStorage.getItem("aura_user") || "{}").email : "") || "atharv@aura.ai",
+      role: (userData.role || (typeof window !== "undefined" && localStorage.getItem("aura_user") ? JSON.parse(localStorage.getItem("aura_user") || "{}").role : "patient") || "patient") as "patient" | "clinician",
       preferred_language: userData.preferred_language || "en",
       timezone: userData.timezone || "UTC",
       communication_style: userData.communication_style || "balanced",

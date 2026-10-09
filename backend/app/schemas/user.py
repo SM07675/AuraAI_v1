@@ -16,6 +16,7 @@ class UserProfileResponse(BaseModel):
     name: str
     email: str
     is_admin: bool = False
+    role: str = "patient"
     avatar_url: Optional[str] = None
     auth_provider: str = "email"
     preferred_language: Optional[str] = "en"
@@ -31,6 +32,7 @@ class UserUpdateRequest(BaseModel):
     """Partial user profile update — all fields optional."""
 
     name: Optional[str] = Field(None, max_length=255)
+    role: Optional[str] = Field(None, max_length=50)
     preferred_language: Optional[str] = Field(None, max_length=10)
     timezone: Optional[str] = Field(None, max_length=50)
     communication_style: Optional[str] = Field(None, max_length=50)

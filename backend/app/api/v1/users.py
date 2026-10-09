@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user_id, get_db
@@ -42,6 +43,7 @@ def _user_to_response(user: Any) -> UserProfileResponse:
         name=user.name,
         email=user.email,
         is_admin=getattr(user, "is_admin", False) or False,
+        role=getattr(user, "role", "patient") or "patient",
         avatar_url=getattr(user, "avatar_url", None),
         auth_provider=getattr(user, "auth_provider", "email") or "email",
         preferred_language=getattr(user, "preferred_language", "en") or "en",
@@ -108,6 +110,7 @@ async def update_profile(
         user = await service.update_profile(
             user_id,
             name=body.name,
+            role=body.role,
             preferred_language=body.preferred_language,
             timezone=body.timezone,
             communication_style=body.communication_style,
@@ -118,6 +121,7 @@ async def update_profile(
             "id": user_id,
             "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
             "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
+            "role": "patient",
             "preferred_language": "en",
             "timezone": "UTC",
             "communication_style": "balanced",
@@ -126,12 +130,43 @@ async def update_profile(
         })
         if body.name is not None:
             u["name"] = body.name
+        if body.role is not None:
+            u["role"] = body.role
         if body.preferred_language is not None:
             u["preferred_language"] = body.preferred_language
         if body.timezone is not None:
             u["timezone"] = body.timezone
         if body.communication_style is not None:
             u["communication_style"] = body.communication_style
+        return UserProfileResponse(**u)
+
+
+class UserRoleRequest(BaseModel):
+    role: str = Field(..., description="patient or clinician")
+
+
+@router.put("/me/role", response_model=UserProfileResponse, summary="Switch portal role")
+async def update_role(
+    body: UserRoleRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> UserProfileResponse:
+    """Switch active portal role between 'patient' and 'clinician'."""
+    clean_role = body.role.strip().lower()
+    if clean_role not in ["patient", "clinician"]:
+        clean_role = "patient"
+    try:
+        service = UserService(db)
+        user = await service.update_profile(user_id, role=clean_role)
+        return _user_to_response(user)
+    except Exception:
+        u = _dev_user_profiles.setdefault(user_id, {
+            "id": user_id,
+            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
+            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
+            "role": clean_role,
+        })
+        u["role"] = clean_role
         return UserProfileResponse(**u)
 
 

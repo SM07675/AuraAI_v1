@@ -29,6 +29,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     google_sub: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     is_admin: Mapped[bool] = mapped_column(default=False)
+    role: Mapped[str] = mapped_column(String(50), default="patient", comment="patient or clinician")
 
     # Profile fields
     preferred_language: Mapped[Optional[str]] = mapped_column(String(10), default="en")

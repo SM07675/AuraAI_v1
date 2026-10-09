@@ -113,6 +113,7 @@ async def init_db_schema() -> None:
                 ("google_sub", "VARCHAR(255)"),
                 ("avatar_url", "VARCHAR(1024)"),
                 ("is_admin", "BOOLEAN DEFAULT FALSE"),
+                ("role", "VARCHAR(50) DEFAULT 'patient'"),
             ]:
                 try:
                     await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))

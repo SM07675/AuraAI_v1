@@ -15,6 +15,7 @@ export interface AuthUser {
   name: string;
   email: string;
   is_admin?: boolean;
+  role?: "patient" | "clinician";
   avatar_url?: string | null;
   auth_provider?: string;
   isNewUser?: boolean;
@@ -107,6 +108,7 @@ class AuthService {
       name: data.user.name,
       email: data.user.email,
       is_admin: Boolean(data.user.is_admin),
+      role: (data.user.role || "patient") as "patient" | "clinician",
       avatar_url: data.user.avatar_url,
       auth_provider: data.user.auth_provider || "email",
       isNewUser: false,
@@ -122,11 +124,21 @@ class AuthService {
     return { user, tokens };
   }
 
-  async register(name: string, email: string, password: string): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+  async register(
+    name: string,
+    email: string,
+    password: string,
+    role: "patient" | "clinician" = "patient"
+  ): Promise<{ user: AuthUser; tokens: AuthTokens }> {
     const res = await fetch("/api/v1/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), password }),
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+      }),
     });
 
     const data = await res.json();
@@ -140,6 +152,7 @@ class AuthService {
       name: data.user.name,
       email: data.user.email,
       is_admin: Boolean(data.user.is_admin),
+      role: (data.user.role || role || "patient") as "patient" | "clinician",
       avatar_url: data.user.avatar_url,
       auth_provider: data.user.auth_provider || "email",
       isNewUser: true,
@@ -153,6 +166,47 @@ class AuthService {
 
     this.setSession(user, tokens);
     return { user, tokens };
+  }
+
+  async switchRole(newRole: "patient" | "clinician"): Promise<AuthUser> {
+    const res = await fetch("/api/v1/users/me/role", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify({ role: newRole }),
+    });
+
+    const currentUser = this.getUser();
+    const updatedUser: AuthUser = {
+      ...(currentUser || { id: 1, name: "User", email: "user@aura.ai" }),
+      role: newRole,
+    };
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.role) {
+        updatedUser.role = data.role as "patient" | "clinician";
+      }
+    }
+
+    localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+    this.setActivePortal(newRole);
+    return updatedUser;
+  }
+
+  getActivePortal(): "patient" | "clinician" {
+    const saved = localStorage.getItem("aura_portal_mode");
+    if (saved === "clinician" || saved === "patient") {
+      return saved;
+    }
+    const user = this.getUser();
+    return user?.role === "clinician" ? "clinician" : "patient";
+  }
+
+  setActivePortal(portal: "patient" | "clinician"): void {
+    localStorage.setItem("aura_portal_mode", portal);
   }
 
   async refresh(): Promise<string | null> {

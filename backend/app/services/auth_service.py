@@ -33,13 +33,14 @@ class AuthService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def register(self, name: str, email: str, password: str) -> tuple[User, TokenResponse]:
+    async def register(self, name: str, email: str, password: str, role: str = "patient") -> tuple[User, TokenResponse]:
         """Register a new user.
 
         Args:
             name: Display name.
             email: Email address (must be unique).
             password: Plaintext password (will be hashed).
+            role: Account portal role ("patient" or "clinician").
 
         Returns:
             Tuple of (User, TokenResponse).
@@ -48,6 +49,9 @@ class AuthService:
             UserAlreadyExistsError: If email is already registered.
         """
         email = email.lower().strip()
+        role = role.strip().lower() if role else "patient"
+        if role not in ["patient", "clinician"]:
+            role = "patient"
 
         # Check for existing user
         result = await self._db.execute(select(User).where(User.email == email))
@@ -60,6 +64,7 @@ class AuthService:
             name=name.strip(),
             email=email,
             password_hash=hash_password(password),
+            role=role,
         )
         self._db.add(user)
         await self._db.commit()
