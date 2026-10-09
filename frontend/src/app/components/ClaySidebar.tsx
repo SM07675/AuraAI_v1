@@ -21,7 +21,6 @@ interface ClaySidebarProps {
   onLogout?: () => void;
   isConnected?: boolean;
   portalMode?: "patient" | "clinician";
-  onSwitchPortal?: (portal: "patient" | "clinician") => void;
 }
 
 const PATIENT_NAV_ITEMS = [
@@ -36,9 +35,6 @@ const PATIENT_NAV_ITEMS = [
 
 const CLINICIAN_NAV_ITEMS = [
   { id: "Clinician", label: "EEG Lab", IconComponent: ClayBrainIcon },
-  { id: "Analytics", label: "Biomarkers", IconComponent: ClayAnalyticsSidebarIcon },
-  { id: "Chat", label: "Simulation", IconComponent: ClayChatSidebarIcon },
-  { id: "Memory", label: "Patient Graph", IconComponent: ClayHeartSidebarIcon },
   { id: "Settings", label: "Clinical Config", IconComponent: ClaySettingsSidebarIcon },
 ];
 
@@ -48,8 +44,7 @@ export function ClaySidebar({
   user,
   onLogout,
   isConnected = true,
-  portalMode = "patient",
-  onSwitchPortal,
+  portalMode,
 }: ClaySidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(() => {
@@ -197,40 +192,6 @@ export function ClaySidebar({
 
       {/* ── Bottom: Tagline, Profile & Collapse Toggle ── */}
       <div className="mt-2 pt-2 border-t border-white/60 dark:border-white/10 shrink-0 flex flex-col gap-2">
-        {/* ── 1-Click Role-Based Portal Switcher ── */}
-        <motion.button
-          whileHover={{ scale: 1.02, y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => onSwitchPortal?.(isClinician ? "patient" : "clinician")}
-          title={isClinician ? "Switch to Patient Sanctuary" : "Switch to Clinician Workstation"}
-          className={`w-full flex items-center ${
-            isExpanded ? "justify-between px-2.5 py-2" : "justify-center p-2"
-          } rounded-2xl cursor-pointer border-none outline-none transition-all shadow-sm ${
-            isClinician
-              ? "bg-gradient-to-r from-emerald-500/15 to-teal-500/10 hover:from-emerald-500/25 hover:to-teal-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
-              : "bg-gradient-to-r from-purple-500/15 to-indigo-500/10 hover:from-purple-500/25 hover:to-indigo-500/20 text-[#7C3AED] dark:text-[#C7B5F3] border border-purple-500/20"
-          }`}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base shrink-0">{isClinician ? "🧘" : "🩺"}</span>
-            {isExpanded && (
-              <div className="flex flex-col text-left leading-tight min-w-0">
-                <span className="text-[10.5px] font-extrabold truncate">
-                  {isClinician ? "Patient Sanctuary" : "Clinician Lab"}
-                </span>
-                <span className="text-[9px] opacity-75 font-semibold">
-                  {isClinician ? "Switch to Companion" : "Switch to EEG Lab"}
-                </span>
-              </div>
-            )}
-          </div>
-          {isExpanded && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 shrink-0">
-              ⇄
-            </span>
-          )}
-        </motion.button>
-
         {/* Tagline from reference image */}
         {isExpanded && (
           <div className="px-1 text-left">
@@ -381,9 +342,6 @@ const MOBILE_PATIENT_ITEMS = [
 
 const MOBILE_CLINICIAN_ITEMS = [
   { id: "Clinician", label: "EEG Lab", IconComponent: ClayBrainIcon },
-  { id: "Analytics", label: "Biomarkers", IconComponent: ClayAnalyticsSidebarIcon },
-  { id: "Chat", label: "Simulate", IconComponent: ClayChatSidebarIcon },
-  { id: "Memory", label: "Graph", IconComponent: ClayHeartSidebarIcon },
   { id: "Settings", label: "Config", IconComponent: ClaySettingsSidebarIcon },
 ];
 

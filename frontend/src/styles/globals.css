@@ -843,6 +843,7 @@ body.dark {
 }
 
 /* 4. Active Navigation Item in Dark Mode (Glowing Purple Pill) */
+.dark .clay-active-purple,
 .dark .clay-active-nav {
   background: linear-gradient(135deg, #7B56DB 0%, #6336D4 100%) !important;
   color: #FFFFFF !important;

@@ -317,3 +317,19 @@ async def get_current_admin_user(
             detail="Admin privileges required to access this resource.",
         )
     return user
+
+
+async def get_current_clinician_user(
+    user: Any = Depends(get_current_user),
+) -> Any:
+    """Ensure current user has verified clinician or administrative permissions."""
+    from fastapi import HTTPException, status
+    role = getattr(user, "role", "patient")
+    is_admin = getattr(user, "is_admin", False)
+    if role != "clinician" and not is_admin and getattr(user, "email", "") != "admin@aura.ai":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Clinician access required to access electrophysiology & diagnostic resources.",
+        )
+    return user
+

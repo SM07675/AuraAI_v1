@@ -10,7 +10,6 @@ interface TopBarProps {
   onSearch?: (query: string) => void;
   onAvatarClick?: () => void;
   portalMode?: "patient" | "clinician";
-  onSwitchPortal?: (portal: "patient" | "clinician") => void;
 }
 
 export function TopBar({
@@ -19,7 +18,6 @@ export function TopBar({
   onSearch,
   onAvatarClick,
   portalMode = "patient",
-  onSwitchPortal,
 }: TopBarProps) {
   const { isDark, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,7 +55,7 @@ export function TopBar({
 
   return (
     <div className="flex items-center justify-between w-full mb-3 pt-1 px-1 select-none gap-2">
-      {/* Left: Greeting, Status Pill & Portal Switcher */}
+      {/* Left: Greeting, Status Pill & Read-Only Role Badge */}
       <div className="flex items-center gap-2">
         <div
           className="clay-pill px-3 py-1.5 inline-flex items-center gap-2 text-[12px] font-bold text-[#2E2544] dark:text-[#E8E4F2]"
@@ -81,26 +79,17 @@ export function TopBar({
           </span>
         </div>
 
-        {/* 1-Click Role-Based Portal Switcher Pill */}
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.96 }}
-          type="button"
-          onClick={() => onSwitchPortal?.(portalMode === "clinician" ? "patient" : "clinician")}
-          className={`clay-pill px-3 py-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold cursor-pointer border-none outline-none transition-all ${
+        {/* Read-Only RBAC Role Badge (No switch allowed) */}
+        <div
+          className={`clay-pill px-3 py-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold select-none ${
             portalMode === "clinician"
               ? "text-[#7C3AED] dark:text-[#C7B5F3]"
               : "text-emerald-700 dark:text-emerald-300"
           }`}
           style={{ borderRadius: 999 }}
-          title={`Active Portal: ${portalMode === "clinician" ? "Clinician Workstation" : "Patient Sanctuary"}. Click to switch.`}
         >
-          <span>{portalMode === "clinician" ? "🩺 Clinician Lab" : "🧘 Patient Sanctuary"}</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 font-extrabold flex items-center gap-0.5">
-            <span>Switch</span>
-            <span>⇄</span>
-          </span>
-        </motion.button>
+          <span>{portalMode === "clinician" ? "🩺 Clinician Workstation" : "🧘 Patient Sanctuary"}</span>
+        </div>
 
         <span className="hidden xl:inline-block text-[12.5px] font-extrabold text-[#777287] dark:text-[#A39EB2]">
           {getGreeting()}, <span className="text-[#7C3AED] dark:text-[#C7B5F3]">{displayName}</span> 🌱

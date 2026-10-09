@@ -16,7 +16,6 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
   const { user: authUser, updateUserLocally, refreshUser } = useUser();
   const effectiveUser = authUser || propUser;
   const [loading, setLoading] = useState(false);
-  const [roleUpdating, setRoleUpdating] = useState(false);
 
   const [role, setRole] = useState<"patient" | "clinician">(() => {
     return authService.getActivePortal();
@@ -106,24 +105,6 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
 
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
-  };
-
-  const handleRoleSwitch = async (newRole: "patient" | "clinician") => {
-    if (newRole === role || roleUpdating) return;
-    setRoleUpdating(true);
-    try {
-      await authService.switchRole(newRole);
-      setRole(newRole);
-      updateUserLocally({ role: newRole });
-      toast.success(
-        `Switched to ${newRole === "clinician" ? "Clinician Workstation 🩺" : "Patient Sanctuary 🧘"}`
-      );
-      window.dispatchEvent(new CustomEvent("aura-portal-switched", { detail: newRole }));
-    } catch (err: any) {
-      toast.error("Could not update portal role.");
-    } finally {
-      setRoleUpdating(false);
-    }
   };
 
   return (
@@ -238,70 +219,40 @@ export function ProfileScreen({ onLogout, user: propUser }: ProfileScreenProps) 
           </div>
           <div>
             <h3 className="font-extrabold text-[#2D2D42] dark:text-[#FFFFFF] text-base m-0">
-              Role & Portal Preference
+              Role & Workstation Authorization
             </h3>
             <p className="text-xs text-[#7A748A] dark:text-[#9E98B4] font-medium m-0 mt-0.5">
-              Select your primary workstation. You can switch between views anytime with 1-click.
+              Role-Based Access Control (RBAC) enforced under healthcare compliance protocols.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-          <button
-            type="button"
-            disabled={roleUpdating}
-            onClick={() => handleRoleSwitch("patient")}
-            className={`p-4 rounded-2xl flex items-start gap-3 border-none cursor-pointer text-left transition-all ${
-              role === "patient"
-                ? "clay-card ring-2 ring-emerald-500 bg-emerald-500/10"
-                : "clay-card-flat opacity-70 hover:opacity-100"
-            }`}
-          >
-            <span className="text-2xl">🧘</span>
-            <div className="flex flex-col">
+        <div className="p-4 rounded-2xl clay-card-flat flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{role === "clinician" ? "🩺" : "🧘"}</span>
+            <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-[#2D2D42] dark:text-[#FFFFFF]">
-                  Patient Sanctuary
+                <span className="text-sm font-black text-[#2D2D42] dark:text-[#FFFFFF]">
+                  {role === "clinician" ? "Clinician Workstation" : "Patient Sanctuary"}
                 </span>
-                {role === "patient" && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500 text-white font-bold">
-                    Active
-                  </span>
-                )}
-              </div>
-              <span className="text-[11px] text-[#7A748A] dark:text-[#9E98B4] mt-1 font-medium">
-                Conversational companion, real-time FACS video mirror, affective memory graph, and self wellness tracking.
-              </span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            disabled={roleUpdating}
-            onClick={() => handleRoleSwitch("clinician")}
-            className={`p-4 rounded-2xl flex items-start gap-3 border-none cursor-pointer text-left transition-all ${
-              role === "clinician"
-                ? "clay-card ring-2 ring-[#7B59DC] bg-purple-500/10"
-                : "clay-card-flat opacity-70 hover:opacity-100"
-            }`}
-          >
-            <span className="text-2xl">🩺</span>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-[#2D2D42] dark:text-[#FFFFFF]">
-                  Clinician Workstation
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                  role === "clinician"
+                    ? "bg-[#7B59DC]/20 text-[#7B59DC] dark:text-[#C7B5F3]"
+                    : "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                }`}>
+                  Verified {role === "clinician" ? "Clinician" : "Patient"}
                 </span>
-                {role === "clinician" && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#7B59DC] text-white font-bold">
-                    Active
-                  </span>
-                )}
               </div>
-              <span className="text-[11px] text-[#7A748A] dark:text-[#9E98B4] mt-1 font-medium">
-                10-20 EEG topomap, Mumtaz dataset ingestion, Frontal Alpha Asymmetry, Theta/Beta ratios, and triangulation matrix.
-              </span>
+              <p className="text-[11px] text-[#7A748A] dark:text-[#9E98B4] font-medium mt-1 m-0">
+                {role === "clinician"
+                  ? "Authorized for empirical EEG file ingestion, 10-20 topomap analysis, and FACS triangulation matrix."
+                  : "Authorized for personal emotional support, voice conversations, and memory journaling."}
+              </p>
             </div>
-          </button>
+          </div>
+          <span className="text-[10px] text-[#8E88A4] dark:text-[#9E98B4] font-bold px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/10 shrink-0">
+            Immutable Role
+          </span>
         </div>
       </div>
 

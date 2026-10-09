@@ -220,6 +220,9 @@ export function AuthScreen({
                         </span>
                       </button>
                     </div>
+                    <p className="text-[10px] text-[#7A748A] dark:text-[#9E98B4] mt-2 font-medium leading-tight text-center">
+                      🔒 Enforces strict Role-Based Access Control (RBAC). Portal environment is locked upon registration.
+                    </p>
                   </div>
                 </motion.div>
               )}

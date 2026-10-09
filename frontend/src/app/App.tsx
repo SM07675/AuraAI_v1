@@ -65,14 +65,13 @@ function MainApp() {
   const [user, setUser] = useState<AuthUser | null>(() => {
     return authService.getUser();
   });
-  const [portalMode, setPortalMode] = useState<"patient" | "clinician">(() => {
-    return authService.getActivePortal();
-  });
+  const isClinician = user?.role === "clinician";
+  const portalMode: "patient" | "clinician" = isClinician ? "clinician" : "patient";
+
   const [active, setActive] = useState<string>(() => {
     const currentUser = authService.getUser();
     if (!currentUser) return "Landing";
-    const initialPortal = authService.getActivePortal();
-    return initialPortal === "clinician" ? "Clinician" : "Dashboard";
+    return currentUser.role === "clinician" ? "Clinician" : "Dashboard";
   });
   const [initialChatQuery, setInitialChatQuery] = useState<string>("");
 
@@ -142,50 +141,11 @@ function MainApp() {
     return () => window.removeEventListener("aura-navigate", handleNavigate);
   }, []);
 
-  // Global portal switch event listener
-  useEffect(() => {
-    const handlePortalSwitchEvent = (e: any) => {
-      if (e?.detail) {
-        const next = e.detail as "patient" | "clinician";
-        setPortalMode(next);
-        if (next === "clinician") {
-          setActive("Clinician");
-        } else {
-          setActive("Dashboard");
-        }
-      }
-    };
-    window.addEventListener("aura-portal-switched", handlePortalSwitchEvent);
-    return () => window.removeEventListener("aura-portal-switched", handlePortalSwitchEvent);
-  }, []);
-
-  const handleSwitchPortal = async (target: "patient" | "clinician") => {
-    try {
-      await authService.switchRole(target);
-    } catch (e) {
-      console.warn("Could not sync role change with server:", e);
-      authService.setActivePortal(target);
-    }
-    setPortalMode(target);
-    if (user) {
-      setUser({ ...user, role: target });
-    }
-    if (target === "clinician") {
-      setActive("Clinician");
-      toast.success("Switched to Clinician Workstation 🩺");
-    } else {
-      setActive("Dashboard");
-      toast.success("Switched to Patient Sanctuary 🧘");
-    }
-  };
-
   const handleLoginSuccess = (userData: AuthUser) => {
     setUser(userData);
     analytics.identify(userData.id, { name: userData.name, email: userData.email });
 
-    const userPortal = userData.role === "clinician" ? "clinician" : "patient";
-    setPortalMode(userPortal);
-    authService.setActivePortal(userPortal);
+    const isClinicianUser = userData.role === "clinician";
 
     // Sync profile name with backend
     authService.authFetch("/api/v1/users/me", {
@@ -203,7 +163,7 @@ function MainApp() {
       setIsOnboarded(true);
       localStorage.setItem("aura_onboarded", "true");
       localStorage.setItem(`aura_onboarded_${userData.email}`, "true");
-      setActive(userPortal === "clinician" ? "Clinician" : "Dashboard");
+      setActive(isClinicianUser ? "Clinician" : "Dashboard");
     } else {
       setIsOnboarded(false);
       localStorage.setItem("aura_onboarded", "false");
@@ -338,6 +298,9 @@ function MainApp() {
         );
       case "Dashboard":
       case "Home":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return (
           <HomeScreen
             onStart={(scr) => setActive(scr || "Voice Mode")}
@@ -346,6 +309,9 @@ function MainApp() {
           />
         );
       case "Chat":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return (
           <ChatScreen
             initialQuery={initialChatQuery}
@@ -353,19 +319,55 @@ function MainApp() {
           />
         );
       case "Voice Mode":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return <VoiceScreen />;
       case "Face-to-Face":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return <FaceToFaceScreen />;
       case "Memory":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return <MemoryScreen />;
       case "Profile":
         return <ProfileScreen user={user} onLogout={handleLogout} />;
       case "Emotion":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return <EmotionScreen />;
       case "Analytics":
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return <AnalyticsScreen onNavigate={(screen) => setActive(screen)} />;
       case "Clinician":
-        return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        if (!isClinician && !user.is_admin) {
+          return (
+            <div className="w-full h-full min-h-[60vh] flex flex-col items-center justify-center p-6 text-center select-none">
+              <div className="clay-card p-8 max-w-md w-full" style={{ borderRadius: 28 }}>
+                <div className="text-3xl mb-3">🩺🔒</div>
+                <h2 className="text-[20px] font-extrabold text-[#2E2544] dark:text-[#FFFFFF] mb-2">
+                  Clinician Authorization Required
+                </h2>
+                <p className="text-[13px] text-[#7A748A] dark:text-[#9E98B4] leading-relaxed mb-6 font-medium">
+                  Your account is authorized as a Patient Sanctuary account. Electrophysiology data, 10-20 topomap diagnostics, and Mumtaz cohort telemetry require verified Clinician credentials under statutory healthcare compliance (FDA SaMD / DPDP Act).
+                </p>
+                <button
+                  onClick={() => setActive("Dashboard")}
+                  className="clay-button py-2.5 px-6 rounded-full font-bold text-xs text-[#7B59DC] cursor-pointer border-none outline-none"
+                >
+                  Return to Patient Sanctuary
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return <ClinicianPortal initialTab="eeg_lab" onNavigate={(screen) => setActive(screen)} />;
       case "Debug":
         // Admin-only gate
         if (!user.is_admin) {
@@ -393,8 +395,11 @@ function MainApp() {
       case "Settings":
         return <ProfileScreen user={user} onLogout={handleLogout} />;
       case "Privacy":
-        return <PrivacyPolicyScreen onBack={() => setActive("Dashboard")} />;
+        return <PrivacyPolicyScreen onBack={() => setActive(isClinician ? "Clinician" : "Dashboard")} />;
       default:
+        if (isClinician) {
+          return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
+        }
         return (
           <HomeScreen
             onStart={(scr) => setActive(scr || "Voice Mode")}
@@ -429,7 +434,6 @@ function MainApp() {
           user={user}
           onLogout={handleLogout}
           portalMode={portalMode}
-          onSwitchPortal={handleSwitchPortal}
         />
       )}
 
@@ -449,7 +453,6 @@ function MainApp() {
             }}
             onAvatarClick={() => setActive("Settings")}
             portalMode={portalMode}
-            onSwitchPortal={handleSwitchPortal}
           />
         )}
 

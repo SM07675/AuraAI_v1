@@ -88,6 +88,7 @@ class AuthService {
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem("aura_onboarded");
+    localStorage.removeItem("aura_portal_mode");
   }
 
   async login(email: string, password: string): Promise<{ user: AuthUser; tokens: AuthTokens }> {
@@ -168,45 +169,9 @@ class AuthService {
     return { user, tokens };
   }
 
-  async switchRole(newRole: "patient" | "clinician"): Promise<AuthUser> {
-    const res = await fetch("/api/v1/users/me/role", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...this.getAuthHeaders(),
-      },
-      body: JSON.stringify({ role: newRole }),
-    });
-
-    const currentUser = this.getUser();
-    const updatedUser: AuthUser = {
-      ...(currentUser || { id: 1, name: "User", email: "user@aura.ai" }),
-      role: newRole,
-    };
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.role) {
-        updatedUser.role = data.role as "patient" | "clinician";
-      }
-    }
-
-    localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
-    this.setActivePortal(newRole);
-    return updatedUser;
-  }
-
   getActivePortal(): "patient" | "clinician" {
-    const saved = localStorage.getItem("aura_portal_mode");
-    if (saved === "clinician" || saved === "patient") {
-      return saved;
-    }
     const user = this.getUser();
     return user?.role === "clinician" ? "clinician" : "patient";
-  }
-
-  setActivePortal(portal: "patient" | "clinician"): void {
-    localStorage.setItem("aura_portal_mode", portal);
   }
 
   async refresh(): Promise<string | null> {

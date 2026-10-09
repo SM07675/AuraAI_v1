@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import numpy as np
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,7 +23,11 @@ from app.eeg.biomarkers import compute_biomarkers, load_benchmarks
 from app.eeg.preprocessor import parse_edf_bytes, preprocess_signals
 from app.models.eeg import EEGCorrelation, EEGReport
 from app.models.emotion_log import EmotionLog
-from app.models.graph import GraphEntity
+from app.models.graph import GraphEntity, GraphRelationship
+from app.models.message import Message
+from app.models.session import Session
+from app.models.user import User
+from app.services.knowledge_graph_service import KnowledgeGraphService
 
 logger = get_logger(__name__)
 
@@ -178,8 +182,11 @@ class EEGService:
 
         return report
 
-    async def _get_recent_emotions(self, user_id: int, limit: int = 25) -> List[EmotionLog]:
-        """Fetch user's recent emotion logs for behavioral concordance."""
+    async def _get_recent_emotions(self, user_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+        """Fetch user's recent emotion telemetry across both EmotionLog and Message tables."""
+        combined: List[Dict[str, Any]] = []
+
+        # 1. EmotionLog table
         stmt = (
             select(EmotionLog)
             .where(EmotionLog.user_id == user_id)
@@ -187,9 +194,43 @@ class EEGService:
             .limit(limit)
         )
         res = await self.db.execute(stmt)
-        return list(res.scalars().all())
+        for el in res.scalars().all():
+            combined.append({
+                "primary_emotion": el.primary_emotion,
+                "intensity": el.intensity,
+                "sentiment": "negative" if el.primary_emotion in ["sad", "sadness", "frustrated", "anxious", "fear"] else ("positive" if el.primary_emotion in ["happy", "calm"] else "neutral"),
+                "source": "emotion_log",
+                "session_id": el.session_id,
+            })
 
-    async def _get_relevant_graph_entities(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        # 2. Message table (rich Face, Voice, and Text emotion telemetry)
+        msg_stmt = (
+            select(Message)
+            .where(
+                Message.user_id == user_id,
+                Message.role == "user",
+                Message.emotion_data.isnot(None),
+            )
+            .order_by(desc(Message.created_at))
+            .limit(limit)
+        )
+        msg_res = await self.db.execute(msg_stmt)
+        for m in msg_res.scalars().all():
+            em = m.emotion_data or {}
+            combined.append({
+                "primary_emotion": em.get("fused_emotion") or em.get("text_emotion") or em.get("face_emotion"),
+                "face_emotion": em.get("face_emotion"),
+                "text_emotion": em.get("text_emotion"),
+                "sentiment": em.get("sentiment"),
+                "conflict": bool(em.get("conflict", False)),
+                "confidence": float(em.get("confidence", 50.0)),
+                "source": "message_capture",
+                "session_id": m.session_id,
+            })
+
+        return combined
+
+    async def _get_relevant_graph_entities(self, user_id: int, limit: int = 12) -> List[Dict[str, Any]]:
         """Fetch user's knowledge graph entities (stressors, goals, concepts)."""
         stmt = (
             select(GraphEntity)
@@ -205,7 +246,7 @@ class EEGService:
         self,
         features: Dict[str, float],
         prob_mdd: float,
-        emotions: List[EmotionLog],
+        emotions: List[Dict[str, Any]],
         entities: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
@@ -214,17 +255,29 @@ class EEGService:
         faa = features.get("faa", 0.0)
         tbr = features.get("tbr_fz", 1.0)
 
-        # Baseline FACS estimation synthesized from emotion logs
+        # Baseline FACS estimation synthesized from emotion logs and message telemetry
         total_logs = len(emotions)
         if total_logs > 0:
-            neg_count = sum(1 for e in emotions if e.primary_emotion in ["sad", "sadness", "frustrated", "anxious", "anxiety", "fear"])
-            pos_count = sum(1 for e in emotions if e.primary_emotion in ["happy", "calm", "joy"])
+            neg_count = sum(
+                1 for e in emotions
+                if (e.get("primary_emotion") in ["sad", "sadness", "frustrated", "anxious", "anxiety", "fear"]
+                    or e.get("sentiment") == "negative"
+                    or e.get("text_emotion") in ["sad", "anxious", "frustrated"])
+            )
+            pos_count = sum(
+                1 for e in emotions
+                if (e.get("primary_emotion") in ["happy", "calm", "joy"]
+                    or e.get("sentiment") == "positive"
+                    or e.get("face_emotion") in ["happy", "calm"])
+            )
+            conflict_count = sum(1 for e in emotions if e.get("conflict"))
             neg_ratio = neg_count / total_logs
             pos_ratio = pos_count / total_logs
+            conflict_ratio = conflict_count / total_logs
         else:
-            # Derived from EEG probability if no prior interaction logs exist
             neg_ratio = prob_mdd
             pos_ratio = 1.0 - prob_mdd
+            conflict_ratio = 0.2
 
         # Synthesize FACS Action Units
         # AU04: Corrugator supercilii (Brow Furrower) — primary index of negative affect / distress
@@ -240,11 +293,8 @@ class EEGService:
         prosody_monotony = float(np.clip(neg_ratio * 0.6 + prob_mdd * 0.4, 0.1, 0.9))
 
         # Concordance scoring: how closely do behavioral signs agree with EEG dysregulation?
-        # If EEG shows high depressive risk (prob_mdd > 0.6) and behavioral signs show high negative affect, concordance is high.
-        eeg_direction = 1.0 if prob_mdd >= 0.5 else 0.0
-        behavioral_direction = 1.0 if neg_ratio >= 0.4 else 0.0
         concordance_diff = abs(prob_mdd - neg_ratio)
-        concordance_score = float(np.clip(1.0 - (concordance_diff * 0.8), 0.2, 0.98))
+        concordance_score = float(np.clip(1.0 - (concordance_diff * 0.8) + (conflict_ratio * 0.1), 0.2, 0.98))
 
         if concordance_score >= 0.75:
             level = "high"
@@ -263,11 +313,12 @@ class EEGService:
                 "concordance": "aligned",
             })
 
+        conflict_note = f" Detected affective conflict ratio of {conflict_ratio * 100:.1f}% indicates emotional masking / smiling depression." if conflict_ratio > 0.15 else ""
         notes = (
             f"Triangulation index {concordance_score:.2f} ({level} concordance). "
             f"Frontal Alpha Asymmetry (FAA={faa:.3f}) aligns with elevated Brow Furrowing (AU04={au04:.2f}) "
             f"and suppressed Zygomatic Pull (AU12={au12:.2f}). Midline Theta/Beta Ratio (TBR={tbr:.2f}) "
-            f"reflects cognitive load concordant with recent dialogue interactions."
+            f"reflects cognitive load concordant with recent dialogue interactions.{conflict_note}"
         )
 
         return {
@@ -279,6 +330,7 @@ class EEGService:
                 "au15_lip_depressor": round(au15, 3),
                 "au01_brow_raiser": round(au01, 3),
                 "prosody_monotony": round(prosody_monotony, 3),
+                "affective_conflict_ratio": round(conflict_ratio, 3),
             },
             "linked_entities": mapped_entities,
             "synthesis_notes": notes,
@@ -365,12 +417,262 @@ class EEGService:
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_report(self, report_id: int, user_id: int) -> Optional[EEGReport]:
+    async def get_report(self, report_id: int, user_id: Optional[int] = None) -> Optional[EEGReport]:
         """Retrieves a single EEG report with its correlations."""
         stmt = (
             select(EEGReport)
             .options(selectinload(EEGReport.correlations))
-            .where(EEGReport.id == report_id, EEGReport.user_id == user_id)
+            .where(EEGReport.id == report_id)
         )
+        if user_id is not None:
+            stmt = stmt.where(EEGReport.user_id == user_id)
         res = await self.db.execute(stmt)
         return res.scalar_one_or_none()
+
+    async def get_patient_roster(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves all patients for the clinician's caseload with session counts,
+        EEG report counts, and primary clinical concerns.
+        """
+        stmt = (
+            select(User)
+            .where(or_(User.role == "patient", User.role.is_(None)))
+            .order_by(User.id)
+        )
+        res = await self.db.execute(stmt)
+        users = res.scalars().all()
+
+        roster = []
+        for u in users:
+            rep_stmt = (
+                select(func.count(EEGReport.id), func.max(EEGReport.created_at))
+                .where(EEGReport.user_id == u.id)
+            )
+            rep_res = await self.db.execute(rep_stmt)
+            rep_count, latest_rep_date = rep_res.first() or (0, None)
+
+            sess_stmt = (
+                select(func.count(Session.id), func.max(Session.created_at))
+                .where(Session.user_id == u.id)
+            )
+            sess_res = await self.db.execute(sess_stmt)
+            sess_count, latest_sess_date = sess_res.first() or (0, None)
+
+            kg_stmt = (
+                select(GraphEntity)
+                .where(
+                    GraphEntity.user_id == u.id,
+                    GraphEntity.entity_type.in_(["WELLNESS", "GOAL", "MILESTONE", "INTEREST"]),
+                )
+                .limit(3)
+            )
+            kg_res = await self.db.execute(kg_stmt)
+            concerns = [e.name for e in kg_res.scalars().all()]
+            primary_concern = ", ".join(concerns) if concerns else (u.goals or "Routine Electrophysiology Intake")
+
+            roster.append({
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "avatar_url": u.avatar_url,
+                "role": u.role,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "report_count": rep_count or 0,
+                "session_count": sess_count or 0,
+                "latest_report_date": latest_rep_date.isoformat() if latest_rep_date else None,
+                "latest_session_date": latest_sess_date.isoformat() if latest_sess_date else None,
+                "primary_concern": primary_concern,
+                "status": "active_case" if (rep_count or sess_count) else "pending_intake",
+            })
+
+        return roster
+
+    async def get_patient_insights(self, patient_id: int) -> Dict[str, Any]:
+        """
+        Retrieves complete neuro-behavioral insights for a specific patient,
+        including longitudinal sessions, message-level FACS telemetry, and Knowledge Graph.
+        """
+        user_stmt = select(User).where(User.id == patient_id)
+        user_res = await self.db.execute(user_stmt)
+        patient = user_res.scalar_one_or_none()
+        if not patient:
+            raise ValueError(f"Patient with ID {patient_id} not found.")
+
+        sess_stmt = (
+            select(Session)
+            .where(Session.user_id == patient_id)
+            .order_by(desc(Session.created_at))
+            .limit(20)
+        )
+        sess_res = await self.db.execute(sess_stmt)
+        sessions = sess_res.scalars().all()
+
+        session_summaries = []
+        for s in sessions:
+            msg_count_stmt = select(func.count(Message.id)).where(Message.session_id == s.id)
+            msg_count = (await self.db.execute(msg_count_stmt)).scalar() or 0
+            session_summaries.append({
+                "id": s.id,
+                "mode": s.mode,
+                "status": s.status,
+                "title": s.title or f"Session #{s.id} ({s.mode.replace('_', ' ').title()})",
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "message_count": msg_count,
+            })
+
+        msg_stmt = (
+            select(Message)
+            .where(
+                Message.user_id == patient_id,
+                Message.role == "user",
+                Message.emotion_data.isnot(None),
+            )
+            .order_by(desc(Message.created_at))
+            .limit(40)
+        )
+        msg_res = await self.db.execute(msg_stmt)
+        user_msgs = msg_res.scalars().all()
+
+        interactions = []
+        for m in user_msgs:
+            em = m.emotion_data or {}
+            face = em.get("face_emotion", "neutral")
+            text_em = em.get("text_emotion", "neutral")
+            sentiment = em.get("sentiment", "neutral")
+            conflict = bool(em.get("conflict", False))
+            conf = float(em.get("confidence", 50.0))
+
+            au04 = 0.85 if text_em in ["anxious", "frustrated", "sad"] else (0.45 if sentiment == "negative" else 0.15)
+            au12 = 0.80 if face == "happy" else (0.50 if sentiment == "positive" else 0.10)
+            au15 = 0.75 if text_em == "sad" or sentiment == "negative" else 0.10
+            au01 = 0.70 if text_em == "anxious" else 0.20
+
+            interactions.append({
+                "id": m.id,
+                "session_id": m.session_id,
+                "content": m.content,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "face_emotion": face,
+                "text_emotion": text_em,
+                "fused_emotion": em.get("fused_emotion", face),
+                "sentiment": sentiment,
+                "conflict": conflict,
+                "confidence": conf,
+                "facs_units": {
+                    "au04_brow_furrow": round(au04, 2),
+                    "au12_zygomatic_smile": round(au12, 2),
+                    "au15_lip_depressor": round(au15, 2),
+                    "au01_brow_raiser": round(au01, 2),
+                },
+            })
+
+        kg_service = KnowledgeGraphService(self.db)
+        kg_entities = await kg_service.get_all_entities(user_id=patient_id)
+        kg_relationships = await kg_service.get_all_relationships(user_id=patient_id)
+
+        rep_stmt = (
+            select(EEGReport)
+            .options(selectinload(EEGReport.correlations))
+            .where(EEGReport.user_id == patient_id)
+            .order_by(desc(EEGReport.created_at))
+            .limit(10)
+        )
+        rep_res = await self.db.execute(rep_stmt)
+        reports = [r.to_dict() for r in rep_res.scalars().all()]
+
+        return {
+            "patient": {
+                "id": patient.id,
+                "name": patient.name,
+                "email": patient.email,
+                "avatar_url": patient.avatar_url,
+                "role": patient.role,
+                "preferred_language": patient.preferred_language,
+                "communication_style": patient.communication_style,
+                "interests": patient.interests,
+                "goals": patient.goals,
+            },
+            "sessions": session_summaries,
+            "session_interactions": interactions,
+            "knowledge_graph": {
+                "entities": [e.to_dict() for e in kg_entities],
+                "relationships": kg_relationships,
+            },
+            "reports": reports,
+        }
+
+    async def get_triangulation_for_patient(
+        self,
+        patient_id: int,
+        report_id: Optional[int] = None,
+        session_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculates cross-modal neuro-behavioral triangulation correlating a patient's
+        electrophysiology (EEG) with session dialogue/facial expressions and Knowledge Graph entities.
+        """
+        if report_id:
+            rep_stmt = (
+                select(EEGReport)
+                .options(selectinload(EEGReport.correlations))
+                .where(EEGReport.id == report_id, EEGReport.user_id == patient_id)
+            )
+        else:
+            rep_stmt = (
+                select(EEGReport)
+                .options(selectinload(EEGReport.correlations))
+                .where(EEGReport.user_id == patient_id)
+                .order_by(desc(EEGReport.created_at))
+                .limit(1)
+            )
+        rep_res = await self.db.execute(rep_stmt)
+        report = rep_res.scalar_one_or_none()
+
+        emotions = await self._get_recent_emotions(patient_id, limit=30)
+        entities = await self._get_relevant_graph_entities(patient_id, limit=12)
+
+        features = {}
+        prob_mdd = 0.5
+        if report:
+            features = {
+                "faa": report.faa_score,
+                "tbr_fz": report.tbr_fz_score,
+                "apf_f4": (report.biomarkers or {}).get("apf", {}).get("F4", 10.0),
+            }
+            prob_mdd = report.confidence_score if report.predicted_class == "depressive_risk" else (1.0 - report.confidence_score)
+
+        triangulation = self._calculate_triangulation(
+            features=features,
+            prob_mdd=prob_mdd,
+            emotions=emotions,
+            entities=entities,
+        )
+
+        session_data = None
+        if session_id:
+            msg_stmt = (
+                select(Message)
+                .where(Message.session_id == session_id, Message.user_id == patient_id)
+                .order_by(Message.created_at)
+            )
+            msgs = (await self.db.execute(msg_stmt)).scalars().all()
+            session_data = {
+                "session_id": session_id,
+                "messages": [
+                    {
+                        "role": m.role,
+                        "content": m.content,
+                        "emotion_data": m.emotion_data,
+                    }
+                    for m in msgs
+                ],
+            }
+
+        return {
+            "patient_id": patient_id,
+            "report_id": report.id if report else None,
+            "session_id": session_id,
+            "report": report.to_dict() if report else None,
+            "triangulation": triangulation,
+            "session_data": session_data,
+        }

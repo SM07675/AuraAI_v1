@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user_id, get_db
+from app.core.deps import get_current_admin_user, get_current_user_id, get_db
 from app.schemas.user import (
     UserGoalsRequest,
     UserInterestsRequest,
@@ -145,29 +145,19 @@ class UserRoleRequest(BaseModel):
     role: str = Field(..., description="patient or clinician")
 
 
-@router.put("/me/role", response_model=UserProfileResponse, summary="Switch portal role")
+@router.put("/me/role", response_model=UserProfileResponse, summary="Assign portal role (Admin Only)")
 async def update_role(
     body: UserRoleRequest,
-    user_id: int = Depends(get_current_user_id),
+    admin_user: Any = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserProfileResponse:
-    """Switch active portal role between 'patient' and 'clinician'."""
+    """Restricted: Only administrators may modify portal roles to prevent unauthorized privilege escalation."""
     clean_role = body.role.strip().lower()
     if clean_role not in ["patient", "clinician"]:
         clean_role = "patient"
-    try:
-        service = UserService(db)
-        user = await service.update_profile(user_id, role=clean_role)
-        return _user_to_response(user)
-    except Exception:
-        u = _dev_user_profiles.setdefault(user_id, {
-            "id": user_id,
-            "name": "atharvpalekar" if user_id == 1 else f"User {user_id}",
-            "email": "atharv@aura.ai" if user_id == 1 else f"user{user_id}@aura.ai",
-            "role": clean_role,
-        })
-        u["role"] = clean_role
-        return UserProfileResponse(**u)
+    service = UserService(db)
+    user = await service.update_profile(admin_user.id, role=clean_role)
+    return _user_to_response(user)
 
 
 @router.put("/me/interests", response_model=UserProfileResponse, summary="Update interests")
