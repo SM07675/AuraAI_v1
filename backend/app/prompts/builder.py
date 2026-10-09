@@ -19,30 +19,60 @@ except Exception:  # pragma: no cover
     ContextObject = None
 
 
-_HINDI_KEYWORDS = frozenset({
-    "mujhe", "mera", "meri", "mere", "hai", "hain", "hoon", "tha", "thi", "the",
+_HINDI_SPECIFIC_KEYWORDS = frozenset({
+    "mujhe", "mera", "meri", "mere", "hai", "hain", "hoon", "tha", "thi",
     "kya", "kyun", "kaise", "kab", "kahan", "nahi", "nahin", "bohot", "bahut",
-    "namaste", "namaskar", "shukriya", "dhanyawad", "doctor", "sahab", "sahiba",
+    "namaste", "namaskar", "shukriya", "dhanyawad", "sahab", "sahiba",
     "thak", "thakan", "thaka", "dard", "sirdard", "pareshan", "pareshani", "tanav",
-    "bechaini", "neend", "suno", "ruko", "batao", "bataiye", "kripya", "aap", "tum",
-    "karen", "kare", "karo", "kaise", "hota", "hoti", "hote"
+    "bechaini", "neend", "suno", "ruko", "batao", "bataiye", "kripya", "aap",
+    "karen", "kare", "karo", "hota", "hoti", "hote", "kaun", "kisko", "hum",
+    "accha", "achha", "theek", "baat", "karna", "chahiye"
+})
+
+_COMMON_ENGLISH_WORDS = frozenset({
+    "the", "is", "am", "are", "was", "were", "to", "in", "on", "at", "for", "from",
+    "with", "and", "or", "of", "that", "this", "it", "my", "your", "we", "they",
+    "have", "has", "had", "can", "could", "will", "would", "should", "what", "how",
+    "why", "when", "where", "which", "who", "i", "you", "he", "she", "me", "do",
+    "does", "did", "be", "been", "being", "so", "if", "but", "about", "project",
+    "work", "manage", "today", "design", "interface", "user", "language", "think",
+    "feel", "come", "help"
 })
 
 
-def _is_hindi_turn(text: str) -> bool:
+def _is_hindi_turn(text: str, preferred_language: str = "en") -> bool:
     if not text:
         return False
-    # 1. Any Devanagari character
+    # 1. Any Devanagari character is always Hindi
     if re.search(r"[\u0900-\u097F]", text):
         return True
-    # 2. Hinglish romanized keywords check
-    words = re.findall(r"[a-zA-Z]+", text.lower())
+
+    words = [w.lower() for w in re.findall(r"[a-zA-Z]+", text)]
     if not words:
         return False
-    hindi_matches = sum(1 for w in words if w in _HINDI_KEYWORDS)
-    if hindi_matches >= 2 or (hindi_matches >= 1 and len(words) <= 4):
+
+    english_count = sum(1 for w in words if w in _COMMON_ENGLISH_WORDS)
+    hindi_count = sum(1 for w in words if w in _HINDI_SPECIFIC_KEYWORDS)
+
+    # If the user selected an English locale (en-IN or en-US)
+    if preferred_language.startswith("en"):
+        # English words present and outweigh or equal Hindi words -> English
+        if english_count > 0 and english_count >= hindi_count:
+            return False
+        # Only switch to Hindi in English mode if there is strong, unambiguous Hinglish evidence
+        return hindi_count >= 2 and english_count == 0
+
+    # If user selected Hindi locale (hi-IN)
+    if preferred_language.startswith("hi"):
+        # If user explicitly spoke English with multiple English words and no Hindi -> English
+        if english_count >= 3 and hindi_count == 0:
+            return False
         return True
-    return False
+
+    # General fallback: whichever language matches more
+    if english_count > hindi_count:
+        return False
+    return hindi_count >= 2
 
 
 class PromptBuilder:
@@ -170,20 +200,50 @@ class PromptBuilder:
         au = emotion.get("action_units") or {}
         au12 = float(au.get("AU12") or au.get("AU12_LipCornerPuller") or 0.0)
         au04 = float(au.get("AU04") or au.get("AU04_BrowLowerer") or 0.0)
+        au06 = float(au.get("AU06") or au.get("AU06_CheekRaiser") or 0.0)
+        has_au06 = "AU06" in au or "AU06_CheekRaiser" in au
         user_msg_lower = (user_message or "").lower()
 
-        if not emotion_conflict:
-            text_is_pos = (text_emo.lower() in positive_emotions and text_emo.lower() not in ("neutral", "calm")) or any(w in user_msg_lower for w in ["happy", "great", "awesome", "good", "fine", "fantastic"])
-            text_is_neg = (text_emo.lower() not in positive_emotions and text_emo != "") or any(w in user_msg_lower for w in ["sad", "depressed", "hurting", "pain", "unhappy", "down", "crying"])
+        face_detected = emotion.get("face_detected", True)
+        tracking_qual = float(emotion.get("tracking_quality") if emotion.get("tracking_quality") is not None else 1.0)
+        face_valid = bool(
+            face_detected is not False
+            and tracking_qual >= 0.40
+            and face_emo
+            and face_emo.lower() not in ("no_face", "no face", "none", "")
+        )
 
-            face_is_pos = (face_emo.lower() in ("happy", "joy", "excited")) or (au12 >= 1.8)
+        if not emotion_conflict and face_valid:
+            explicit_happy_claims = [
+                "i am happy", "i feel happy", "i'm happy", "i am so happy",
+                "i feel great", "i am great", "i'm doing great", "feeling great",
+                "i am fine", "i'm fine", "im fine", "all good", "feeling good",
+                "i am really happy", "i'm really happy"
+            ]
+            text_is_pos = any(phrase in user_msg_lower for phrase in explicit_happy_claims) or (
+                (text_emo.lower() in ("happy", "joy", "excited")) and any(w in user_msg_lower for w in ["happy", "great", "awesome", "fantastic"])
+            )
+
+            explicit_sad_claims = [
+                "sad", "depressed", "hurting", "pain", "unhappy", "down", "crying", "miserable"
+            ]
+            text_is_neg = any(w in user_msg_lower for w in explicit_sad_claims)
+
+            if has_au06:
+                face_is_pos = (
+                    (face_emo.lower() in ("happy", "joy", "excited") and au12 >= 2.0 and au06 >= 1.2)
+                    or (au12 >= 2.4 and au06 >= 1.2)
+                )
+            else:
+                face_is_pos = (face_emo.lower() in ("happy", "joy", "excited") and au12 >= 2.2) or (au12 >= 2.6)
+
             face_is_neg = (face_emo.lower() in ("sad", "fearful", "angry")) or (face_emo.lower() in ("neutral", "calm") and (au12 < 2.0 or au04 > 0.8))
 
             if text_is_neg and face_is_pos:
                 emotion_conflict = True
                 conflict_modality = "face"
                 conflict_emotion = face_emo or "happy"
-                conflict_detail = f"Smiling distress / Incongruous affect: User verbally expresses sadness, but live facial tracking shows an active smile (AU12: {au12:.1f}/5.0)"
+                conflict_detail = f"Smiling distress / Incongruous affect: User verbally expresses sadness, while live facial tracking shows verified bilateral smiling (AU12: {au12:.1f}/5.0, AU06: {au06:.1f}/5.0)"
             elif text_is_pos and face_is_neg:
                 emotion_conflict = True
                 conflict_modality = "face"
@@ -337,7 +397,8 @@ class PromptBuilder:
             )
 
         # ── Dynamic Per-Turn Language Directive ───────────────────
-        if _is_hindi_turn(user_message):
+        preferred_lang = str(profile.get("preferred_language") or "en").lower()
+        if _is_hindi_turn(user_message, preferred_language=preferred_lang):
             system_parts.append(
                 "## MANDATORY LANGUAGE FOR THIS TURN: HINDI\n"
                 "The patient's current message is in HINDI. You MUST generate your response entirely "
@@ -370,49 +431,18 @@ class PromptBuilder:
                 "Speak as naturally as a human on a voice call."
             )
 
-        if emotion_conflict and not is_closing:
+        if emotion_conflict and not is_closing and face_valid:
             first_name = user_name.split()[0] if user_name else "there"
-            text_is_neg = (text_emo.lower() not in positive_emotions and text_emo != "") or any(w in user_msg_lower for w in ["sad", "depressed", "hurting", "pain", "unhappy", "down", "crying"])
-            face_has_smile = (face_emo.lower() in ("happy", "joy", "excited")) or (au12 >= 1.8)
-
-            text_is_pos = (text_emo.lower() in ("happy", "joy", "excited")) or any(w in user_msg_lower for w in ["happy", "great", "awesome", "good", "fine", "fantastic"])
-            face_is_solemn = (face_emo.lower() in ("sad", "fearful", "angry", "neutral", "calm")) and (au12 < 2.0)
-
-            if text_is_neg and face_has_smile:
-                system_parts.append(
-                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
-                    f"- {first_name} just said: \"{user_message}\"\n"
-                    f"- Discrepancy Detail: Smiling distress / Incongruous affect: {first_name} verbally claims sadness, but live facial tracking shows an active smile (AU12: {au12:.1f}/5.0, Face Affect: {face_emo.capitalize() if face_emo else 'Happy'}).\n\n"
-                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
-                    f"1. In your VERY FIRST sentence, address {first_name} directly with warmth and compassionate care:\n"
-                    f"   \"{first_name}, I hear you saying you feel sad today, but looking at you right now, I couldn't help noticing you have a smile on your face.\"\n"
-                    f"2. Ask {first_name} what is happening behind that smile - is he putting on a brave face, smiling through heavy feelings, or is something else going on?\n"
-                    f"3. DO NOT validate his sadness with generic cheer or calming exercises while ignoring the smile. Speak to him directly in second-person (\"you/your\").\n"
-                    f"Keep it warm, conversational, and caring (2-3 sentences)."
-                )
-            elif text_is_pos and face_is_solemn:
-                system_parts.append(
-                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
-                    f"- {first_name} just said: \"{user_message}\"\n"
-                    f"- Discrepancy Detail: Non-verbal incongruence: {first_name} verbally claims happiness, but live facial tracking shows a solemn, flat, or sad expression with no smile (AU12: {au12:.1f}/5.0, AU04: {au04:.1f}/5.0, Face Affect: {face_emo.capitalize() if face_emo else 'Neutral'}).\n\n"
-                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
-                    f"1. In your VERY FIRST sentence, address {first_name} directly with warmth and compassionate care:\n"
-                    f"   \"{first_name}, I hear you saying you're really happy today, but looking at you right now, I couldn't help noticing that your facial expression looks quite solemn and quiet.\"\n"
-                    f"2. Ask {first_name} how he is truly feeling beneath those words - is he feeling okay, or carrying something heavy?\n"
-                    f"3. DO NOT simply validate his happiness with \"That is wonderful to hear!\" or cheerfulness while ignoring his solemn face. Speak to him directly in second-person (\"you/your\").\n"
-                    f"Keep it warm, conversational, and caring (2-3 sentences)."
-                )
-            else:
-                system_parts.append(
-                    f"## 🚨 MANDATORY TURN DIRECTIVE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
-                    f"- {first_name} just said: \"{user_message}\"\n"
-                    f"- Discrepancy Detail: {conflict_detail}\n"
-                    f"- Facial biometrics: Face={face_emo or 'neutral'}, Smile AU12={au12:.1f}/5.0, Brow AU04={au04:.1f}/5.0\n\n"
-                    f"CLINICAL INSTRUCTION FOR THIS TURN (MANDATORY OVERRIDE):\n"
-                    f"1. In your VERY FIRST sentence, tenderly and warmly address the contrast between {first_name}'s spoken words and their live facial expression.\n"
-                    f"2. Ask what is truly behind that contrast with empathetic, non-judgmental curiosity.\n"
-                    f"3. DO NOT ignore the facial biometrics. Address the discrepancy directly in 2-3 caring sentences."
-                )
+            system_parts.append(
+                f"## 🚨 CLINICAL COUNSELLING GUIDELINE (CRITICAL NON-VERBAL AFFECTIVE DISCREPANCY DETECTED)\n"
+                f"- Clinical Discrepancy Observation: {conflict_detail}\n"
+                f"- Facial biometrics: Face={face_emo or 'neutral'}, Smile AU12={au12:.1f}/5.0, Brow AU04={au04:.1f}/5.0\n"
+                f"- EXPERT COUNSELOR GUIDANCE:\n"
+                f"  1. ACT AS AN EXPERT MENTAL HEALTH COUNSELOR: Stay deeply attuned to {first_name}'s ongoing narrative and topic. Never sound robotic, interrogating, or dismissive.\n"
+                f"  2. DO NOT recite canned phrases or accuse {first_name} of saying things they did not say. Never claim they 'said they are happy' unless they explicitly used those exact words.\n"
+                f"  3. If {first_name} explicitly claimed they were fine or happy while appearing visibly solemn or quiet, gently hold space with warmth: e.g. checking in on how they are holding up beneath the surface, without sounding clinical or robotic.\n"
+                f"  4. Keep your response conversational, warm, and focused on helping them navigate their thoughts and feelings."
+            )
 
         if is_closing:
             first_name = user_name.split()[0] if user_name else "there"

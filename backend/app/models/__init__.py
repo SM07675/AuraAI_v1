@@ -21,6 +21,7 @@ from app.models.latency_metric import LatencyMetric
 from app.models.conversation_summary import ConversationSummary
 from app.models.affective_memory import AffectiveMemory
 from app.models.feedback import SolutionFeedback
+from app.models.eeg import EEGReport, EEGCorrelation
 
 __all__ = [
     "User",
@@ -44,4 +45,6 @@ __all__ = [
     "ConversationSummary",
     "AffectiveMemory",
     "SolutionFeedback",
+    "EEGReport",
+    "EEGCorrelation",
 ]

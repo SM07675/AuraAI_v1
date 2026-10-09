@@ -14,9 +14,12 @@ export function getWebSocketUrl(endpointPath: string): string {
 
   if (typeof window !== "undefined") {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-    // In local dev where Vite is on 3000 and FastAPI backend is on 8000, connect directly to 8000
+    // In local dev where Vite is on 3000/3001 and FastAPI backend is on 8000/8001, connect directly
     if (isLocal && (window.location.port === "3000" || window.location.port === "5173")) {
       return `${protocol}//${window.location.hostname}:8000${normalizedPath}${tokenQuery}`;
+    }
+    if (isLocal && window.location.port === "3001") {
+      return `${protocol}//${window.location.hostname}:8001${normalizedPath}${tokenQuery}`;
     }
     return `${protocol}//${window.location.host}${normalizedPath}${tokenQuery}`;
   }

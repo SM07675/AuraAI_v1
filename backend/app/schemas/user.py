@@ -30,12 +30,10 @@ class UserProfileResponse(BaseModel):
 class UserUpdateRequest(BaseModel):
     """Partial user profile update — all fields optional."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[str] = Field(None, max_length=255)
     preferred_language: Optional[str] = Field(None, max_length=10)
     timezone: Optional[str] = Field(None, max_length=50)
-    communication_style: Optional[str] = Field(
-        None, pattern="^(concise|balanced|detailed)$"
-    )
+    communication_style: Optional[str] = Field(None, max_length=50)
 
 
 class UserInterestsRequest(BaseModel):

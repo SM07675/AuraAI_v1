@@ -1,4 +1,4 @@
-﻿"""
+"""
 Structured Solution Schema (SSS) Engine — Typed, Interactive Interventions.
 
 Generates structured, typed solution objects that the frontend renders as
@@ -229,6 +229,39 @@ Generate ONLY a JSON object with this exact structure:
                 ],
                 duration_minutes=25,
                 tags=["Focus", "Productivity"],
+            )
+        elif solution_type == "sleep_hygiene":
+            return SolutionCardPayload(
+                id=card_id,
+                type="sleep_hygiene",
+                title="Restorative Sleep Wind-Down Protocol",
+                description="Signal your parasympathetic nervous system that it is safe to sleep and power down.",
+                domain=domain,
+                personalization_note=f"Calming routine designed to support peaceful restorative sleep for {user_name}.",
+                steps=[
+                    "Dim bright overhead lights and switch devices to night-shift or grayscale",
+                    "Write down 3 pending thoughts or tomorrow's tasks on paper to offload your brain",
+                    "Perform 10 slow diaphragmatic exhales with your hands over your abdomen",
+                    "Keep your bedroom cool (around 18-20°C / 65-68°F) and completely dark",
+                ],
+                duration_minutes=15,
+                tags=["Sleep Hygiene", "Rest & Recovery"],
+            )
+        elif solution_type == "journaling_prompt":
+            return SolutionCardPayload(
+                id=card_id,
+                type="journaling_prompt",
+                title="Cathartic Thought Unburdening",
+                description="Release mental tension by writing freely without filtering or editing.",
+                domain=domain,
+                personalization_note="Externalizing what you feel brings immediate clarity and relief.",
+                steps=[
+                    "What is occupying the most space in my mind right now?",
+                    "What is one thing within my control today, and one thing I can release?",
+                    "What would I tell someone I deeply love if they felt this way?",
+                ],
+                duration_minutes=7,
+                tags=["Journaling", "Emotional Clarity"],
             )
         else:
             return SolutionCardPayload(

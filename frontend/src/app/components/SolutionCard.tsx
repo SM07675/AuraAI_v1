@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { motion } from "motion/react";
 import { Sparkles, Star, ThumbsUp, Check, Tag } from "lucide-react";
 import { BreathingCard } from "./cards/BreathingCard";
@@ -7,6 +7,7 @@ import { CBTReframeCard } from "./cards/CBTReframeCard";
 import { PomodoroCard } from "./cards/PomodoroCard";
 import { GroundingCard } from "./cards/GroundingCard";
 import { JournalingCard } from "./cards/JournalingCard";
+import { SleepHygieneCard } from "./cards/SleepHygieneCard";
 import { apiClient } from "../services/apiClient";
 
 export interface SolutionCardData {
@@ -61,6 +62,8 @@ export const SolutionCard: React.FC<SolutionCardProps> = ({ solution, sessionId 
         return <GroundingCard {...solution} />;
       case "journaling_prompt":
         return <JournalingCard {...solution} />;
+      case "sleep_hygiene":
+        return <SleepHygieneCard {...solution} />;
       case "action_plan":
       default:
         return <ActionPlanCard {...solution} />;

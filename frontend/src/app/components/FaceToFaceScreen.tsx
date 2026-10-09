@@ -91,6 +91,8 @@ export function FaceToFaceScreen() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const cameraActiveRef = useRef(cameraActive);
+  cameraActiveRef.current = cameraActive;
   const [camFps, setCamFps] = useState(30);
   const [lighting, setLighting] = useState<"Good" | "Low" | "Bright">("Good");
   const [eyeContact, setEyeContact] = useState(true);
@@ -112,6 +114,7 @@ export function FaceToFaceScreen() {
 
   // ── Camera Permission Error State ──────────────────────────────────────────
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [sttError, setSttError] = useState<string | null>(null);
 
   // ── Live Face Debug Telemetry State ─────────────────────────────────────────
   const [showFaceDebug, setShowFaceDebug] = useState(false);
@@ -142,6 +145,51 @@ export function FaceToFaceScreen() {
   const [showBreathingPacer, setShowBreathingPacer] = useState(false);
   const [breathPhase, setBreathPhase] = useState<"Inhale" | "Hold" | "Exhale">("Inhale");
   const [isSessionClosed, setIsSessionClosed] = useState(false);
+  const [isConsultationActive, setIsConsultationActive] = useState(false);
+
+  // ── Push-to-Talk (Wispr Flow) & Draft Recovery State ────────────────────────
+  const [isPushToTalk, setIsPushToTalk] = useState(speechService.isPushToTalk);
+  const [isPttPressed, setIsPttPressed] = useState(false);
+  const [recoverableDraft, setRecoverableDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && isPushToTalk && !isPttPressed && isConsultationActive && !isSessionClosed) {
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        if (activeTag === "input" || activeTag === "textarea") {
+          return;
+        }
+        e.preventDefault();
+        setIsPttPressed(true);
+        if (!speechService.isListening) {
+          speechService.start().then(() => {
+            speechService.setPushToTalkActive(true);
+          });
+        } else {
+          speechService.setPushToTalkActive(true);
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" && isPushToTalk && isPttPressed) {
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        if (activeTag === "input" || activeTag === "textarea") {
+          return;
+        }
+        e.preventDefault();
+        setIsPttPressed(false);
+        speechService.setPushToTalkActive(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [isPushToTalk, isPttPressed]);
 
   // ── Full-Duplex Engine State & Telemetry ────────────────────────────────────
   const [duplexState, setDuplexState] = useState<ConversationState>(duplexManager.getState());
@@ -214,64 +262,83 @@ export function FaceToFaceScreen() {
     return () => clearTimeout(timer);
   }, [showBreathingPacer]);
 
-  // ── 1. Camera & Mic Permissions ─────────────────────────────────────────────
+  // ── 1. Camera Permissions & Progressive Multi-Tier Fallback ────────────────
   const startCamera = async () => {
     setIsSessionClosed(false);
+    if (typeof window === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
+      setCameraError("Camera media devices API is not supported in this browser environment.");
+      return;
+    }
+
+    // Pre-check available hardware video inputs if permitted
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      const videoTracks = stream.getVideoTracks();
-      const audioTracks = stream.getAudioTracks();
-      // Free audio tracks immediately so SpeechRecognition has dedicated device access
-      audioTracks.forEach((t) => t.stop());
-
-      if (videoTracks.length > 0) {
-        const videoStream = new MediaStream(videoTracks);
-        mediaStreamRef.current = videoStream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = videoStream;
-          videoRef.current.setAttribute("autoplay", "true");
-          videoRef.current.setAttribute("playsinline", "true");
-          videoRef.current.setAttribute("muted", "true");
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch((e) => console.warn("Video play error:", e));
-            setCameraActive(true);
-            setCameraError(null);
-          };
-        }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === "videoinput");
+      if (devices.length > 0 && videoDevices.length === 0) {
+        setCameraActive(false);
+        setCameraError(
+          "No webcam device detected. If using a laptop, check if the physical camera privacy slider is closed or Fn key is toggled off. Continuing in Voice & Audio mode."
+        );
+        return;
       }
-    } catch (err: any) {
-      console.warn("Combined media access attempt failed, trying video only:", err);
+    } catch {
+      // Continue to getUserMedia if enumerateDevices was restricted before permission
+    }
+
+    let stream: MediaStream | null = null;
+
+    // Tier 1: Standard relaxed video constraint (ideal 640x480, no strict facingMode)
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+    } catch (firstErr: any) {
+      console.info("Standard webcam constraint failed, attempting universal fallback:", firstErr);
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        // Tier 2: Universal { video: true } constraint for external/UVC/virtual webcams
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
           audio: false,
         });
-        mediaStreamRef.current = videoStream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = videoStream;
-          videoRef.current.play().catch(() => {});
-          setCameraActive(true);
-          setCameraError(null);
-        }
-      } catch (e: any) {
-        console.warn("Webcam access error:", e);
+      } catch (secondErr: any) {
+        console.warn("Webcam access error:", secondErr);
         setCameraActive(false);
-        const isDenied = e.name === "NotAllowedError" || e.name === "PermissionDeniedError";
+        const isDenied = secondErr.name === "NotAllowedError" || secondErr.name === "PermissionDeniedError";
+        const isNotFound = secondErr.name === "NotFoundError" || secondErr.name === "DevicesNotFoundError";
         setCameraError(
-          isDenied
-            ? "Camera permission was denied. You can continue speaking or typing normally without facial analysis."
-            : "Camera unavailable or could not be accessed. Continuing in chat & voice mode."
+          isNotFound
+            ? "Webcam device was not found or is disabled by a physical privacy slider / Fn key. Continuing seamlessly in Voice & Audio mode."
+            : isDenied
+            ? "Camera permission was denied. Check browser and Windows permissions to enable facial analysis, or continue in Voice & Audio mode."
+            : "Webcam could not be opened (may be in use by another application). Continuing in Voice & Audio mode."
         );
         setFaceEmotion((prev) => ({ ...prev, face_detected: false }));
         setTrackingQuality(0.0);
+        return;
+      }
+    }
+
+    if (stream) {
+      mediaStreamRef.current = stream;
+      setCameraActive(true);
+      setCameraError(null);
+
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        track.onended = () => {
+          console.warn("[CAMERA] Video track ended by hardware switch or browser");
+          setCameraActive(false);
+          setCameraError("Camera was turned off by hardware switch or disconnected.");
+        };
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("autoplay", "true");
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("muted", "true");
+        videoRef.current.play().catch((e) => console.warn("Video play error:", e));
       }
     }
   };
@@ -307,9 +374,11 @@ export function FaceToFaceScreen() {
 
   const handleSessionClose = () => {
     setIsSessionClosed(true);
+    setIsConsultationActive(false);
+    stopCamera();
     speechService.stop();
     setMicActive(false);
-    stopCamera();
+    duplexManager.transitionTo("IDLE", "Session concluded");
   };
 
   const toggleCamera = () => {
@@ -317,11 +386,15 @@ export function FaceToFaceScreen() {
       stopCamera();
     } else {
       setIsSessionClosed(false);
+      setIsConsultationActive(true);
       startCamera();
     }
   };
   const handleStartConsultation = async () => {
     setIsSessionClosed(false);
+    setIsConsultationActive(true);
+    setSttError(null);
+    duplexManager.transitionTo("LISTENING", "Consultation started");
     await startCamera();
     try {
       await speechService.start();
@@ -401,7 +474,7 @@ export function FaceToFaceScreen() {
               confidence: confVal,
               secondary_emotion: data.secondary_emotion || data.emotion?.secondary || "calm",
               secondary_confidence: data.secondary_confidence || 0.4,
-              face_detected: cameraActive && data.face_detected === true,
+              face_detected: cameraActiveRef.current && data.face_detected === true,
               stress: data.stress ? data.stress.charAt(0).toUpperCase() + data.stress.slice(1) : "Low",
               sentiment: data.sentiment ? data.sentiment.charAt(0).toUpperCase() + data.sentiment.slice(1) : "Positive",
               box_norm: data.box_norm || null,
@@ -654,6 +727,10 @@ export function FaceToFaceScreen() {
           JSON.stringify({ type: "interrupt", reason: "speech_barge_in" })
         );
       }
+      const draft = speechService.getRecoverableDraft();
+      if (draft && draft.trim()) {
+        setRecoverableDraft(draft.trim());
+      }
     });
   }, []);
 
@@ -682,15 +759,22 @@ export function FaceToFaceScreen() {
   useEffect(() => {
     const unsubscribe = speechService.subscribe({
       onInterim: (interim) => {
+        // Echo Shield: reject interim transcripts if TTS is speaking or in 1500ms post-playback hangover
+        if (duplexManager.isTtsActiveOrRecent(1500)) return;
         const clean = interim.trim();
         if (!clean) return;
         setText(clean);
       },
       onFinal: (final) => {
+        // Echo Shield: never let Aura's own speech be transcribed and committed
+        if (duplexManager.isTtsActiveOrRecent(1500)) return;
         const clean = final.trim();
         if (!clean) return;
         setText(clean);
         sendMsg(clean);
+      },
+      onError: (err) => {
+        setSttError(err);
       },
       onListeningChange: (isList) => {
         setMicActive(isList);
@@ -706,6 +790,7 @@ export function FaceToFaceScreen() {
   }, []);
 
   const toggleMic = async () => {
+    setSttError(null);
     if (isAuraSpeaking) {
       voiceService.stop();
     }
@@ -713,6 +798,7 @@ export function FaceToFaceScreen() {
       speechService.stop();
     } else {
       setIsSessionClosed(false);
+      setIsConsultationActive(true);
       await speechService.start();
     }
   };
@@ -739,7 +825,10 @@ export function FaceToFaceScreen() {
     const t = (customText !== undefined ? customText : text).trim();
     if (!t) return;
 
-    const tLower = t.toLowerCase();
+    setRecoverableDraft(null);
+    speechService.clearRecoverableDraft();
+
+    const tLower = t.toLowerCase().trim();
     const isClosing = SESSION_CLOSING_PHRASES.some((phrase) => tLower.includes(phrase));
     if (isClosing) {
       handleSessionClose();
@@ -1083,6 +1172,29 @@ export function FaceToFaceScreen() {
         )}
       </AnimatePresence>
 
+      {/* Speech Recognition Error Banner */}
+      <AnimatePresence>
+        {sttError && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="bg-amber-500/15 border border-amber-500/30 rounded-[18px] p-2.5 mb-2 flex items-center justify-between text-amber-200 text-xs shadow-lg"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-400 shrink-0" />
+              <span>{sttError}</span>
+            </div>
+            <button
+              onClick={() => setSttError(null)}
+              className="w-5 h-5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 flex items-center justify-center cursor-pointer border-none ml-2 shrink-0"
+            >
+              <X size={11} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Advanced Live Face Debug Panel */}
       <FaceDebugPanel
         isOpen={showFaceDebug}
@@ -1170,11 +1282,38 @@ export function FaceToFaceScreen() {
             <div className="relative w-full flex-1 rounded-[18px] overflow-hidden bg-slate-900 flex items-center justify-center min-h-[160px] shadow-inner">
               <video
                 ref={videoRef}
-                className={`w-full h-full object-cover transform -scale-x-100 ${!cameraActive ? "hidden" : ""}`}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover transform -scale-x-100 transition-opacity duration-300 ${
+                  cameraActive ? "opacity-100" : "opacity-0 absolute pointer-events-none"
+                }`}
               />
               <canvas ref={canvasRef} className="hidden" />
 
-              {!cameraActive && (
+              {!cameraActive && isConsultationActive && !isSessionClosed && (
+                <div className="flex flex-col items-center justify-center gap-2 text-slate-300 p-5 text-center max-w-xs">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 mb-0.5 shadow-inner">
+                    <Mic size={22} className={micActive ? "animate-pulse" : ""} />
+                  </div>
+                  <span className="text-[12.5px] font-bold text-white leading-tight">
+                    Voice & Audio Mode Active
+                  </span>
+                  <p className="text-[10px] text-slate-400 m-0 leading-relaxed font-medium">
+                    Webcam is offline or not detected. Full duplex voice, sentiment analysis & clinical dialogue are running smoothly.
+                  </p>
+                  <button
+                    onClick={startCamera}
+                    className="mt-1.5 px-3.5 py-1 bg-white/10 hover:bg-white/20 text-purple-200 hover:text-white border border-purple-400/30 rounded-full text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1.5"
+                    title="Retry connecting camera"
+                  >
+                    <Camera size={11} />
+                    <span>Connect Camera</span>
+                  </button>
+                </div>
+              )}
+
+              {!cameraActive && (!isConsultationActive || isSessionClosed) && (
                 <div className="flex flex-col items-center justify-center gap-2 text-slate-400 p-5 text-center max-w-xs">
                   <div className="w-11 h-11 rounded-full bg-purple-900/40 flex items-center justify-center text-purple-300 mb-0.5 shadow-inner">
                     <VideoOff size={22} />
@@ -1410,25 +1549,86 @@ export function FaceToFaceScreen() {
             <div ref={chatEndRef} />
           </div>
 
+          {recoverableDraft && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="clay-card-flat px-3 py-1.5 rounded-[14px] flex items-center justify-between mb-2 shrink-0 bg-purple-500/10 dark:bg-purple-900/20 border border-purple-500/20"
+            >
+              <div className="flex items-center gap-1.5 min-w-0 mr-2 text-[10.5px]">
+                <Sparkles size={12} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                <span className="font-extrabold text-purple-700 dark:text-purple-300 shrink-0">Interrupted draft:</span>
+                <span className="text-[#2E2544] dark:text-purple-100 truncate italic">"{recoverableDraft}"</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => {
+                    setText(recoverableDraft);
+                    setRecoverableDraft(null);
+                    speechService.clearRecoverableDraft();
+                  }}
+                  className="px-2 py-0.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-[9.5px] font-extrabold transition-all"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => {
+                    setRecoverableDraft(null);
+                    speechService.clearRecoverableDraft();
+                  }}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           <div
-            onClick={toggleMic}
+            onClick={isPushToTalk ? undefined : toggleMic}
             className="clay-card-flat px-3 py-1.5 rounded-[16px] flex items-center justify-between mb-2 shrink-0 cursor-pointer hover:opacity-90 transition-all"
-            title="Click to toggle microphone"
+            title={isPushToTalk ? "Push-to-Talk Mode: Hold Spacebar or mic button to speak" : "Click to toggle microphone"}
           >
             <div className="flex items-center gap-2">
               <div
-                className="w-5 h-5 rounded-full flex items-center justify-center border-none"
+                className="w-5 h-5 rounded-full flex items-center justify-center border-none transition-colors"
                 style={{
-                  background: isAuraSpeaking ? "#EDE9FE" : micActive ? "#DCFCE7" : "#FEE2E2",
-                  color: isAuraSpeaking ? "#7C3AED" : micActive ? "#059669" : "#DC2626",
+                  background: isAuraSpeaking
+                    ? "#EDE9FE"
+                    : isPushToTalk
+                    ? isPttPressed
+                      ? "#DCFCE7"
+                      : "#E0F2FE"
+                    : micActive
+                    ? "#DCFCE7"
+                    : "#FEE2E2",
+                  color: isAuraSpeaking
+                    ? "#7C3AED"
+                    : isPushToTalk
+                    ? isPttPressed
+                      ? "#059669"
+                      : "#0284C7"
+                    : micActive
+                    ? "#059669"
+                    : "#DC2626",
                 }}
               >
-                {micActive ? <Mic size={11} /> : <MicOff size={11} />}
+                {isPushToTalk ? (
+                  isPttPressed ? <Mic size={11} /> : <MicOff size={11} />
+                ) : micActive ? (
+                  <Mic size={11} />
+                ) : (
+                  <MicOff size={11} />
+                )}
               </div>
               <span
                 className={`text-[10px] font-extrabold ${
                   isAuraSpeaking
                     ? "text-[#7C3AED] dark:text-[#A78BFA]"
+                    : isPushToTalk
+                    ? isPttPressed
+                      ? "text-[#059669] dark:text-[#34D399]"
+                      : "text-sky-600 dark:text-sky-300"
                     : isSessionClosed && !micActive
                     ? "text-purple-600 dark:text-purple-300"
                     : micActive
@@ -1437,7 +1637,11 @@ export function FaceToFaceScreen() {
                 }`}
               >
                 {isAuraSpeaking
-                  ? "Dr. Aura is Speaking (Click to interrupt)..."
+                  ? "Dr. Aura Speaking • Echo Shield Active (Click to interrupt)..."
+                  : isPushToTalk
+                  ? isPttPressed
+                    ? "Push-to-Talk Active • Speaking..."
+                    : "Push-to-Talk Ready • Hold Spacebar or Button to Speak"
                   : isSessionClosed && !micActive
                   ? "Session Concluded • Microphone Off (Click to Resume)"
                   : micActive
@@ -1445,15 +1649,44 @@ export function FaceToFaceScreen() {
                   : "Microphone Paused • Click to Start Listening"}
               </span>
             </div>
-            <div className="flex items-center gap-1">
-              {[5, 12, 18, 10, 20, 14, 7, 16, 10, 5].map((h, i) => (
-                <motion.div
-                  key={i}
-                  className={`w-1 rounded-full ${isAuraSpeaking ? "bg-[#7C3AED]" : "bg-[#8B5CF6]"}`}
-                  animate={{ height: (micActive || isAuraSpeaking) ? [2, h, 2] : 2 }}
-                  transition={{ duration: isAuraSpeaking ? 0.4 : 0.55, repeat: Infinity, delay: i * 0.06 }}
-                />
-              ))}
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextMode = !isPushToTalk;
+                  setIsPushToTalk(nextMode);
+                  speechService.setPushToTalkMode(nextMode);
+                }}
+                className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border ${
+                  isPushToTalk
+                    ? "bg-purple-600 text-white border-purple-500 shadow-sm"
+                    : "bg-white/50 dark:bg-white/10 text-[#7A748A] dark:text-[#D8D2E8] border-black/5 dark:border-white/10 hover:border-purple-400"
+                }`}
+                title="Switch between Wispr Flow Push-to-Talk (Hold Spacebar) and Continuous Listening"
+              >
+                {isPushToTalk ? "PTT Mode" : "Continuous"}
+              </button>
+
+              <div className="flex items-center gap-1">
+                {[5, 12, 18, 10, 20, 14, 7, 16, 10, 5].map((h, i) => (
+                  <motion.div
+                    key={i}
+                    className={`w-1 rounded-full ${isAuraSpeaking ? "bg-[#7C3AED]" : "bg-[#8B5CF6]"}`}
+                    animate={{
+                      height:
+                        (micActive && (!isPushToTalk || isPttPressed)) || isAuraSpeaking
+                          ? [2, h, 2]
+                          : 2,
+                    }}
+                    transition={{
+                      duration: isAuraSpeaking ? 0.4 : 0.55,
+                      repeat: Infinity,
+                      delay: i * 0.06,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1462,21 +1695,61 @@ export function FaceToFaceScreen() {
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMsg()}
-              placeholder="Speak naturally or describe your symptoms..."
+              placeholder={isPushToTalk ? "Hold Spacebar to speak, or type here..." : "Speak naturally or describe your symptoms..."}
               className="bg-transparent border-none outline-none flex-1 text-[11.5px] font-medium text-[#2E2544] dark:text-white placeholder:text-[#8E88A4]"
             />
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={toggleMic}
+              onClick={isPushToTalk ? undefined : toggleMic}
+              onMouseDown={() => {
+                if (isPushToTalk && isConsultationActive && !isSessionClosed) {
+                  setIsPttPressed(true);
+                  if (!speechService.isListening) {
+                    speechService.start().then(() => speechService.setPushToTalkActive(true));
+                  } else {
+                    speechService.setPushToTalkActive(true);
+                  }
+                }
+              }}
+              onMouseUp={() => {
+                if (isPushToTalk) {
+                  setIsPttPressed(false);
+                  speechService.setPushToTalkActive(false);
+                }
+              }}
+              onTouchStart={() => {
+                if (isPushToTalk && isConsultationActive && !isSessionClosed) {
+                  setIsPttPressed(true);
+                  if (!speechService.isListening) {
+                    speechService.start().then(() => speechService.setPushToTalkActive(true));
+                  } else {
+                    speechService.setPushToTalkActive(true);
+                  }
+                }
+              }}
+              onTouchEnd={() => {
+                if (isPushToTalk) {
+                  setIsPttPressed(false);
+                  speechService.setPushToTalkActive(false);
+                }
+              }}
               className={`w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-                micActive
+                isPushToTalk && isPttPressed
+                  ? "bg-emerald-500 text-white shadow-md"
+                  : micActive
                   ? "bg-purple-100 dark:bg-purple-900/60 text-[#7B59DC] dark:text-purple-200"
                   : "clay-button text-[#7A748A] dark:text-[#D8D2E8]"
               }`}
-              title={micActive ? "Mute Microphone" : "Unmute Microphone"}
+              title={
+                isPushToTalk
+                  ? "Hold to Speak (or hold Spacebar)"
+                  : micActive
+                  ? "Mute Microphone"
+                  : "Unmute Microphone"
+              }
             >
-              {micActive ? <Mic size={12} /> : <MicOff size={12} />}
+              {micActive || (isPushToTalk && isPttPressed) ? <Mic size={12} /> : <MicOff size={12} />}
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.06 }}

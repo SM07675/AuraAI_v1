@@ -158,7 +158,7 @@ class StreamingTtsEngine {
 
   /** Queue a short first phrase even if the model has not emitted punctuation. */
   private scheduleFirstPhraseFlush() {
-    if (this.sentenceIndex > 0 || this.firstPhraseTimer || this.buffer.trim().length < 18) {
+    if (this.sentenceIndex > 0 || this.firstPhraseTimer || this.buffer.trim().length < 12) {
       return;
     }
     const generationId = this.currentGenerationId;
@@ -168,13 +168,13 @@ class StreamingTtsEngine {
         return;
       }
       const candidate = this.buffer.trim();
-      if (candidate.length < 18) return;
-      const preferredEnd = Math.min(candidate.length, 72);
+      if (candidate.length < 12) return;
+      const preferredEnd = Math.min(candidate.length, 60);
       const splitAt = candidate.lastIndexOf(" ", preferredEnd);
-      const phraseEnd = splitAt >= 18 ? splitAt : preferredEnd;
+      const phraseEnd = splitAt >= 12 ? splitAt : preferredEnd;
       this.queueSentence(candidate.slice(0, phraseEnd));
       this.buffer = candidate.slice(phraseEnd).trimStart();
-    }, 180);
+    }, 80);
   }
 
   private clearFirstPhraseTimer() {
@@ -187,6 +187,9 @@ class StreamingTtsEngine {
   private queueSentence(rawSentence: string) {
     const clean = cleanTextForSpeech(rawSentence);
     if (!clean || clean.length < 2) return;
+
+    // Pre-arm duplexManager echo memory so speaker bleed is rejected even during pre-fetch
+    duplexManager.recordTtsSpoken(clean);
 
     const genId = this.currentGenerationId;
     const idx = this.sentenceIndex++;

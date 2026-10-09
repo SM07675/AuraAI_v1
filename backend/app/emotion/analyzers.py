@@ -292,6 +292,18 @@ class TextEmotionAnalyzer(EmotionAnalyzer):
             confidence_val = 65.0
             scores["neutral"] = 0.65
 
+        # Conversational agreements, confirmations, and focus statements -> neutral / receptive
+        conversational_confirmations = [
+            "that is exactly what", "that's exactly what", "exactly what i wanted",
+            "what i wanted you to ask", "that's what i wanted", "exactly",
+            "that is right", "that's right", "yes exactly", "makes sense",
+        ]
+        if any(p in lower for p in conversational_confirmations) and dominant_emotion in ("happy", "joy", "excited"):
+            dominant_emotion = "neutral"
+            confidence_val = 70.0
+            scores["neutral"] = 0.70
+            scores["happy"] = 0.15
+
         secondary_emotion = sorted_scores[1][0] if len(sorted_scores) > 1 and sorted_scores[1][0] != dominant_emotion else None
 
         # Derive stress level & sentiment

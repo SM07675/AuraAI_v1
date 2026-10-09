@@ -413,13 +413,13 @@ export function ChatScreen({
 
         {/* ── 3. Chat Input Bar: Recessed Pill + Round Mic + Lavender Send Button ── */}
         <div className="flex items-center gap-3 mt-4 sm:mt-5 pt-1">
-          <div className="clay-chat-input-pill flex-1 flex items-center px-5 sm:px-6 py-3">
+          <div className="clay-chat-input-pill flex-1 flex items-center px-5 sm:px-6 py-3 transition-all duration-200">
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder={listening ? "Listening to your voice..." : "Tell Aura how you feel..."}
-              className="bg-transparent border-none outline-none w-full text-[14px] text-[#2E2544] dark:text-[#E8E4F2] placeholder-[#9E98AA] dark:placeholder-[#6E6882] font-medium"
+              className="bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none w-full text-[14.5px] text-[#2E2544] dark:text-[#FFFFFF] placeholder-[#7A748A] dark:placeholder-[#8E87A4] font-medium"
               style={{ letterSpacing: "-0.1px" }}
             />
           </div>

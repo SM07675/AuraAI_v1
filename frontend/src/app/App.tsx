@@ -37,6 +37,9 @@ const AnalyticsScreen = lazy(() =>
 const MemoryScreen = lazy(() =>
   import("./components/MemoryScreen").then((m) => ({ default: m.MemoryScreen }))
 );
+const ClinicianPortal = lazy(() =>
+  import("./components/ClinicianPortal").then((m) => ({ default: m.ClinicianPortal }))
+);
 const ProfileScreen = lazy(() =>
   import("./components/ProfileScreen").then((m) => ({ default: m.ProfileScreen }))
 );
@@ -120,6 +123,17 @@ function MainApp() {
     streamingTtsService.cancel();
     duplexManager.stop();
   }, [active]);
+
+  // Global navigation event listener
+  useEffect(() => {
+    const handleNavigate = (e: any) => {
+      if (e?.detail) {
+        setActive(e.detail);
+      }
+    };
+    window.addEventListener("aura-navigate", handleNavigate);
+    return () => window.removeEventListener("aura-navigate", handleNavigate);
+  }, []);
 
   const handleLoginSuccess = (userData: AuthUser) => {
     setUser(userData);
@@ -301,7 +315,9 @@ function MainApp() {
       case "Emotion":
         return <EmotionScreen />;
       case "Analytics":
-        return <AnalyticsScreen />;
+        return <AnalyticsScreen onNavigate={(screen) => setActive(screen)} />;
+      case "Clinician":
+        return <ClinicianPortal onNavigate={(screen) => setActive(screen)} />;
       case "Debug":
         // Admin-only gate
         if (!user.is_admin) {

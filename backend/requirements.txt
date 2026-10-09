@@ -55,6 +55,7 @@ torch>=2.2.0
 torchaudio>=2.2.0
 speechbrain>=1.0.0
 mediapipe>=0.10.0
+scikit-learn>=1.4.0
 
 # Dev / Testing
 pytest>=8.2.0

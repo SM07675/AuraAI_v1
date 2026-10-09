@@ -82,9 +82,9 @@ class Settings(BaseSettings):
     def database_url_sync(self) -> str:
         """Sync PostgreSQL connection URL (used by Alembic)."""
         if self.database_url_override:
-            return self.database_url_override.replace("postgresql+asyncpg://", "postgresql://")
+            return self.database_url_override.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
+
+    # ── Data Encryption ──────────────────────────────────────────
+    encryption_key: str = Field(
+        default="QEdDez8YOzEKop5mfiR_SI3BiC8-MaR8H4y1TStHPJs=",
+        validation_alias=AliasChoices("ENCRYPTION_KEY", "encryption_key"),
+    )
 
     # ── Google OAuth ─────────────────────────────────────────────
     google_client_id: str = ""

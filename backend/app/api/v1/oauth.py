@@ -60,9 +60,9 @@ async def google_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Processes Google OAuth authorization code and redirects with JWT tokens."""
-    frontend_base = "http://localhost:3000"
+    frontend_base = "http://localhost:3001"
     for origin in settings.cors_origins_list:
-        if "3000" in origin:
+        if "3001" in origin or "3000" in origin:
             frontend_base = origin
             break
 

@@ -42,7 +42,7 @@ class Session(Base, TimestampMixin):
         String(50), default="check_in", nullable=False,
     )
     mode: Mapped[str] = mapped_column(
-        String(10), default="chat", nullable=False,
+        String(50), default="chat", nullable=False,
     )
     summary: Mapped[Optional[str]] = mapped_column(Text, default=None)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), default=None)

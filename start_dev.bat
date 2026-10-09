@@ -21,11 +21,11 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 )
 
 :: 1. Start Frontend in a new window
-echo  [*] Starting Frontend (Vite) on http://localhost:3000 ...
-start "Aura AI — Frontend (Vite)" cmd /k "cd /d %FRONTEND_DIR% && npm run dev"
+echo  [*] Starting Frontend (Vite) on http://localhost:3001 ...
+start "Aura AI — Frontend (Vite)" cmd /k "cd /d %FRONTEND_DIR% && npm run dev -- --port 3001"
 
 :: 2. Start Backend in current window
-echo  [*] Starting Backend (FastAPI) on http://localhost:8000 ...
+echo  [*] Starting Backend (FastAPI) on http://localhost:8001 ...
 call "%VENV_DIR%\Scripts\activate.bat"
 cd /d "%BACKEND_DIR%"
 
@@ -34,10 +34,10 @@ set "REDIS_HOST=localhost"
 
 echo.
 echo  +----------------------------------------------------+
-echo  ^|  Frontend : http://localhost:3000                 ^|
-echo  ^|  Backend  : http://localhost:8000                 ^|
-echo  ^|  Swagger  : http://localhost:8000/docs            ^|
+echo  ^|  Frontend : http://localhost:3001                 ^|
+echo  ^|  Backend  : http://localhost:8001                 ^|
+echo  ^|  Swagger  : http://localhost:8001/docs            ^|
 echo  +----------------------------------------------------+
 echo.
 
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload --reload-dir app

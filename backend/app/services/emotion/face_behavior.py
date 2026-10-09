@@ -416,13 +416,13 @@ class FaceBehaviorService:
         au25 = intensity.get("AU25", 0.0)
         au26 = intensity.get("AU26", 0.0)
 
-        if au12 >= 2.0 and au06 >= 1.5:
+        if au12 >= 2.2 and au06 >= 1.4:
             return "duchenne_smile"
-        elif au12 >= 1.5:
-            return "polite_smile"
+        elif au12 >= 2.0 and au06 < 1.0:
+            return "polite_or_masked_lip_movement"
         elif au04 >= 2.0 and au15 >= 1.5:
             return "frown_sadness"
-        elif au04 >= 2.0:
+        elif au04 >= 1.8:
             return "brow_furrow"
         elif (au01 >= 2.0 or au02 >= 2.0) and (au25 >= 1.5 or au26 >= 1.5):
             return "wide_eyed_surprise"

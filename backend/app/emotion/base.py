@@ -262,8 +262,15 @@ class EmotionContext:
         eye_contact = gaze.get("eye_contact", True)
         aus = facial_state.get("action_units", {}).get("intensity", {})
 
+        au12 = float(aus.get("AU12", 0.0) or aus.get("AU12_LipCornerPuller", 0.0))
+        au06 = float(aus.get("AU06", 0.0) or aus.get("AU06_CheekRaiser", 0.0))
         if emo in ("happy", "joy"):
-            cues.append("User is smiling" if aus.get("AU12", 0) > 1.5 else "User displays positive facial demeanor")
+            if au12 >= 2.2 and au06 >= 1.2:
+                cues.append("User displays verified bilateral smile")
+            elif au12 >= 1.8:
+                cues.append("User displays slight lip movement without cheek elevation")
+            else:
+                cues.append("User displays resting facial demeanor")
         elif emo in ("sad", "sadness"):
             cues.append("User displays subdued/downcast expression")
         elif emo in ("angry", "frustrated"):

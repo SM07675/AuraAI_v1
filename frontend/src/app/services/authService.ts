@@ -37,6 +37,15 @@ class AuthService {
     return sessionStorage.getItem(ACCESS_TOKEN_KEY) || localStorage.getItem(ACCESS_TOKEN_KEY);
   }
 
+  getToken(): string | null {
+    return this.getAccessToken();
+  }
+
+  getAuthHeaders(): Record<string, string> {
+    const token = this.getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   getRefreshToken(): string | null {
     return sessionStorage.getItem(REFRESH_TOKEN_KEY) || localStorage.getItem(REFRESH_TOKEN_KEY);
   }

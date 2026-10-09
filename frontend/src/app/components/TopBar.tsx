@@ -91,7 +91,7 @@ export function TopBar({ userName, isConnected = true, onSearch, onAvatarClick }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Ask Aura anything..."
-            className="bg-transparent border-none outline-none text-[12px] text-[#2E2544] dark:text-[#E8E4F2] placeholder-[#9E98AA] dark:placeholder-[#6E6882] w-full font-medium"
+            className="bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-[12.5px] text-[#2E2544] dark:text-[#FFFFFF] placeholder-[#7A748A] dark:placeholder-[#8E87A4] w-full font-medium"
             style={{ letterSpacing: "-0.1px" }}
           />
           <div

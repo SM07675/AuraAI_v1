@@ -193,6 +193,8 @@ class EmotionFusionService:
         face_au = face_data.get("facial_state") or (face_res.get("action_units") if face_res else {}) or {}
         au12_smile = float(face_au.get("AU12") or face_au.get("AU12_LipCornerPuller") or 0.0)
         au04_brow = float(face_au.get("AU04") or face_au.get("AU04_BrowLowerer") or 0.0)
+        au06_cheek = float(face_au.get("AU06") or face_au.get("AU06_CheekRaiser") or 0.0)
+        has_au06 = "AU06" in face_au or "AU06_CheekRaiser" in face_au
 
         conflict_status = False
         conflict_detail = ""
@@ -202,12 +204,27 @@ class EmotionFusionService:
             conflict_status = True
             conflict_detail = f"Emotional divergence: {pos_sources[0]} ({sources_valid[pos_sources[0]]['emotion']}) vs {neg_sources[0]} ({sources_valid[neg_sources[0]]['emotion']})"
 
+        # Verify whether face modality is actively tracking and reliable
+        face_valid = bool(
+            "face" in sources_valid
+            and face_data.get("quality", 1.0) >= 0.40
+            and face_emo
+            and str(face_emo).lower() not in ("no_face", "no face", "none", "")
+        )
+
         # Case 2: Verbal statement claims happiness/joy/great, but facial biometrics show neutral/sad/flat or lack a genuine smile
         text_data = sources_valid.get("text") or {}
         text_emo = text_data.get("emotion") or explicit_override or ""
-        claims_happiness = (text_emo in POSITIVE_EMOTIONS) or any(w in user_lower for w in ["happy", "great", "awesome", "good", "fine", "fantastic"])
+        explicit_happy_claims = [
+            "i am happy", "i feel happy", "i'm happy", "i am so happy", "really happy",
+            "i feel great", "i am great", "i'm doing great", "feeling great",
+            "i am fine", "i'm fine", "im fine", "all good", "feeling good"
+        ]
+        claims_happiness = (explicit_override == "happy") or any(p in user_lower for p in explicit_happy_claims) or (
+            (text_emo == "happy") and any(w in user_lower for w in ["happy", "great", "awesome", "fantastic"])
+        )
 
-        if not conflict_status and claims_happiness and face_emo:
+        if not conflict_status and face_valid and claims_happiness and face_emo:
             if face_emo in NEGATIVE_EMOTIONS:
                 conflict_status = True
                 conflict_detail = f"Non-verbal incongruence: User verbally claims '{text_emo or 'happy'}', but live facial expression is '{face_emo}'"
@@ -216,19 +233,27 @@ class EmotionFusionService:
                 conflict_detail = f"Non-verbal incongruence: User verbally claims '{text_emo or 'happy'}', but live facial expression is solemn/neutral (Smile AU12: {au12_smile:.1f}/5.0, Brow tension AU04: {au04_brow:.1f}/5.0)"
 
         # Case 3: Masked distress (User claims "I'm fine" / "all good", but face shows distress/brow tension)
-        if not conflict_status and any(ph in user_lower for ph in ["i'm fine", "i am fine", "im fine", "all good", "i'm okay", "i am okay"]) and face_emo:
+        if not conflict_status and face_valid and any(ph in user_lower for ph in ["i'm fine", "i am fine", "im fine", "all good", "i'm okay", "i am okay"]) and face_emo:
             if face_emo in NEGATIVE_EMOTIONS or au04_brow > 0.9 or face_emo == "neutral":
                 conflict_status = True
                 conflict_detail = f"Masked distress: User claims 'fine/okay', but facial expression is '{face_emo}' with brow tension AU04 ({au04_brow:.1f}/5.0)"
 
-        # Case 4: Verbal statement claims sadness/distress/pain, but facial biometrics show a smile (AU12 >= 1.8 or face_emo in POSITIVE_EMOTIONS)
-        # Clinical concept: Smiling Depression / Incongruous Affect (smiling through pain or discomfort)
+        # Case 4: Verbal statement claims sadness/distress/pain, but facial biometrics show a verified genuine smile
+        # Strictly enforce Duchenne validation: A smile requires AU12 elevated AND AU06 cheek engagement.
+        # An isolated AU12 without AU06 is NOT a smile (could be resting lip curve, speech artifact, or shadow).
         claims_sadness = (text_emo in NEGATIVE_EMOTIONS) or any(w in user_lower for w in ["sad", "depressed", "hurting", "crying", "unhappy", "pain", "down", "terrible", "awful", "miserable"])
-        has_facial_smile = (face_emo in POSITIVE_EMOTIONS) or (au12_smile >= 1.8)
+        if face_valid and has_au06:
+            has_facial_smile = (
+                (face_emo in POSITIVE_EMOTIONS and au12_smile >= 2.0 and au06_cheek >= 1.2)
+                or (au12_smile >= 2.4 and au06_cheek >= 1.2)
+            )
+        else:
+            # Fallback when AU06 is not tracked by the model: require higher AU12 threshold
+            has_facial_smile = (face_emo in POSITIVE_EMOTIONS and au12_smile >= 2.2) or (au12_smile >= 2.6)
 
         if not conflict_status and claims_sadness and has_facial_smile:
             conflict_status = True
-            conflict_detail = f"Smiling distress / Incongruous affect: User verbally claims sadness ('{text_emo or 'sad'}'), but live facial tracking shows an active smile (Smile AU12: {au12_smile:.1f}/5.0)"
+            conflict_detail = f"Smiling distress / Incongruous affect: User verbally claims sadness ('{text_emo or 'sad'}'), while live facial tracking shows verified bilateral smiling (Smile AU12: {au12_smile:.1f}/5.0, Cheek AU06: {au06_cheek:.1f}/5.0)"
 
         # Multi-modal agreement boost
         agreeing_modalities = sum(1 for d in sources_valid.values() if d["emotion"] == primary_emotion)

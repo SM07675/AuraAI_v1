@@ -281,12 +281,14 @@ export function VoiceScreen() {
       speechService.stop();
       setListening(false);
     } else {
+      setSttError(null);
       await speechService.start();
       setListening(true);
     }
   };
 
   const handleResetSession = () => {
+    setSttError(null);
     voiceService.stop();
     speechService.stop();
     setSpeaking(false);

@@ -275,13 +275,13 @@ echo.
 echo  +------------------------------------------+
 echo  ^|          AURA AI 2.0 IS UP               ^|
 echo  ^|                                          ^|
-echo  ^|  API      :  http://localhost:8000        ^|
-echo  ^|  Swagger  :  http://localhost:8000/docs   ^|
-echo  ^|  Frontend :  http://localhost:3000        ^|
+echo  |  API      :  http://localhost:8001        |
+echo  |  Swagger  :  http://localhost:8001/docs   |
+echo  |  Frontend :  http://localhost:3001        |
 echo  +------------------------------------------+
 echo.
 set /p "OPEN=  Open Swagger in browser? (y/N): "
-if /i "!OPEN!"=="y" start "" "http://localhost:8000/docs"
+if /i "!OPEN!"=="y" start "" "http://localhost:8001/docs"
 
 goto :done
 

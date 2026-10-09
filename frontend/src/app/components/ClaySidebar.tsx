@@ -11,6 +11,7 @@ import {
   ClaySmileySidebarIcon,
   ClayAnalyticsSidebarIcon,
   ClaySettingsSidebarIcon,
+  ClayBrainIcon,
 } from "./clay-icons";
 
 interface ClaySidebarProps {
@@ -27,6 +28,7 @@ const BASE_NAV_ITEMS = [
   { id: "Voice Mode", label: "Voice", IconComponent: ClayVoiceSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
   { id: "Analytics", label: "Insights", IconComponent: ClayAnalyticsSidebarIcon },
+  { id: "Clinician", label: "Clinician", IconComponent: ClayBrainIcon },
   { id: "Settings", label: "Settings", IconComponent: ClaySettingsSidebarIcon },
 ];
 
@@ -309,6 +311,7 @@ const MOBILE_NAV_ITEMS = [
   { id: "Face-to-Face", label: "Face", IconComponent: ClayCameraSidebarIcon },
   { id: "Memory", label: "Memory", IconComponent: ClayHeartSidebarIcon },
   { id: "Emotion", label: "Emotion", IconComponent: ClaySmileySidebarIcon },
+  { id: "Clinician", label: "Clinician", IconComponent: ClayBrainIcon },
   { id: "Analytics", label: "Stats", IconComponent: ClayAnalyticsSidebarIcon },
 ];
 

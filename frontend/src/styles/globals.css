@@ -552,15 +552,33 @@ body {
   position: relative;
   background: #EFE6E2;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
   box-shadow:
     inset 2px 3px 6px rgba(185, 165, 175, 0.35),
     inset -2px -3px 6px rgba(255, 255, 255, 0.9);
   color: #2E2544;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.clay-chat-input-pill::placeholder {
-  color: #9E98AA;
+.clay-chat-input-pill:focus-within {
+  border-color: rgba(123, 86, 219, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(123, 86, 219, 0.15),
+    inset 2px 3px 6px rgba(185, 165, 175, 0.35),
+    inset -2px -3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.clay-chat-input-pill input,
+.clay-chat-input-pill input:focus,
+.clay-chat-input-pill input:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+.clay-chat-input-pill::placeholder,
+.clay-chat-input-pill input::placeholder {
+  color: #7A748A;
 }
 
 /* 5. Circular Microphone Button */
@@ -757,8 +775,62 @@ body.dark {
   color: #E8E4F2 !important;
 }
 
-.dark .clay-input::placeholder {
-  color: #6E6882 !important;
+.dark .clay-chat-input-pill {
+  background: #141122 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    inset 2px 3px 8px rgba(0, 0, 0, 0.7),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.04) !important;
+  color: #FFFFFF !important;
+}
+
+.dark .clay-chat-input-pill:focus-within {
+  border-color: rgba(154, 128, 229, 0.6) !important;
+  box-shadow:
+    0 0 0 3px rgba(154, 128, 229, 0.22),
+    inset 2px 3px 8px rgba(0, 0, 0, 0.7),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark .clay-chat-input-pill input,
+.dark .clay-chat-input-pill input:focus,
+.dark .clay-chat-input-pill input:focus-visible {
+  color: #FFFFFF !important;
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+.dark .clay-input::placeholder,
+.dark .clay-chat-input-pill::placeholder,
+.dark .clay-chat-input-pill input::placeholder {
+  color: #8E87A4 !important;
+}
+
+/* Dark Mic Button */
+.dark .clay-btn-mic {
+  background: linear-gradient(145deg, #241F35 0%, #171325 100%) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.45),
+    -1px -1px 3px rgba(255, 255, 255, 0.05),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.1) !important;
+  color: #D4CEE5 !important;
+}
+
+.dark .clay-btn-mic:hover {
+  color: #FFFFFF !important;
+  border-color: rgba(154, 128, 229, 0.4) !important;
+  transform: translateY(-1px) scale(1.04);
+}
+
+.dark .clay-btn-mic.listening {
+  background: linear-gradient(145deg, #4A1515 0%, #7F1D1D 100%) !important;
+  color: #FCA5A5 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  box-shadow:
+    0 4px 14px rgba(239, 68, 68, 0.35),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.15) !important;
 }
 
 /* 3. Dark Sidebar */
@@ -998,6 +1070,14 @@ body.dark {
 .dark :focus-visible {
   outline: 2px solid #C7B5F3 !important;
   outline-offset: 2px !important;
+}
+
+/* Prevent unwanted internal rectangular outline on transparent inputs inside composite pills */
+input.bg-transparent:focus-visible,
+.clay-chat-input-pill input:focus-visible,
+.dark .clay-chat-input-pill input:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

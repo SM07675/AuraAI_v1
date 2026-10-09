@@ -88,6 +88,15 @@ const DEFAULT_CONFIG: DuplexConfig = {
   ])
 };
 
+export interface RecentTtsUtterance {
+  text: string;
+  norm: string;
+  translit: string;
+  tokens: Set<string>;
+  bigrams: Set<string>;
+  timestamp: number;
+}
+
 export class FullDuplexManager {
   private state: ConversationState = "IDLE";
   private generationId = 0;
@@ -104,6 +113,11 @@ export class FullDuplexManager {
     currentText: "",
     tokenSet: new Set()
   };
+
+  // ── Rolling TTS Memory & Hangover State (Echo Suppression) ──
+  private recentTtsUtterances: RecentTtsUtterance[] = [];
+  private allRecentTtsTokens: Set<string> = new Set();
+  private lastTtsEndedAt: number = 0;
 
   private pendingInterruptTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCandidate: { text: string; startTime: number; conf: number; vadEnergy: number } | null = null;
@@ -198,6 +212,47 @@ export class FullDuplexManager {
 
   // ── TTS Playback State Tracking ──────────────────────────────────────────────
 
+  public recordTtsSpoken(text: string) {
+    if (!text || !text.trim()) return;
+    const clean = text.trim();
+    const norm = this.normalize(clean);
+    const translit = devanagariToLatin(clean);
+    const tokens = this.extractTokens(clean);
+    const bigrams = this.extractNgrams(norm, 2);
+
+    this.recentTtsUtterances.push({
+      text: clean,
+      norm,
+      translit,
+      tokens,
+      bigrams,
+      timestamp: Date.now(),
+    });
+
+    tokens.forEach((t) => this.allRecentTtsTokens.add(t));
+    this.pruneRecentTts();
+  }
+
+  private pruneRecentTts(maxAgeMs = 15000) {
+    const cutoff = Date.now() - maxAgeMs;
+    this.recentTtsUtterances = this.recentTtsUtterances.filter((u) => u.timestamp >= cutoff);
+    this.allRecentTtsTokens.clear();
+    for (const u of this.recentTtsUtterances) {
+      u.tokens.forEach((t) => this.allRecentTtsTokens.add(t));
+    }
+  }
+
+  public isTtsActiveOrRecent(hangoverMs = 1500): boolean {
+    if (this.playbackState.isSpeaking || this.state === "AURA_SPEAKING" || this.state === "POSSIBLE_INTERRUPT") {
+      return true;
+    }
+    if (Date.now() - this.lastTtsEndedAt < hangoverMs) {
+      return true;
+    }
+    const telem = audioEngine.getTelemetry();
+    return telem.isTtsActive === 1;
+  }
+
   public notifyTtsStart(text: string, audioId: string, genId: number) {
     this.playbackState = {
       isSpeaking: true,
@@ -208,6 +263,7 @@ export class FullDuplexManager {
       currentText: text,
       tokenSet: this.extractTokens(text)
     };
+    this.recordTtsSpoken(text);
     this.transitionTo("AURA_SPEAKING", "TTS playback started");
   }
 
@@ -215,6 +271,7 @@ export class FullDuplexManager {
     if (this.playbackState.generationId === genId) {
       this.playbackState.isSpeaking = false;
       this.playbackState.currentAudioId = null;
+      this.lastTtsEndedAt = Date.now();
       if (this.state === "AURA_SPEAKING" || this.state === "POSSIBLE_INTERRUPT") {
         this.transitionTo("LISTENING", "TTS playback ended naturally");
       }
@@ -224,6 +281,7 @@ export class FullDuplexManager {
   public notifyTtsStopped() {
     this.playbackState.isSpeaking = false;
     this.playbackState.currentAudioId = null;
+    this.lastTtsEndedAt = Date.now();
     this.clearPendingInterrupt();
     if (this.state === "AURA_SPEAKING" || this.state === "POSSIBLE_INTERRUPT" || this.state === "CANCELLING_TTS") {
       this.transitionTo("LISTENING", "TTS playback halted");
@@ -320,12 +378,8 @@ export class FullDuplexManager {
       };
     }
 
-    // ── If Aura is NOT speaking, this is standard user speech ───
-    const isAuraActive =
-      this.playbackState.isSpeaking ||
-      this.state === "AURA_SPEAKING" ||
-      this.state === "POSSIBLE_INTERRUPT" ||
-      telem.isTtsActive === 1;
+    // ── If Aura is NOT speaking and did not speak recently, this is standard user speech ───
+    const isAuraActive = this.isTtsActiveOrRecent(1200);
 
     if (!isAuraActive) {
       const diag: InterruptionScoreDetails = {
@@ -349,69 +403,57 @@ export class FullDuplexManager {
       return diag;
     }
 
-    // ── Aura IS speaking: Full Duplex Multi-Signal Evaluation ───
+    // ── Aura IS speaking or just finished: Full Duplex Multi-Signal Evaluation ───
     const textEchoProb = this.calculateTextEchoProbability(clean);
     const acousticEchoProb = telem.acousticEchoProb;
 
     // Combined echo probability: weighted acoustic correlation + phonetic/text overlap
     const combinedEchoProb = Math.max(
       acousticEchoProb,
-      textEchoProb > 0.4 ? 0.4 * acousticEchoProb + 0.6 * textEchoProb : acousticEchoProb
+      textEchoProb > 0.25 ? 0.3 * acousticEchoProb + 0.7 * textEchoProb : acousticEchoProb
     );
 
     const humanSpeechLikelihood = this.calculateHumanSpeechLikelihood(clean);
     const durationScore = Math.min(1.0, speechDurationMs / 250);
     const snrScore = Math.min(1.0, telem.snr / 3.0);
 
-    // Multi-signal composite interruption score
-    const interruptScore =
-      0.25 * (1.0 - combinedEchoProb) +
-      0.20 * confidence +
-      0.20 * durationScore +
-      0.20 * humanSpeechLikelihood +
-      0.15 * Math.max(vadEnergy, snrScore);
+    // Hard echo detection against rolling TTS memory
+    const isEcho = combinedEchoProb >= this.config.echoThreshold || textEchoProb >= 0.35 || acousticEchoProb > 0.55;
 
     let decision: InterruptionScoreDetails["decision"] = "IGNORE_ECHO";
     let reason = "";
 
-    // 1. Check for passive backchannel (e.g. "hmm", "haan", "yeah", "ok") -> do not interrupt
-    if (this.isBackchannel(clean)) {
-      decision = "BACKCHANNEL";
-      reason = `Passive backchannel ("${clean}") — Aura continues speaking`;
-    }
-    // 2. High-priority barge-in trigger word ("wait", "stop", "ruko", "suno", "doctor") -> Instant halt!
-    else if (this.isBargeInKeyword(clean)) {
+    // 1. Check for explicit barge-in trigger word ("wait", "stop", "ruko", "suno", "doctor") -> Instant halt!
+    if (this.isBargeInKeyword(clean)) {
       decision = "USER_INTERRUPT";
       reason = `Explicit barge-in keyword ("${clean}") -> Instant interruption`;
       this.triggerBargeIn(clean);
     }
-    // 3. User speech dominance in acoustic overlap
-    else if (telem.userSpeechProb > 0.70 && combinedEchoProb < 0.35) {
-      decision = "USER_INTERRUPT";
-      reason = `Acoustic user speech dominance (${(telem.userSpeechProb * 100).toFixed(0)}% speech vs ${(combinedEchoProb * 100).toFixed(0)}% echo)`;
-      this.triggerBargeIn(clean);
-    }
-    // 4. Confident user speech with high score & low echo -> Trigger interrupt!
-    else if (interruptScore >= this.config.interruptThreshold && combinedEchoProb < this.config.echoThreshold) {
-      decision = "USER_INTERRUPT";
-      reason = `High-confidence user barge-in (Score: ${(interruptScore * 100).toFixed(1)}%, Echo: ${(combinedEchoProb * 100).toFixed(1)}%)`;
-      this.triggerBargeIn(clean);
-    }
-    // 5. Strong acoustic echo from speaker bleed -> Suppress immediately!
-    else if (combinedEchoProb >= this.config.echoThreshold || acousticEchoProb > 0.60) {
+    // 2. Reject ANY echo bleed matching rolling TTS output immediately!
+    else if (isEcho) {
       decision = "IGNORE_ECHO";
       reason = `Acoustic/text echo bleed rejected (AcousticEcho: ${(acousticEchoProb * 100).toFixed(0)}%, TextEcho: ${(textEchoProb * 100).toFixed(0)}%)`;
     }
-    // 6. Ambiguous interim signal -> Duck audio and start confirmation window
-    else if (!isFinal) {
-      decision = "PENDING_CONFIRMATION";
-      reason = `Ambiguous speech onset (Score: ${(interruptScore * 100).toFixed(1)}%), ducking Aura volume for ${this.config.confirmationWindowMs}ms confirmation window`;
-      this.scheduleConfirmationWindow(clean, confidence, vadEnergy);
+    // 3. Passive backchannel (e.g. "hmm", "haan", "yeah", "ok") -> do not interrupt
+    else if (this.isBackchannel(clean)) {
+      decision = "BACKCHANNEL";
+      reason = `Passive backchannel ("${clean}") — Aura continues speaking`;
     }
-    // 7. Ambiguous final result with low score -> Drop safely
+    // 4. Confident, distinct human barge-in with ZERO echo overlap and dominant mic speech
+    else if (
+      !isEcho &&
+      combinedEchoProb < 0.20 &&
+      humanSpeechLikelihood >= 0.85 &&
+      telem.userSpeechProb > 0.65
+    ) {
+      decision = "USER_INTERRUPT";
+      reason = `Distinct human speech during Aura turn (SpeechProb: ${(telem.userSpeechProb * 100).toFixed(0)}%, Echo: ${(combinedEchoProb * 100).toFixed(0)}%)`;
+      this.triggerBargeIn(clean);
+    }
+    // 5. Default safe drop during TTS to prevent accidental loops
     else {
       decision = "IGNORE_ECHO";
-      reason = `Low-confidence utterance during TTS playback (Score: ${(interruptScore * 100).toFixed(1)}%), dropped safely`;
+      reason = `Suppressed under active TTS to prevent echo loop (TextEcho: ${(textEchoProb * 100).toFixed(0)}%)`;
     }
 
     const diag: InterruptionScoreDetails = {
@@ -424,7 +466,7 @@ export class FullDuplexManager {
       speechDurationMs,
       asrConfidence: confidence,
       humanSpeechLikelihood,
-      interruptScore,
+      interruptScore: isEcho ? 0 : 0.5,
       decision,
       reason,
       transcript: clean,
@@ -438,60 +480,76 @@ export class FullDuplexManager {
   // ── Text & Phonetic Overlap Math ───────────────────────────────────────────
 
   public isTextEcho(incomingText: string): boolean {
-    return this.calculateTextEchoProbability(incomingText) >= 0.4;
+    return this.calculateTextEchoProbability(incomingText) >= 0.35;
   }
 
   private calculateTextEchoProbability(incomingText: string): number {
-    if (!this.playbackState.isSpeaking || !this.playbackState.currentText) {
+    this.pruneRecentTts();
+    const hasRecentTts = this.playbackState.isSpeaking || this.isTtsActiveOrRecent(2500) || this.recentTtsUtterances.length > 0;
+    if (!hasRecentTts) {
       return 0;
     }
 
     const normIncoming = this.normalize(incomingText);
-    const normTts = this.normalize(this.playbackState.currentText);
-    const translitTts = devanagariToLatin(this.playbackState.currentText);
     const translitInc = devanagariToLatin(incomingText);
+    if (!normIncoming || normIncoming.length < 2) return 0;
 
-    if (!normIncoming) return 0;
+    // 1. Direct comparison against current sentence
+    if (this.playbackState.currentText) {
+      const normTts = this.normalize(this.playbackState.currentText);
+      const translitTts = devanagariToLatin(this.playbackState.currentText);
+      if (normTts && (normTts.includes(normIncoming) || normIncoming.includes(normTts)) && normIncoming.length >= 3) return 0.98;
+      if (translitTts && (translitTts.includes(translitInc) || translitInc.includes(translitTts)) && translitInc.length >= 3) return 0.98;
+    }
 
-    // 1. Direct Substring Containment (Raw & Transliterated)
-    if (normTts && normTts.includes(normIncoming) && normIncoming.length >= 3) return 0.95;
-    if (normTts && normIncoming.includes(normTts) && normTts.length >= 3) return 0.95;
-    if (translitTts && translitTts.includes(normIncoming) && normIncoming.length >= 3) return 0.95;
-    if (translitTts && translitInc && translitTts.includes(translitInc) && translitInc.length >= 3) return 0.95;
-    if (translitTts && translitInc && translitInc.includes(translitTts) && translitTts.length >= 3) return 0.95;
-
-    // 2. Token Jaccard Overlap
+    // 2. Comprehensive check against all utterances in recent rolling window (last 15 seconds)
     const inTokens = this.extractTokens(incomingText);
-    if (inTokens.size === 0) return 0;
-
-    let overlap = 0;
-    inTokens.forEach((t) => {
-      if (this.playbackState.tokenSet.has(t)) overlap++;
-    });
-
-    const tokenOverlapRatio = overlap / inTokens.size;
-    if (inTokens.size === 1 && overlap === 1) {
-      return 0.95; // Single word echo match (e.g. "namaste")
-    }
-    if (tokenOverlapRatio >= 0.3) {
-      return Math.min(1.0, 0.4 + tokenOverlapRatio * 0.6);
-    }
-
-    // 3. Bi-gram & Tri-gram Overlap
     const inBigrams = this.extractNgrams(normIncoming, 2);
-    const ttsBigrams = this.extractNgrams(normTts, 2);
-    if (inBigrams.size > 0 && ttsBigrams.size > 0) {
-      let bgOverlap = 0;
-      inBigrams.forEach((bg) => {
-        if (ttsBigrams.has(bg)) bgOverlap++;
-      });
-      const bgRatio = bgOverlap / inBigrams.size;
-      if (bgRatio >= 0.35) {
-        return Math.min(0.92, 0.35 + bgRatio * 0.55);
+
+    for (const utt of this.recentTtsUtterances) {
+      // Substring check
+      if (utt.norm && (utt.norm.includes(normIncoming) || normIncoming.includes(utt.norm)) && normIncoming.length >= 3) {
+        return 0.98;
+      }
+      if (utt.translit && (utt.translit.includes(translitInc) || translitInc.includes(utt.translit)) && translitInc.length >= 3) {
+        return 0.98;
+      }
+
+      // Token overlap
+      if (inTokens.size > 0 && utt.tokens.size > 0) {
+        let overlap = 0;
+        inTokens.forEach((t) => {
+          if (utt.tokens.has(t)) overlap++;
+        });
+        const ratio = overlap / inTokens.size;
+        if (inTokens.size === 1 && overlap === 1) return 0.95;
+        if (ratio >= 0.25) return Math.min(1.0, 0.5 + ratio * 0.5);
+      }
+
+      // Bigram overlap
+      if (inBigrams.size > 0 && utt.bigrams.size > 0) {
+        let bgOverlap = 0;
+        inBigrams.forEach((bg) => {
+          if (utt.bigrams.has(bg)) bgOverlap++;
+        });
+        const bgRatio = bgOverlap / inBigrams.size;
+        if (bgRatio >= 0.25) return Math.min(0.95, 0.45 + bgRatio * 0.5);
       }
     }
 
-    return tokenOverlapRatio * 0.5;
+    // 3. Check token overlap against ALL combined recent tokens
+    if (inTokens.size > 0 && this.allRecentTtsTokens.size > 0) {
+      let totalOverlap = 0;
+      inTokens.forEach((t) => {
+        if (this.allRecentTtsTokens.has(t)) totalOverlap++;
+      });
+      const totalRatio = totalOverlap / inTokens.size;
+      if (totalRatio >= 0.3) {
+        return Math.min(1.0, 0.5 + totalRatio * 0.5);
+      }
+    }
+
+    return 0;
   }
 
   private calculateHumanSpeechLikelihood(incomingText: string): number {
@@ -504,16 +562,19 @@ export class FullDuplexManager {
     const inTokens = this.extractTokens(incomingText);
     let novelWords = 0;
     inTokens.forEach((t) => {
-      if (!this.playbackState.tokenSet.has(t)) novelWords++;
+      // Check against current tokenSet AND all recent TTS tokens
+      if (!this.playbackState.tokenSet.has(t) && !this.allRecentTtsTokens.has(t)) {
+        novelWords++;
+      }
     });
 
     if (novelWords >= 2) return 0.95;
-    if (novelWords === 1 && words.length >= 2) return 0.85;
+    if (novelWords === 1 && words.length >= 2) return 0.75;
 
-    return 0.55;
+    return 0.25;
   }
 
-  private isBargeInKeyword(text: string): boolean {
+  public isBargeInKeyword(text: string): boolean {
     const norm = this.normalize(text);
     const words = norm.split(/\s+/);
     for (const w of words) {

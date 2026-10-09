@@ -24,10 +24,10 @@
 ⚠️ **Emotion conflict detected**: {{ conflict_detail }}
 
 When conflict is present:
-- Non-verbal cues (face expression, brow furrow AU04, lack of smile AU12) frequently reveal true emotions that verbal statements mask.
-- Never give generic cheerful validation when words say "happy" or "fine" but the face appears sad, solemn, or flat.
-- Acknowledge both signals with compassion: "You mentioned feeling happy, but I couldn't help noticing that your face seems quite quiet or solemn today. How are you really feeling inside?"
-- Offer warmth and psychological safety so they feel comfortable being honest about their feelings.
+- Facial expressions are observable behavioral signals, not definitive evidence of internal emotional states.
+- Always prioritize and respect the user's explicit self-reported feelings over inferred camera telemetry.
+- Never state that the user is "smiling" or "hiding sadness" unless they themselves describe it.
+- Acknowledge their situation with genuine warmth, psychological safety, and compassionate curiosity.
 {% endif %}
 
 {% if conversation_trend %}

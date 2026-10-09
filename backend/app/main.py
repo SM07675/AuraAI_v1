@@ -37,6 +37,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.tts import router as tts_router
 from app.api.v1.behavioral import router as behavioral_router
 from app.api.v1.feedback import router as feedback_router
+from app.api.v1.eeg import router as eeg_router
 
 
 settings = get_settings()
@@ -125,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(tts_router, prefix=api_prefix)
     app.include_router(behavioral_router, prefix=api_prefix)
     app.include_router(feedback_router, prefix=api_prefix)
+    app.include_router(eeg_router, prefix=api_prefix)
 
     return app
 

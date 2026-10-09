@@ -1,4 +1,4 @@
-﻿"""
+"""
 Behavioral & Affective Trends API — Longitudinal Insights & Emotional Patterns.
 """
 
@@ -34,14 +34,14 @@ async def get_emotional_trends(
     try:
         stmt = (
             select(
-                EmotionLog.primary_emotion,
+                EmotionLog.fused_emotion,
                 func.count(EmotionLog.id).label("count"),
             )
             .where(
                 EmotionLog.user_id == current_user.id,
                 EmotionLog.created_at >= cutoff,
             )
-            .group_by(EmotionLog.primary_emotion)
+            .group_by(EmotionLog.fused_emotion)
         )
         res = await db.execute(stmt)
         distribution = {row[0]: row[1] for row in res.all()}

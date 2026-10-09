@@ -22,6 +22,12 @@ from app.emotion.fusion import EmotionFusionEngine
 from app.emotion.face_analyzer import FaceEmotionAnalyzer
 from app.emotion.analyzers import TextEmotionAnalyzer, VoiceEmotionAnalyzer
 
+from app.emotion.cross_validator import (
+    EmotionCrossValidator,
+    ValidationReport,
+    get_cross_validator,
+)
+
 __all__ = [
     "EmotionContext",
     "EmotionResult",
@@ -32,6 +38,9 @@ __all__ = [
     "FaceEmotionAnalyzer",
     "TextEmotionAnalyzer",
     "VoiceEmotionAnalyzer",
+    "EmotionCrossValidator",
+    "ValidationReport",
+    "get_cross_validator",
     "POSITIVE_EMOTIONS",
     "NEGATIVE_EMOTIONS",
     "EMOTION_LABELS",

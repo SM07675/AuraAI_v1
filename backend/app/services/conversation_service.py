@@ -58,8 +58,11 @@ class ConversationService:
 
     # ── Session Management ────────────────────────────────────────
 
-    async def get_or_create_session(self, user_id: int, session_id: int | None = None) -> Session:
-        """Get an existing session or create a new one."""
+    async def get_or_create_session(
+        self, user_id: int, session_id: int | None = None, mode: str | None = None
+    ) -> Session:
+        """Get an existing session or create a new one with accurate interaction mode."""
+        clean_mode = "face_to_face" if mode and "face" in str(mode).lower() else (str(mode).lower() if mode else "chat")
         try:
             if session_id:
                 result = await self._db.execute(
@@ -71,13 +74,21 @@ class ConversationService:
                 )
                 session = result.scalar_one_or_none()
                 if session:
+                    if mode and session.mode != clean_mode:
+                        session.mode = clean_mode
+                        await self._db.commit()
+                        await self._db.refresh(session)
                     return session
 
-            session = Session(user_id=user_id, status=SessionStatus.ACTIVE.value)
+            session = Session(
+                user_id=user_id,
+                status=SessionStatus.ACTIVE.value,
+                mode=clean_mode,
+            )
             self._db.add(session)
             await self._db.commit()
             await self._db.refresh(session)
-            logger.info("New session created", session_id=session.id, user_id=user_id)
+            logger.info("New session created", session_id=session.id, user_id=user_id, mode=clean_mode)
             return session
         except Exception as exc:
             try:
@@ -345,7 +356,7 @@ class ConversationService:
 
         # 1. Get/create session
         try:
-            session = await self.get_or_create_session(user_id, session_id)
+            session = await self.get_or_create_session(user_id, session_id, mode=mode)
         except SessionNotFoundError as exc:
             yield {"type": "error", "error": str(exc), "code": "SESSION_NOT_FOUND"}
             return

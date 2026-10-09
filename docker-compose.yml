@@ -1,15 +1,17 @@
+name: auraai_v2
+
 services:
   # ─── PostgreSQL ───────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: aura_postgres
+    container_name: aura2_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aura}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aura_dev_password_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-aura_ai}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,10 +24,10 @@ services:
   # ─── Redis ────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: aura_redis
+    container_name: aura2_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6381}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -39,10 +41,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: aura_backend
+    container_name: aura2_backend
     restart: unless-stopped
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     volumes:
       - ./backend:/app
       - ./models:/app/models
@@ -67,14 +69,14 @@ services:
       retries: 3
       start_period: 30s
 
-  # ─── Frontend (Next.js Application) ──────────────────────────
+  # ─── Frontend (React / Vite Application) ───────────────────────
   frontend:
     image: node:20-alpine
-    container_name: aura_frontend
+    container_name: aura2_frontend
     restart: unless-stopped
     working_dir: /app
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3001}:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules

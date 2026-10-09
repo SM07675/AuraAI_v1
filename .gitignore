@@ -70,3 +70,7 @@ backend/models/
 wav2vec2_checkpoints/
 backend/wav2vec2_checkpoints/
 backend/tests/test_face.jpg
+backend/data/
+*.edf
+*.mat
+*.joblib
