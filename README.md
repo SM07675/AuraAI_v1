@@ -114,53 +114,62 @@
 ## 🏛 System Architecture
 
 ```mermaid
+
 flowchart TB
-    subgraph Client ["Client Browser (React 18 + Vite)"]
-        UI[Claymorphic Bento UI]
-        Cam[Webcam & Audio Processor]
-        UI <--> Cam
+
+    subgraph Client["Client Browser - React 18+ and Vite"]
+        UI["React UI - Claymorphic Bento UI"]
+        Cam["Webcam and Audio Processor"]
     end
 
-    subgraph API_Layer ["FastAPI Gateway (:8000)"]
-        HTTP[REST Endpoints /api/v1]
-        WS_Chat["Chat WebSocket (/api/v1/ws/chat)"]
-        WS_Emo["Emotion WebSocket (/api/v1/emotion/ws)"]
+    subgraph API_Layer["FastAPI Gateway - Port 8000"]
+        HTTP["REST Endpoints - /api/v1"]
+        WS_Chat["Chat WebSocket - /api/v1/ws/chat"]
+        WS_Emo["Emotion WebSocket - /api/v1/emotion/ws"]
     end
 
-    subgraph Core_Services ["AI Core & Services"]
-        FaceEngine[FaceBehaviorService & FERPlus]
-        TurnRouter[Turn Router & Context Ranker]
-        PromptEng[Prompt & Personality Engine]
-        AIGateway[AI Provider Gateway]
-        TTS[Edge-TTS Neural Voice]
+    subgraph Core_Services["AI Core and Services"]
+        FaceEngine["FaceBehaviorService and FERPlus"]
+        TurnRouter["Turn Router and Context Ranker"]
+        PromptEng["Prompt and Personality Engine"]
+        AIGateway["AI Provider Gateway"]
+        TTS["Edge-TTS Neural Voice"]
     end
 
-    subgraph Memory_Layer ["Cognitive Knowledge & Storage"]
-        KG[Knowledge Graph Service]
-        MemSvc[Semantic Memory Service]
-        PG[(PostgreSQL 16 - Graph & Relational)]
-        Redis[(Redis 7 - Session & Cache)]
+    subgraph Memory_Layer["Cognitive Knowledge and Storage"]
+        KG["Knowledge Graph Service"]
+        MemSvc["Semantic Memory Service"]
+        PG[("PostgreSQL 16 - Graph and Relational Data")]
+        Redis[("Redis 7 - Session and Cache")]
     end
 
-    Cam -->|Frame (Base64)| WS_Emo
+    Cam -->|"Frame - Base64"| WS_Emo
+    Cam -->|"Text and Audio Input"| WS_Chat
+
     WS_Emo --> FaceEngine
     FaceEngine --> TurnRouter
 
-    Cam -->|Text / Audio| WS_Chat
     WS_Chat --> TurnRouter
-
     TurnRouter --> PromptEng
+
     PromptEng --> KG
     PromptEng --> MemSvc
+
     KG --> PG
     MemSvc --> PG
-    TurnRouter --> AIGateway
 
-    AIGateway -->|NVIDIA NIM / Gemini / OpenAI| PromptEng
-    AIGateway --> TTS
-    TTS --> WS_Chat
-    WS_Chat -->|Token Stream + Audio| UI
-    WS_Emo -->|FACS & Emotion JSON| UI
+    TurnRouter --> AIGateway
+    AIGateway -->|"Generated Response"| PromptEng
+
+    PromptEng --> TTS
+    TTS -->|"Audio Output"| WS_Chat
+
+    WS_Chat -->|"Response Tokens"| UI
+    WS_Emo -->|"FACS and Emotion JSON"| UI
+
+    Redis -.->|"Session and Cache Support"| TurnRouter
+    HTTP --> TurnRouter
+
 ```
 
 ---
